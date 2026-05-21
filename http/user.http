@@ -1,0 +1,26 @@
+### 创建用户
+POST http://localhost:8081/api/users
+Content-Type: application/json
+
+{
+  "username": "zewbby",
+  "phone": "13800000001"
+}
+
+
+### 根据 ID 查询用户
+GET http://localhost:8081/api/users/1
+
+
+### 测试手机号重复
+POST http://localhost:8081/api/users
+Content-Type: application/json
+
+{
+  "username": "zewbby2",
+  "phone": "13800000001"
+}
+
+
+### 查询不存在的用户
+GET http://localhost:8081/api/users/999999
