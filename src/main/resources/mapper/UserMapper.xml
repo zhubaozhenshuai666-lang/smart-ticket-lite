@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zewbby.smartticket.mapper.UserMapper">
+
+    <resultMap id="UserAccountResultMap" type="com.zewbby.smartticket.domain.entity.UserAccount">
+        <id property="id" column="id"/>
+        <result property="username" column="username"/>
+        <result property="phone" column="phone"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <insert id="insert"
+            parameterType="com.zewbby.smartticket.domain.entity.UserAccount"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO user_account (
+            username,
+            phone,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{username},
+            #{phone},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="UserAccountResultMap">
+        SELECT
+            id,
+            username,
+            phone,
+            created_at,
+            updated_at
+        FROM user_account
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByPhone" parameterType="java.lang.String" resultMap="UserAccountResultMap">
+        SELECT
+            id,
+            username,
+            phone,
+            created_at,
+            updated_at
+        FROM user_account
+        WHERE phone = #{phone}
+    </select>
+</mapper>
