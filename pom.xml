@@ -37,6 +37,18 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Redis：第二阶段用于缓存、库存预热等能力 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- RabbitMQ：第二阶段用于订单超时、异步消息等能力 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+
         <!-- MySQL 驱动：版本由 Spring Boot 父工程统一管理 -->
         <dependency>
             <groupId>com.mysql</groupId>
