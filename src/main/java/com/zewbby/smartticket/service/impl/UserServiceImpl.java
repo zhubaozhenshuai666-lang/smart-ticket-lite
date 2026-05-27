@@ -6,6 +6,7 @@ import com.zewbby.smartticket.domain.entity.UserAccount;
 import com.zewbby.smartticket.domain.vo.UserVO;
 import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.service.UserService;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -60,11 +61,7 @@ public class UserServiceImpl implements UserService {
     //user转UserVO的方法
     private UserVO toUserVO(UserAccount user) {
         UserVO userVO = new UserVO();
-        userVO.setId(user.getId());
-        userVO.setUsername(user.getUsername());
-        userVO.setPhone(user.getPhone());
-        userVO.setCreatedAt(user.getCreatedAt());
-        userVO.setUpdatedAt(user.getUpdatedAt());
+        BeanUtils.copyProperties(user, userVO);
         return userVO;
     }
 }
