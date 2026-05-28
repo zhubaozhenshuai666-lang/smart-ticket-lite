@@ -19,6 +19,15 @@
 - RabbitMQ TTL + 死信队列自动关闭超时订单
 - 定时任务兜底关闭过期待支付订单
 
+第三阶段：
+
+- `POST /api/orders/async` 异步提交下单请求
+- 快速返回 `requestId`，不在接口线程中创建正式订单
+- `ticket_order_request` 记录 `PROCESSING` / `SUCCESS` / `FAILED`
+- RabbitMQ 消费者异步扣库存并创建订单
+- `GET /api/order-requests/{requestId}` 查询异步下单结果
+- 异步订单创建成功后继续进入 `PENDING_PAYMENT` 状态，沿用支付、取消、超时关闭流程
+
 ## 技术栈
 
 Java 17、Spring Boot 3.x、Spring MVC、MyBatis-Plus、MySQL 8.x、Redis、RabbitMQ、Maven、Lombok。
@@ -54,16 +63,34 @@ mvn spring-boot:run
 
 ## HTTP 测试
 
-在 IDEA 打开 [phase2-full-flow.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase2-full-flow.http)，从上到下依次点击请求左侧绿色运行按钮。创建订单后，将返回的订单 `id` 更新到文件顶部对应变量。
+第二阶段同步订单流程：在 IDEA 打开 [phase2-full-flow.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase2-full-flow.http)，从上到下依次点击请求左侧绿色运行按钮。
+
+第三阶段异步下单流程：在 IDEA 打开 [phase3-async-order-full-flow.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase3-async-order-full-flow.http)，先提交异步下单，复制返回的 `requestId` 查询结果；当结果为 `SUCCESS` 后，再复制返回的 `orderId` 继续支付、取消或等待超时关闭。
 
 接口文档见 [phase2-api.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase2-api.md)。
 
-当前测试超时约为 `1` 分钟，支付或主动取消请求请在创建订单后立即执行。
+第三阶段 RabbitMQ 检查见 [phase3-rabbitmq-check.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/mq/phase3-rabbitmq-check.md)。
+
+压测说明见 [phase3-async-order-plan.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase3-async-order-plan.md)。
 
 ## 核心流程
 
 ```text
 选择演出与票档 -> 创建订单并锁库存 -> 支付 / 取消 / 超时关闭
+```
+
+异步下单链路：
+
+```text
+POST /api/orders/async
+-> 保存 ticket_order_request(PROCESSING)
+-> 发送 order.async.create 消息
+-> 返回 requestId
+-> AsyncCreateOrderConsumer 消费消息
+-> 条件扣库存
+-> 创建 ticket_order(PENDING_PAYMENT)
+-> ticket_order_request 标记 SUCCESS 并写入 orderId
+-> 用户通过 GET /api/order-requests/{requestId} 查询结果
 ```
 
 | 状态 | 含义 |
@@ -79,13 +106,29 @@ mvn spring-boot:run
 | 支付订单 | 不变 | 减少 | 增加 |
 | 取消/超时关闭 | 增加 | 减少 | 不变 |
 
+异步请求状态：
+
+| 状态 | 含义 |
+|---|---|
+| `PROCESSING` | 请求已提交，等待消费者处理 |
+| `SUCCESS` | 下单成功，`orderId` 有值 |
+| `FAILED` | 下单失败，查看 `failReason` |
+
+RabbitMQ 在第三阶段的作用：
+
+- `order.async.queue`：削峰异步创建订单。
+- `smart-ticket.order.timeout.delay.queue`：订单创建后延迟触发超时关闭检查。
+- `smart-ticket.order.timeout.dead.queue`：TTL 到期后的真正消费队列。
+
 ## 当前限制
 
 - 一个订单只购买一个票档，明细直接保存在 `ticket_order`，不使用 `ticket_order_item`。
 - 演出票档为查询缓存；订单库存变化后当前未自动清理缓存，验收库存请以 MySQL 为准或先删除相关 Redis key。
 - 当前为模拟支付；RabbitMQ 可靠投递与数据库事务尚未做到完全一致。
-- 测试配置的订单超时约为 `1` 分钟。
+- 异步下单当前没有本地消息表，数据库事务和 MQ 投递仍存在一致性风险。
+- 消费失败重试、死信失败处理、限流和告警仍是后续增强点。
+- 订单超时时间以 `RabbitMqConstant.ORDER_TIMEOUT_TTL_MILLIS` 和订单 `expire_time` 为准。
 
-## 第三阶段规划
+## 第四阶段规划
 
-本地消息表与可靠投递、缓存失效策略、登录鉴权、更多自动化测试。
+本地消息表、Publisher Confirm、消费失败重试、死信失败队列、限流、Lua 扣库存、缓存失效策略、登录鉴权、更多自动化测试。

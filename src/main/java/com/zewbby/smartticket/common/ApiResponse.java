@@ -18,6 +18,10 @@ public class ApiResponse<T> {
         return new ApiResponse<>(200, "success", data);
     }
 
+    public static <T> ApiResponse<T> successZero(T data) {
+        return new ApiResponse<>(0, "success", data);
+    }
+
     public static ApiResponse<Void> success() {
         return new ApiResponse<>(200, "success", null);
     }

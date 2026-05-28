@@ -49,6 +49,12 @@
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
+        <!-- Actuator：第四阶段用于基础健康检查和运行指标观测 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
         <!-- MySQL 驱动：版本由 Spring Boot 父工程统一管理 -->
         <dependency>
             <groupId>com.mysql</groupId>
