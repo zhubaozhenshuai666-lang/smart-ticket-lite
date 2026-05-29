@@ -1,0 +1,32 @@
+### 1. 提交异步下单
+POST http://localhost:8082/api/orders/async
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "showId": 1,
+  "sessionId": 1,
+  "ticketCategoryId": 2,
+  "quantity": 1
+}
+
+### 2. 立即查询异步下单结果
+### 将下面的 requestId 替换为上一步返回的 requestId。
+GET http://localhost:8082/api/order-requests/REQ替换为你的requestId
+
+### 3. 等待消费者处理后再次查询
+### 如果消费者已处理完成，status 应为 SUCCESS 或 FAILED。
+GET http://localhost:8082/api/order-requests/REQ替换为你的requestId
+
+### 4. 如果 status = SUCCESS，使用 orderId 查询订单详情
+### 将 1 替换为查询结果里的 orderId。
+GET http://localhost:8082/api/orders/1
+
+### 5. 查询不存在的 requestId
+GET http://localhost:8082/api/order-requests/REQ_NOT_EXISTS
+
+### 6. MySQL 验证 SQL
+### SELECT id, request_id, status, order_id, fail_reason, created_at, updated_at
+### FROM ticket_order_request
+### ORDER BY id DESC
+### LIMIT 10;

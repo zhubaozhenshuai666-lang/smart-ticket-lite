@@ -1,0 +1,48 @@
+@baseUrl = http://localhost:8081
+@userId = 1
+@showId = 1
+@sessionId = 1
+@ticketCategoryId = 1
+@timeoutOrderId = 21
+
+
+### 1. 创建等待超时关闭的订单
+### 当前测试配置的 TTL 为 1 分钟，返回的 expireTime 应约为当前时间加 1 分钟。
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+
+{
+  "userId": {{userId}},
+  "showId": {{showId}},
+  "sessionId": {{sessionId}},
+  "ticketCategoryId": {{ticketCategoryId}},
+  "quantity": 1
+}
+
+
+### 2. 查询订单：将 @timeoutOrderId 修改为第 1 步返回的 id
+### 立即查询时 status 应为 PENDING_PAYMENT。
+GET {{baseUrl}}/api/orders/{{timeoutOrderId}}
+
+
+### 3. 等待至少 70 秒，不要支付和取消，再查询订单
+### RabbitMQ TTL 死信消费或每分钟兜底扫描完成后，status 应为 CLOSED，closeTime 应有值。
+GET {{baseUrl}}/api/orders/{{timeoutOrderId}}
+
+
+### 4. 查询票档展示库存
+### 如此前查询过票档缓存，请先执行：
+### redis-cli DEL 'session:ticket-categories:1'
+### 更精确的库存验证请使用文件末尾的 MySQL SQL。
+GET {{baseUrl}}/api/sessions/{{sessionId}}/ticket-categories
+
+
+### MySQL 验证 SQL
+### SELECT id, status, expire_time, close_time, cancel_reason
+### FROM ticket_order WHERE id = <timeoutOrderId>;
+###
+### SELECT ticket_category_id, available_stock, locked_stock, sold_stock
+### FROM ticket_stock WHERE ticket_category_id = 1;
+###
+### 超时关闭完成后，该订单应为 CLOSED；
+### 相比创建订单后，available_stock 回滚增加 1，locked_stock 减少 1，sold_stock 不变。

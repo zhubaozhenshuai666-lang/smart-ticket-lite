@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zewbby.smartticket.mapper.OrderMapper">
+
+    <resultMap id="TicketOrderResultMap" type="com.zewbby.smartticket.domain.entity.TicketOrder">
+        <id property="id" column="id"/>
+        <result property="orderNo" column="order_no"/>
+        <result property="userId" column="user_id"/>
+        <result property="showId" column="show_id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="ticketCategoryId" column="ticket_category_id"/>
+        <result property="quantity" column="quantity"/>
+        <result property="totalAmount" column="total_amount"/>
+        <result property="status" column="status"/>
+        <result property="expireTime" column="expire_time"/>
+        <result property="payTime" column="pay_time"/>
+        <result property="cancelTime" column="cancel_time"/>
+        <result property="closeTime" column="close_time"/>
+        <result property="cancelReason" column="cancel_reason"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <insert id="insert"
+            parameterType="com.zewbby.smartticket.domain.entity.TicketOrder"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO ticket_order (
+            order_no,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            total_amount,
+            status,
+            expire_time,
+            pay_time,
+            cancel_time,
+            close_time,
+            cancel_reason,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{orderNo},
+            #{userId},
+            #{showId},
+            #{sessionId},
+            #{ticketCategoryId},
+            #{quantity},
+            #{totalAmount},
+            #{status},
+            #{expireTime},
+            #{payTime},
+            #{cancelTime},
+            #{closeTime},
+            #{cancelReason},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="TicketOrderResultMap">
+        SELECT
+            id,
+            order_no,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            total_amount,
+            status,
+            expire_time,
+            pay_time,
+            cancel_time,
+            close_time,
+            cancel_reason,
+            created_at,
+            updated_at
+        FROM ticket_order
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByOrderNo" parameterType="java.lang.String" resultMap="TicketOrderResultMap">
+        SELECT
+            id,
+            order_no,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            total_amount,
+            status,
+            expire_time,
+            pay_time,
+            cancel_time,
+            close_time,
+            cancel_reason,
+            created_at,
+            updated_at
+        FROM ticket_order
+        WHERE order_no = #{orderNo}
+    </select>
+
+    <select id="selectByUserId" parameterType="java.lang.Long" resultMap="TicketOrderResultMap">
+        SELECT
+            id,
+            order_no,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            total_amount,
+            status,
+            expire_time,
+            pay_time,
+            cancel_time,
+            close_time,
+            cancel_reason,
+            created_at,
+            updated_at
+        FROM ticket_order
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectExpiredPendingOrders" resultMap="TicketOrderResultMap">
+        SELECT
+            id,
+            order_no,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            total_amount,
+            status,
+            expire_time,
+            pay_time,
+            cancel_time,
+            close_time,
+            cancel_reason,
+            created_at,
+            updated_at
+        FROM ticket_order
+        WHERE status = 'PENDING_PAYMENT'
+          AND expire_time &lt; #{now}
+        ORDER BY expire_time ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="updateCancelStatus">
+        UPDATE ticket_order
+        SET
+            status = #{newStatus},
+            cancel_time = #{cancelTime},
+            cancel_reason = #{cancelReason},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = #{oldStatus}
+    </update>
+
+    <update id="updatePayStatus">
+        UPDATE ticket_order
+        SET
+            status = #{newStatus},
+            pay_time = #{payTime},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = #{oldStatus}
+    </update>
+
+    <update id="updateCloseStatus">
+        UPDATE ticket_order
+        SET
+            status = #{newStatus},
+            close_time = #{closeTime},
+            cancel_reason = #{cancelReason},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = #{oldStatus}
+    </update>
+</mapper>

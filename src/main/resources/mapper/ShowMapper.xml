@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zewbby.smartticket.mapper.ShowMapper">
+
+    <resultMap id="ShowListVOResultMap" type="com.zewbby.smartticket.domain.vo.ShowListVO">
+        <id property="id" column="id"/>
+        <result property="title" column="title"/>
+        <result property="artist" column="artist"/>
+        <result property="city" column="city"/>
+        <result property="venueName" column="venue_name"/>
+        <result property="nearestStartTime" column="nearest_start_time"/>
+    </resultMap>
+
+    <resultMap id="ShowDetailVOResultMap" type="com.zewbby.smartticket.domain.vo.ShowDetailVO">
+        <id property="id" column="id"/>
+        <result property="title" column="title"/>
+        <result property="artist" column="artist"/>
+        <result property="description" column="description"/>
+        <result property="city" column="city"/>
+        <result property="venueName" column="venue_name"/>
+        <result property="address" column="address"/>
+    </resultMap>
+
+    <resultMap id="SessionVOResultMap" type="com.zewbby.smartticket.domain.vo.SessionVO">
+        <id property="id" column="id"/>
+        <result property="showId" column="show_id"/>
+        <result property="venueName" column="venue_name"/>
+        <result property="city" column="city"/>
+        <result property="address" column="address"/>
+        <result property="startTime" column="start_time"/>
+        <result property="endTime" column="end_time"/>
+    </resultMap>
+
+    <resultMap id="TicketCategoryVOResultMap" type="com.zewbby.smartticket.domain.vo.TicketCategoryVO">
+        <id property="id" column="id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="name" column="name"/>
+        <result property="price" column="price"/>
+        <result property="totalStock" column="total_stock"/>
+        <result property="availableStock" column="available_stock"/>
+    </resultMap>
+
+    <select id="selectShowList" resultMap="ShowListVOResultMap">
+        SELECT
+            si.id,
+            si.title,
+            si.artist,
+            v.city,
+            v.name AS venue_name,
+            MIN(ps.start_time) AS nearest_start_time
+        FROM show_info si
+        LEFT JOIN performance_session ps ON ps.show_id = si.id
+        LEFT JOIN venue v ON v.id = si.venue_id
+        GROUP BY
+            si.id,
+            si.title,
+            si.artist,
+            v.city,
+            v.name
+        ORDER BY nearest_start_time ASC
+    </select>
+
+    <select id="selectShowDetailById" parameterType="java.lang.Long" resultMap="ShowDetailVOResultMap">
+        SELECT
+            si.id,
+            si.title,
+            si.artist,
+            si.description,
+            v.city,
+            v.name AS venue_name,
+            v.address
+        FROM show_info si
+        LEFT JOIN performance_session ps ON ps.show_id = si.id
+        LEFT JOIN venue v ON v.id = si.venue_id
+        WHERE si.id = #{showId}
+        ORDER BY ps.start_time ASC
+        LIMIT 1
+    </select>
+
+    <select id="selectSessionsByShowId" parameterType="java.lang.Long" resultMap="SessionVOResultMap">
+        SELECT
+            ps.id,
+            ps.show_id,
+            v.name AS venue_name,
+            v.city,
+            v.address,
+            ps.start_time,
+            ps.end_time
+        FROM performance_session ps
+        LEFT JOIN show_info si ON si.id = ps.show_id
+        LEFT JOIN venue v ON v.id = si.venue_id
+        WHERE ps.show_id = #{showId}
+        ORDER BY ps.start_time ASC
+    </select>
+
+    <select id="selectTicketCategoriesBySessionId"
+            parameterType="java.lang.Long"
+            resultMap="TicketCategoryVOResultMap">
+        SELECT
+            tc.id,
+            tc.session_id,
+            tc.category_name AS name,
+            tc.price,
+            ts.total_stock,
+            ts.available_stock
+        FROM ticket_category tc
+        LEFT JOIN ticket_stock ts ON ts.ticket_category_id = tc.id
+        WHERE tc.session_id = #{sessionId}
+        ORDER BY tc.price ASC
+    </select>
+</mapper>

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zewbby.smartticket.mapper.TicketStockMapper">
+
+    <resultMap id="TicketStockResultMap" type="com.zewbby.smartticket.domain.entity.TicketStock">
+        <id property="id" column="id"/>
+        <result property="ticketCategoryId" column="ticket_category_id"/>
+        <result property="totalStock" column="total_stock"/>
+        <result property="availableStock" column="available_stock"/>
+        <result property="lockedStock" column="locked_stock"/>
+        <result property="soldStock" column="sold_stock"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectByTicketCategoryId"
+            parameterType="java.lang.Long"
+            resultMap="TicketStockResultMap">
+        SELECT
+            id,
+            ticket_category_id,
+            total_stock,
+            available_stock,
+            locked_stock,
+            sold_stock,
+            created_at,
+            updated_at
+        FROM ticket_stock
+        WHERE ticket_category_id = #{ticketCategoryId}
+    </select>
+
+    <update id="decreaseStock">
+        UPDATE ticket_stock
+        SET
+            available_stock = available_stock - #{quantity},
+            locked_stock = locked_stock + #{quantity},
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND available_stock >= #{quantity}
+    </update>
+
+    <update id="rollbackStock">
+        UPDATE ticket_stock
+        SET
+            available_stock = available_stock + #{quantity},
+            locked_stock = locked_stock - #{quantity},
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND locked_stock >= #{quantity}
+    </update>
+
+    <update id="confirmStock">
+        UPDATE ticket_stock
+        SET
+            locked_stock = locked_stock - #{quantity},
+            sold_stock = sold_stock + #{quantity},
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND locked_stock >= #{quantity}
+    </update>
+</mapper>

@@ -1,0 +1,30 @@
+@baseUrl = http://localhost:8081
+
+
+### 1. Actuator health
+GET {{baseUrl}}/actuator/health
+
+
+### 2. Actuator metrics list
+GET {{baseUrl}}/actuator/metrics
+
+
+### 3. 查询演出列表，观察控制台接口耗时日志
+GET {{baseUrl}}/api/shows
+
+
+### 4. 查询演出详情，观察控制台接口耗时日志
+GET {{baseUrl}}/api/shows/1
+
+
+### 5. 提交异步下单，观察控制台接口耗时日志
+POST {{baseUrl}}/api/orders/async
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "showId": 1,
+  "sessionId": 1,
+  "ticketCategoryId": 2,
+  "quantity": 1
+}

@@ -1,0 +1,29 @@
+@baseUrl = http://localhost:8081
+@showId = 1
+@sessionId = 1
+
+
+### 1. 查询演出列表
+GET {{baseUrl}}/api/shows
+
+
+### 2. 根据 ID 查询演出详情
+### 如果数据库里的演出 id 不是 1，请修改上面的 @showId
+GET {{baseUrl}}/api/shows/{{showId}}
+
+
+### 3. 根据演出 ID 查询场次列表
+GET {{baseUrl}}/api/shows/{{showId}}/sessions
+
+
+### 4. 根据场次 ID 查询票档列表
+### 如果数据库里的场次 id 不是 1，请修改上面的 @sessionId
+GET {{baseUrl}}/api/sessions/{{sessionId}}/ticket-categories
+
+
+### 5. 查询不存在的演出详情
+GET {{baseUrl}}/api/shows/999999
+
+
+### 6. 查询不存在演出的场次列表
+GET {{baseUrl}}/api/shows/999999/sessions
