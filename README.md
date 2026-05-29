@@ -28,6 +28,16 @@
 - `GET /api/order-requests/{requestId}` 查询异步下单结果
 - 异步订单创建成功后继续进入 `PENDING_PAYMENT` 状态，沿用支付、取消、超时关闭流程
 
+第四阶段：
+
+- Actuator 健康检查与基础指标
+- 接口耗时日志和慢接口 warn 日志
+- Redis 固定窗口限流：IP 级、接口级、用户级、票档级
+- 下单幂等 Token：同步下单和异步下单均需携带一次性 token
+- 库存 `version` 字段维护，辅助并发排查和后续乐观锁升级
+- 数据库索引优化 SQL 与 EXPLAIN 慢 SQL 分析
+- JMeter 异步下单压测方案、压测前后 SQL 和结果模板
+
 ## 技术栈
 
 Java 17、Spring Boot 3.x、Spring MVC、MyBatis-Plus、MySQL 8.x、Redis、RabbitMQ、Maven、Lombok。
@@ -36,7 +46,7 @@ Java 17、Spring Boot 3.x、Spring MVC、MyBatis-Plus、MySQL 8.x、Redis、Rabb
 
 环境要求：JDK 17、MySQL 8.x、Redis、RabbitMQ、Maven。
 
-1. 启动 MySQL，并准备 `smart_ticket_lite` 数据库。仓库当前未提供全量初始建表脚本；已有第一阶段业务表时，仅对尚未存在的第二阶段字段执行 [phase2-alter.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase2-alter.sql)。
+1. 启动 MySQL，并准备 `smart_ticket_lite` 数据库。仓库当前主要提供阶段改造 SQL 和检查 SQL，执行前先确认本地已有基础业务表。
 2. 启动 Redis：
 
 ```bash
@@ -79,6 +89,17 @@ mvn spring-boot:run
 - 压测说明：[phase4-jmeter-test-plan.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-jmeter-test-plan.md)
 - 压测前 SQL：[phase4-jmeter-before.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase4-jmeter-before.sql)
 - 压测后 SQL：[phase4-jmeter-after.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase4-jmeter-after.sql)
+
+第四阶段验收入口：
+
+- 观测能力：[phase4-observability.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-observability.md)
+- 限流设计：[phase4-rate-limit-design.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-rate-limit-design.md)
+- 幂等测试：[phase4-idempotency-token-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase4-idempotency-token-api.http)
+- 库存 version：[phase4-stock-optimistic-lock.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-stock-optimistic-lock.md)
+- 索引优化：[phase4-index-optimization.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase4-index-optimization.sql)
+- EXPLAIN 分析：[phase4-explain-sql.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase4-explain-sql.sql)
+- 慢 SQL 文档：[phase4-slow-sql-analysis.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-slow-sql-analysis.md)
+- 总验收清单：[phase4-acceptance-checklist.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-acceptance-checklist.md)
 
 ## 核心流程
 
@@ -133,9 +154,11 @@ RabbitMQ 在第三阶段的作用：
 - 演出票档为查询缓存；订单库存变化后当前未自动清理缓存，验收库存请以 MySQL 为准或先删除相关 Redis key。
 - 当前为模拟支付；RabbitMQ 可靠投递与数据库事务尚未做到完全一致。
 - 异步下单当前没有本地消息表，数据库事务和 MQ 投递仍存在一致性风险。
-- 消费失败重试、死信失败处理、限流和告警仍是后续增强点。
+- 固定窗口限流存在窗口边界突刺问题。
+- 幂等 Token 当前使用 `hasKey + delete`，不是严格原子操作，后续可用 Lua 优化。
+- 消费失败重试、死信失败处理和告警仍是后续增强点。
 - 订单超时时间以 `RabbitMqConstant.ORDER_TIMEOUT_TTL_MILLIS` 和订单 `expire_time` 为准。
 
-## 第四阶段规划
+## 第五阶段规划
 
-本地消息表、Publisher Confirm、消费失败重试、死信失败队列、限流、Lua 扣库存、缓存失效策略、登录鉴权、更多自动化测试。
+本地消息表、Publisher Confirm、消费失败重试、死信失败队列、Lua 限流/幂等、缓存失效策略、登录鉴权、告警监控、更多自动化测试。
