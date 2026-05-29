@@ -32,6 +32,8 @@ import org.springframework.amqp.AmqpException;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -157,8 +159,8 @@ public class OrderServiceImpl implements OrderService {
                     request.getTicketCategoryId(),
                     request.getQuantity()
             );
-            //生产者发一下创建订单的消息
-            asyncOrderProducer.sendAsyncCreateOrderMessage(message);
+            // 等 ticket_order_request 事务提交后再发 MQ，避免消费者先消费却查不到未提交的数据。
+            sendAsyncCreateOrderMessageAfterCommit(orderRequest, message);
 
             return toOrderRequestVO(orderRequest);
         } catch (AmqpException exception) {
@@ -405,6 +407,38 @@ public class OrderServiceImpl implements OrderService {
 
     private String generateRequestId() {
         return "REQ" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(100000, 1000000);
+    }
+
+    private void sendAsyncCreateOrderMessageAfterCommit(TicketOrderRequest orderRequest,
+                                                        AsyncCreateOrderMessage message) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            asyncOrderProducer.sendAsyncCreateOrderMessage(message);
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    asyncOrderProducer.sendAsyncCreateOrderMessage(message);
+                    LOGGER.info("Sent async create order message after transaction commit, requestId={}",
+                            message.getRequestId());
+                } catch (AmqpException exception) {
+                    LOGGER.error("Failed to send async create order message after commit, requestId={}",
+                            message.getRequestId(), exception);
+                    markAsyncOrderRequestFailed(orderRequest.getId(), "MQ发送失败");
+                    orderSubmitGuard.release(message.getUserId(), message.getTicketCategoryId());
+                }
+            }
+        });
+    }
+
+    private void markAsyncOrderRequestFailed(Long orderRequestId, String failReason) {
+        int failedRows = orderRequestMapper.markFailed(orderRequestId, failReason);
+        if (failedRows != 1) {
+            LOGGER.warn("Failed to mark async order request FAILED, orderRequestId={}, failReason={}",
+                    orderRequestId, failReason);
+        }
     }
 
     //查限流

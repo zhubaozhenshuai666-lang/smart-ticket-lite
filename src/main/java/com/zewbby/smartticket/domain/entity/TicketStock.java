@@ -28,6 +28,8 @@ public class TicketStock {
 
     private Integer soldStock;
 
+    private Integer version;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

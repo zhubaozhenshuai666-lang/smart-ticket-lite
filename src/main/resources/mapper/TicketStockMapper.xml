@@ -11,6 +11,7 @@
         <result property="availableStock" column="available_stock"/>
         <result property="lockedStock" column="locked_stock"/>
         <result property="soldStock" column="sold_stock"/>
+        <result property="version" column="version"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
@@ -25,6 +26,7 @@
             available_stock,
             locked_stock,
             sold_stock,
+            version,
             created_at,
             updated_at
         FROM ticket_stock
@@ -36,6 +38,7 @@
         SET
             available_stock = available_stock - #{quantity},
             locked_stock = locked_stock + #{quantity},
+            version = version + 1,
             updated_at = NOW()
         WHERE ticket_category_id = #{ticketCategoryId}
           AND available_stock >= #{quantity}
@@ -46,6 +49,7 @@
         SET
             available_stock = available_stock + #{quantity},
             locked_stock = locked_stock - #{quantity},
+            version = version + 1,
             updated_at = NOW()
         WHERE ticket_category_id = #{ticketCategoryId}
           AND locked_stock >= #{quantity}
@@ -56,6 +60,7 @@
         SET
             locked_stock = locked_stock - #{quantity},
             sold_stock = sold_stock + #{quantity},
+            version = version + 1,
             updated_at = NOW()
         WHERE ticket_category_id = #{ticketCategoryId}
           AND locked_stock >= #{quantity}
