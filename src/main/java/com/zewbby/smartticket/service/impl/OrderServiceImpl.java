@@ -23,9 +23,9 @@ import com.zewbby.smartticket.mapper.TicketCategoryMapper;
 import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
-import com.zewbby.smartticket.mq.AsyncOrderProducer;
 import com.zewbby.smartticket.mq.OrderTimeoutProducer;
 import com.zewbby.smartticket.ratelimit.RateLimitService;
+import com.zewbby.smartticket.service.LocalMessageService;
 import com.zewbby.smartticket.service.OrderService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,8 +33,6 @@ import org.springframework.amqp.AmqpException;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -74,13 +72,13 @@ public class OrderServiceImpl implements OrderService {
 
     private final OrderTimeoutProducer orderTimeoutProducer;
 
-    private final AsyncOrderProducer asyncOrderProducer;
-
     private final RateLimitService rateLimitService;
 
     private final IdempotencyTokenService idempotencyTokenService;
 
     private final StockLuaService stockLuaService;
+
+    private final LocalMessageService localMessageService;
 
     public OrderServiceImpl(OrderMapper orderMapper,
                             OrderRequestMapper orderRequestMapper,
@@ -89,10 +87,10 @@ public class OrderServiceImpl implements OrderService {
                             TicketStockMapper ticketStockMapper,
                             OrderSubmitGuard orderSubmitGuard,
                             OrderTimeoutProducer orderTimeoutProducer,
-                            AsyncOrderProducer asyncOrderProducer,
                             RateLimitService rateLimitService,
                             IdempotencyTokenService idempotencyTokenService,
-                            StockLuaService stockLuaService) {
+                            StockLuaService stockLuaService,
+                            LocalMessageService localMessageService) {
         this.orderMapper = orderMapper;
         this.orderRequestMapper = orderRequestMapper;
         this.userMapper = userMapper;
@@ -100,10 +98,10 @@ public class OrderServiceImpl implements OrderService {
         this.ticketStockMapper = ticketStockMapper;
         this.orderSubmitGuard = orderSubmitGuard;
         this.orderTimeoutProducer = orderTimeoutProducer;
-        this.asyncOrderProducer = asyncOrderProducer;
         this.rateLimitService = rateLimitService;
         this.idempotencyTokenService = idempotencyTokenService;
         this.stockLuaService = stockLuaService;
+        this.localMessageService = localMessageService;
     }
 
     /**
@@ -112,7 +110,7 @@ public class OrderServiceImpl implements OrderService {
      * @return
      */
     @Override
-    @Transactional(noRollbackFor = BusinessException.class)
+    @Transactional
     public OrderRequestVO submitAsyncOrder(CreateOrderRequest request) {
         checkOrderSubmitRateLimit(request);
 
@@ -169,21 +167,10 @@ public class OrderServiceImpl implements OrderService {
                     request.getTicketCategoryId(),
                     request.getQuantity()
             );
-            // 等 ticket_order_request 事务提交后再发 MQ，避免消费者先消费却查不到未提交的数据。
-            sendAsyncCreateOrderMessageAfterCommit(orderRequest, message);
+            // 本地消息和下单请求在同一个事务中保存，由定时任务负责可靠投递 MQ。
+            localMessageService.createAsyncCreateOrderMessage(message);
 
             return toOrderRequestVO(orderRequest);
-        } catch (AmqpException exception) {
-            //捕获消息队列（MQ）发送失败的异常。
-            if (orderRequest != null && orderRequest.getId() != null) {
-                orderRequestMapper.markFailed(orderRequest.getId(), "MQ发送失败");
-            }
-            //MQ发送失败的话就回滚redis库存
-            rollbackRedisStockAfterSubmitFailure(request, redisPreDeducted, "MQ发送失败");
-            LOGGER.error("Failed to send async create order message, requestId={}",
-                    orderRequest == null ? null : orderRequest.getRequestId(), exception);
-            orderSubmitGuard.release(request.getUserId(), request.getTicketCategoryId());
-            throw new BusinessException("异步下单请求提交失败，请稍后重试");
         } catch (RuntimeException exception) {
             //提交失败的话就回滚redis库存
             rollbackRedisStockAfterSubmitFailure(request, redisPreDeducted, "异步下单提交失败");
@@ -430,44 +417,6 @@ public class OrderServiceImpl implements OrderService {
         return "REQ" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(100000, 1000000);
     }
 
-    /**
-     * 解决本地数据库事务与MQ发送之间的分布式一致性问题
-     * @param orderRequest
-     * @param message
-     */
-    private void sendAsyncCreateOrderMessageAfterCommit(TicketOrderRequest orderRequest,
-                                                        AsyncCreateOrderMessage message) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            asyncOrderProducer.sendAsyncCreateOrderMessage(message);
-            return;
-        }
-
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                try {
-                    asyncOrderProducer.sendAsyncCreateOrderMessage(message);
-                    LOGGER.info("Sent async create order message after transaction commit, requestId={}",
-                            message.getRequestId());
-                } catch (AmqpException exception) {
-                    LOGGER.error("Failed to send async create order message after commit, requestId={}",
-                            message.getRequestId(), exception);
-                    markAsyncOrderRequestFailed(orderRequest.getId(), "MQ发送失败");
-                    rollbackRedisStockAfterSubmitFailure(message.getTicketCategoryId(), message.getQuantity(), "MQ发送失败");
-                    orderSubmitGuard.release(message.getUserId(), message.getTicketCategoryId());
-                }
-            }
-        });
-    }
-
-    private void markAsyncOrderRequestFailed(Long orderRequestId, String failReason) {
-        int failedRows = orderRequestMapper.markFailed(orderRequestId, failReason);
-        if (failedRows != 1) {
-            LOGGER.warn("Failed to mark async order request FAILED, orderRequestId={}, failReason={}",
-                    orderRequestId, failReason);
-        }
-    }
-
     private void rollbackRedisStockIfAsyncOrder(TicketOrder order) {
         TicketOrderRequest orderRequest = orderRequestMapper.selectByOrderId(order.getId());
         if (orderRequest == null) {
@@ -480,7 +429,7 @@ public class OrderServiceImpl implements OrderService {
                     orderRequest.getRequestId(),
                     order.getTicketCategoryId(),
                     order.getQuantity());
-        } catch (BusinessException exception) {
+        } catch (RuntimeException exception) {
             LOGGER.warn("Skipped Redis stock rollback for async order, orderId={}, requestId={}, ticketCategoryId={}, quantity={}, reason={}",
                     order.getId(),
                     orderRequest.getRequestId(),

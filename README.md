@@ -38,6 +38,17 @@
 - 数据库索引优化 SQL 与 EXPLAIN 慢 SQL 分析
 - JMeter 异步下单压测方案、压测前后 SQL 和结果模板
 
+第五阶段：
+
+- Redis 库存预热与 Redis Lua 原子预扣库存
+- 异步下单接入 Redis 预扣，入口快速失败库存不足请求
+- 本地消息表 `local_message`，保存待发送 MQ 消息
+- 后台定时任务扫描本地消息表并发送 RabbitMQ
+- RabbitMQ Publisher Confirm 基础配置
+- 异步下单消费者 DLQ 兜底处理
+- Redis / MySQL 库存一致性检查
+- 第五阶段压测计划、JMeter 脚本、压测前后 SQL 和验收材料
+
 ## 技术栈
 
 Java 17、Spring Boot 3.x、Spring MVC、MyBatis-Plus、MySQL 8.x、Redis、RabbitMQ、Maven、Lombok。
@@ -107,6 +118,20 @@ mvn spring-boot:run
 - Redis 库存 HTTP 测试：[phase5-redis-stock-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase5-redis-stock-api.http)
 - Redis/MySQL 库存检查 SQL：[phase5-stock-consistency-check.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase5-stock-consistency-check.sql)
 
+第五阶段可靠消息与压测入口：
+
+- 本地消息表 SQL：[phase5-local-message.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase5-local-message.sql)
+- 可靠消息 HTTP 测试：[phase5-reliable-message-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase5-reliable-message-api.http)
+- 可靠消息设计：[phase5-reliable-message-design.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase5-reliable-message-design.md)
+- 可靠消息流程说明：[phase5-reliable-message-flow-summary.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase5-reliable-message-flow-summary.md)
+- 压测计划：[phase5-performance-test-plan.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase5-performance-test-plan.md)
+- JMeter 脚本：[phase5-reliable-async-order-test.jmx](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/jmeter/phase5-reliable-async-order-test.jmx)
+- 压测前 SQL：[phase5-before-test.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase5-before-test.sql)
+- 压测后 SQL：[phase5-after-test.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase5-after-test.sql)
+- 压测结果模板：[phase5-performance-result-template.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase5-performance-result-template.md)
+- 压测分析指南：[phase5-performance-analysis-guide.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase5-performance-analysis-guide.md)
+- 第五阶段验收清单：[phase5-acceptance-checklist.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase5-acceptance-checklist.md)
+
 本地测试 admin 接口：
 
 ```text
@@ -128,9 +153,11 @@ GET  /api/admin/stocks/{ticketCategoryId}/consistency
 
 ```text
 POST /api/orders/async
--> 保存 ticket_order_request(PROCESSING)
--> 发送 order.async.create 消息
+-> Redis Lua 预扣库存
+-> 同事务保存 ticket_order_request(PROCESSING) 和 local_message(PENDING)
 -> 返回 requestId
+-> LocalMessagePublishTask 定时发送 order.async.create 消息
+-> local_message 标记 SENT
 -> AsyncCreateOrderConsumer 消费消息
 -> 条件扣库存
 -> 创建 ticket_order(PENDING_PAYMENT)
@@ -165,17 +192,34 @@ RabbitMQ 在第三阶段的作用：
 - `smart-ticket.order.timeout.delay.queue`：订单创建后延迟触发超时关闭检查。
 - `smart-ticket.order.timeout.dead.queue`：TTL 到期后的真正消费队列。
 
+RabbitMQ 在第五阶段的作用：
+
+- `local_message`：发送前先落库，避免请求成功但 MQ 消息无法追踪。
+- `LocalMessagePublishTask`：每 3 秒扫描待发送消息并投递 RabbitMQ。
+- `order.async.dlq`：异步下单消费失败兜底队列。
+
+第五阶段运行顺序：
+
+```text
+执行 phase5-local-message.sql
+-> 执行 phase5-before-test.sql
+-> 启动 MySQL / Redis / RabbitMQ / Spring Boot
+-> POST /api/admin/stocks/preload
+-> 使用 HTTP 或 JMeter 提交异步下单
+-> 执行 phase5-after-test.sql 检查结果
+```
+
 ## 当前限制
 
 - 一个订单只购买一个票档，明细直接保存在 `ticket_order`，不使用 `ticket_order_item`。
 - 演出票档为查询缓存；订单库存变化后当前未自动清理缓存，验收库存请以 MySQL 为准或先删除相关 Redis key。
 - 当前为模拟支付；RabbitMQ 可靠投递与数据库事务尚未做到完全一致。
-- 异步下单当前没有本地消息表，数据库事务和 MQ 投递仍存在一致性风险。
+- 当前已使用本地消息表降低 MQ 投递风险，但 `SENT` 仍是应用发送成功语义，还不是严格 Broker Confirm 回调落库。
 - 固定窗口限流存在窗口边界突刺问题。
 - 幂等 Token 当前使用 `hasKey + delete`，不是严格原子操作，后续可用 Lua 优化。
-- 消费失败重试、死信失败处理和告警仍是后续增强点。
+- 消费失败已有 DLQ 兜底，但缺少独立告警、人工补偿后台和完整失败重试治理。
 - 订单超时时间以 `RabbitMqConstant.ORDER_TIMEOUT_TTL_MILLIS` 和订单 `expire_time` 为准。
 
-## 第五阶段规划
+## 后续规划
 
-本地消息表、Publisher Confirm、消费失败重试、死信失败队列、Lua 限流/幂等、缓存失效策略、登录鉴权、告警监控、更多自动化测试。
+完整 Publisher Confirm Callback、local_message 管理接口、消费失败告警、人工补偿后台、Lua 限流/幂等、缓存失效策略、登录鉴权、监控看板、更多自动化测试。

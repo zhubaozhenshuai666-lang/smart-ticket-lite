@@ -22,6 +22,8 @@ public final class RedisKeyConstant {
 
     private static final String STOCK_TICKET_CATEGORY_PREFIX = "stock:ticket-category:";
 
+    private static final String STOCK_ROLLBACK_REQUEST_PREFIX = "stock:rollback:request:";
+
     private RedisKeyConstant() {
     }
 
@@ -63,6 +65,10 @@ public final class RedisKeyConstant {
 
     public static String stockAvailableKey(Long ticketCategoryId) {
         return STOCK_TICKET_CATEGORY_PREFIX + ticketCategoryId + ":available";
+    }
+
+    public static String stockRollbackRequestKey(String requestId) {
+        return STOCK_ROLLBACK_REQUEST_PREFIX + normalize(requestId);
     }
 
     private static String normalize(String value) {

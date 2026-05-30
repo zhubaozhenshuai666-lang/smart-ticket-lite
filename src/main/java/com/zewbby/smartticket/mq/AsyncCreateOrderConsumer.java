@@ -16,6 +16,7 @@ import com.zewbby.smartticket.mapper.UserMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -167,27 +168,33 @@ public class AsyncCreateOrderConsumer {
         }
     }
 
-    /**
-     * 更新状态为失败
-     * @param orderRequest
-     * @param failReason
-     */
-    private void markFailed(TicketOrderRequest orderRequest, String failReason) {
+    private boolean markFailed(TicketOrderRequest orderRequest, String failReason) {
         int failedRows = orderRequestMapper.markFailed(orderRequest.getId(), failReason);
         if (failedRows != 1) {
-            throw new IllegalStateException("异步下单请求失败状态更新失败");
+            LOGGER.warn("Skipped marking async order request FAILED, requestId={}, failReason={}",
+                    orderRequest.getRequestId(), failReason);
+            return false;
         }
         LOGGER.info("Marked async order request FAILED, requestId={}, reason={}",
                 orderRequest.getRequestId(), failReason);
+        return true;
     }
 
     private void markFailedAndRollbackRedis(TicketOrderRequest orderRequest, String failReason) {
-        markFailed(orderRequest, failReason);
-        stockLuaService.rollbackStock(orderRequest.getTicketCategoryId(), orderRequest.getQuantity());
-        LOGGER.info("Rolled back Redis stock for failed async request, requestId={}, ticketCategoryId={}, quantity={}",
-                orderRequest.getRequestId(),
-                orderRequest.getTicketCategoryId(),
-                orderRequest.getQuantity());
+        if (!markFailed(orderRequest, failReason)) {
+            return;
+        }
+        try {
+            stockLuaService.rollbackStock(orderRequest.getTicketCategoryId(), orderRequest.getQuantity());
+            LOGGER.info("Rolled back Redis stock for failed async request, requestId={}, ticketCategoryId={}, quantity={}",
+                    orderRequest.getRequestId(),
+                    orderRequest.getTicketCategoryId(),
+                    orderRequest.getQuantity());
+        } catch (RuntimeException exception) {
+            LOGGER.error("Failed to rollback Redis stock for failed async request, requestId={}, send message to DLQ",
+                    orderRequest.getRequestId(), exception.getMessage());
+            throw new AmqpRejectAndDontRequeueException("Redis stock rollback failed", exception);
+        }
     }
 
     /**
