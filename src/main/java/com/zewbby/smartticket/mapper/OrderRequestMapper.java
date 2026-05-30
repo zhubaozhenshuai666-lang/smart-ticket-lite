@@ -11,6 +11,8 @@ public interface OrderRequestMapper {
 
     TicketOrderRequest selectById(@Param("id") Long id);
 
+    TicketOrderRequest selectByOrderId(@Param("orderId") Long orderId);
+
     int markSuccess(@Param("id") Long id, @Param("orderId") Long orderId);
 
     int markFailed(@Param("id") Long id, @Param("failReason") String failReason);

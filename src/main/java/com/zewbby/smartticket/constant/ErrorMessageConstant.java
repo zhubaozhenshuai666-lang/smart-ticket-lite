@@ -12,6 +12,8 @@ public final class ErrorMessageConstant {
 
     public static final String STOCK_NOT_ENOUGH = "库存不足";
 
+    public static final String STOCK_NOT_PREHEATED = "库存未预热，请先预热库存";
+
     public static final String ORDER_NOT_FOUND = "订单不存在";
 
     public static final String ORDER_STATUS_NOT_ALLOWED = "当前订单状态不允许该操作";

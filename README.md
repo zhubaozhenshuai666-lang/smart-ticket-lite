@@ -101,6 +101,23 @@ mvn spring-boot:run
 - 慢 SQL 文档：[phase4-slow-sql-analysis.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-slow-sql-analysis.md)
 - 总验收清单：[phase4-acceptance-checklist.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-acceptance-checklist.md)
 
+第五阶段 Redis 库存入口：
+
+- Redis 库存设计：[phase5-redis-stock-design.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase5-redis-stock-design.md)
+- Redis 库存 HTTP 测试：[phase5-redis-stock-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase5-redis-stock-api.http)
+- Redis/MySQL 库存检查 SQL：[phase5-stock-consistency-check.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase5-stock-consistency-check.sql)
+
+本地测试 admin 接口：
+
+```text
+POST /api/admin/stocks/preload
+POST /api/admin/stocks/{ticketCategoryId}/preload
+GET  /api/admin/stocks/{ticketCategoryId}/redis
+GET  /api/admin/stocks/{ticketCategoryId}/consistency
+```
+
+这些接口当前没有权限控制，仅用于本地联调测试，生产环境不能直接暴露。
+
 ## 核心流程
 
 ```text

@@ -86,6 +86,25 @@
         WHERE id = #{id}
     </select>
 
+    <select id="selectByOrderId" resultMap="TicketOrderRequestResultMap">
+        SELECT
+            id,
+            request_id,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            status,
+            order_id,
+            fail_reason,
+            created_at,
+            updated_at
+        FROM ticket_order_request
+        WHERE order_id = #{orderId}
+        LIMIT 1
+    </select>
+
     <select id="selectProcessingByRequestId" resultMap="TicketOrderRequestResultMap">
         SELECT
             id,

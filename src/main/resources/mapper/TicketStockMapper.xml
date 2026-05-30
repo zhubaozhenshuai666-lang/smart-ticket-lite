@@ -33,6 +33,21 @@
         WHERE ticket_category_id = #{ticketCategoryId}
     </select>
 
+    <select id="selectAll" resultMap="TicketStockResultMap">
+        SELECT
+            id,
+            ticket_category_id,
+            total_stock,
+            available_stock,
+            locked_stock,
+            sold_stock,
+            version,
+            created_at,
+            updated_at
+        FROM ticket_stock
+        ORDER BY ticket_category_id ASC
+    </select>
+
     <update id="decreaseStock">
         UPDATE ticket_stock
         SET

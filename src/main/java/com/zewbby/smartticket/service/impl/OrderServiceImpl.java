@@ -1,6 +1,7 @@
 package com.zewbby.smartticket.service.impl;
 
 import com.zewbby.smartticket.cache.OrderSubmitGuard;
+import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.RabbitMqConstant;
@@ -79,6 +80,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final IdempotencyTokenService idempotencyTokenService;
 
+    private final StockLuaService stockLuaService;
+
     public OrderServiceImpl(OrderMapper orderMapper,
                             OrderRequestMapper orderRequestMapper,
                             UserMapper userMapper,
@@ -88,7 +91,8 @@ public class OrderServiceImpl implements OrderService {
                             OrderTimeoutProducer orderTimeoutProducer,
                             AsyncOrderProducer asyncOrderProducer,
                             RateLimitService rateLimitService,
-                            IdempotencyTokenService idempotencyTokenService) {
+                            IdempotencyTokenService idempotencyTokenService,
+                            StockLuaService stockLuaService) {
         this.orderMapper = orderMapper;
         this.orderRequestMapper = orderRequestMapper;
         this.userMapper = userMapper;
@@ -99,6 +103,7 @@ public class OrderServiceImpl implements OrderService {
         this.asyncOrderProducer = asyncOrderProducer;
         this.rateLimitService = rateLimitService;
         this.idempotencyTokenService = idempotencyTokenService;
+        this.stockLuaService = stockLuaService;
     }
 
     /**
@@ -117,6 +122,7 @@ public class OrderServiceImpl implements OrderService {
         idempotencyTokenService.consumeOrderToken(request.getUserId(), request.getIdempotencyToken());
 
         TicketOrderRequest orderRequest = null;
+        boolean redisPreDeducted = false;
         try {
             UserAccount user = userMapper.selectById(request.getUserId());
             if (user == null) {
@@ -127,6 +133,10 @@ public class OrderServiceImpl implements OrderService {
             if (ticketCategory == null) {
                 throw new BusinessException("票档不存在");
             }
+
+            //redis预扣库存
+            stockLuaService.preDeductStock(request.getTicketCategoryId(), request.getQuantity());
+            redisPreDeducted = true;
 
             LocalDateTime now = LocalDateTime.now();
             String requestId = generateRequestId();
@@ -168,11 +178,15 @@ public class OrderServiceImpl implements OrderService {
             if (orderRequest != null && orderRequest.getId() != null) {
                 orderRequestMapper.markFailed(orderRequest.getId(), "MQ发送失败");
             }
+            //MQ发送失败的话就回滚redis库存
+            rollbackRedisStockAfterSubmitFailure(request, redisPreDeducted, "MQ发送失败");
             LOGGER.error("Failed to send async create order message, requestId={}",
                     orderRequest == null ? null : orderRequest.getRequestId(), exception);
             orderSubmitGuard.release(request.getUserId(), request.getTicketCategoryId());
             throw new BusinessException("异步下单请求提交失败，请稍后重试");
         } catch (RuntimeException exception) {
+            //提交失败的话就回滚redis库存
+            rollbackRedisStockAfterSubmitFailure(request, redisPreDeducted, "异步下单提交失败");
             //发生其他意外就释放锁
             orderSubmitGuard.release(request.getUserId(), request.getTicketCategoryId());
             throw exception;
@@ -280,9 +294,11 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public OrderVO cancelOrder(Long orderId) {
         TicketOrder order = getExistingOrder(orderId);
+        //不可以重复取消订单
         if (OrderStatusEnum.isCancelled(order.getStatus())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_CANCEL);
         }
+        //只有待支付的订单能被取消
         if (!OrderStatusEnum.isPendingPayment(order.getStatus())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_STATUS_NOT_ALLOWED);
         }
@@ -298,10 +314,13 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorMessageConstant.ORDER_STATUS_NOT_ALLOWED);
         }
 
+        //取消订单的时候要回滚库存
         int rollbackRows = ticketStockMapper.rollbackStock(order.getTicketCategoryId(), order.getQuantity());
         if (rollbackRows != 1) {
             throw new BusinessException("库存回滚失败");
         }
+
+        rollbackRedisStockIfAsyncOrder(order);
 
         return toOrderVO(orderMapper.selectById(orderId));
     }
@@ -382,6 +401,8 @@ public class OrderServiceImpl implements OrderService {
         if (rollbackRows != 1) {
             throw new BusinessException("库存回滚失败");
         }
+
+        rollbackRedisStockIfAsyncOrder(order);
     }
 
     /**
@@ -409,6 +430,11 @@ public class OrderServiceImpl implements OrderService {
         return "REQ" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(100000, 1000000);
     }
 
+    /**
+     * 解决本地数据库事务与MQ发送之间的分布式一致性问题
+     * @param orderRequest
+     * @param message
+     */
     private void sendAsyncCreateOrderMessageAfterCommit(TicketOrderRequest orderRequest,
                                                         AsyncCreateOrderMessage message) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -427,6 +453,7 @@ public class OrderServiceImpl implements OrderService {
                     LOGGER.error("Failed to send async create order message after commit, requestId={}",
                             message.getRequestId(), exception);
                     markAsyncOrderRequestFailed(orderRequest.getId(), "MQ发送失败");
+                    rollbackRedisStockAfterSubmitFailure(message.getTicketCategoryId(), message.getQuantity(), "MQ发送失败");
                     orderSubmitGuard.release(message.getUserId(), message.getTicketCategoryId());
                 }
             }
@@ -438,6 +465,56 @@ public class OrderServiceImpl implements OrderService {
         if (failedRows != 1) {
             LOGGER.warn("Failed to mark async order request FAILED, orderRequestId={}, failReason={}",
                     orderRequestId, failReason);
+        }
+    }
+
+    private void rollbackRedisStockIfAsyncOrder(TicketOrder order) {
+        TicketOrderRequest orderRequest = orderRequestMapper.selectByOrderId(order.getId());
+        if (orderRequest == null) {
+            return;
+        }
+        try {
+            stockLuaService.rollbackStock(order.getTicketCategoryId(), order.getQuantity());
+            LOGGER.info("Rolled back Redis stock for async order, orderId={}, requestId={}, ticketCategoryId={}, quantity={}",
+                    order.getId(),
+                    orderRequest.getRequestId(),
+                    order.getTicketCategoryId(),
+                    order.getQuantity());
+        } catch (BusinessException exception) {
+            LOGGER.warn("Skipped Redis stock rollback for async order, orderId={}, requestId={}, ticketCategoryId={}, quantity={}, reason={}",
+                    order.getId(),
+                    orderRequest.getRequestId(),
+                    order.getTicketCategoryId(),
+                    order.getQuantity(),
+                    exception.getMessage());
+        }
+    }
+
+    private void rollbackRedisStockAfterSubmitFailure(CreateOrderRequest request,
+                                                     boolean redisPreDeducted,
+                                                     String reason) {
+        if (!redisPreDeducted) {
+            return;
+        }
+        rollbackRedisStockAfterSubmitFailure(request.getTicketCategoryId(), request.getQuantity(), reason);
+    }
+
+    /**
+     * 提交失败的话回滚redis库存
+     * @param ticketCategoryId
+     * @param quantity
+     * @param reason
+     */
+    private void rollbackRedisStockAfterSubmitFailure(Long ticketCategoryId,
+                                                     Integer quantity,
+                                                     String reason) {
+        try {
+            stockLuaService.rollbackStock(ticketCategoryId, quantity);
+            LOGGER.info("Rolled back Redis stock after async submit failure, ticketCategoryId={}, quantity={}, reason={}",
+                    ticketCategoryId, quantity, reason);
+        } catch (RuntimeException rollbackException) {
+            LOGGER.error("Failed to rollback Redis stock after async submit failure, ticketCategoryId={}, quantity={}, reason={}",
+                    ticketCategoryId, quantity, reason, rollbackException);
         }
     }
 

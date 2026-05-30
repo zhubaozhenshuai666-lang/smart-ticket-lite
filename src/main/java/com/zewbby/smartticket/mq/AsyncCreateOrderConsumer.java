@@ -1,6 +1,7 @@
 package com.zewbby.smartticket.mq;
 
 import com.zewbby.smartticket.constant.RabbitMqConstant;
+import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.domain.entity.TicketCategory;
 import com.zewbby.smartticket.domain.entity.TicketOrder;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
@@ -46,18 +47,22 @@ public class AsyncCreateOrderConsumer {
 
     private final OrderTimeoutProducer orderTimeoutProducer;
 
+    private final StockLuaService stockLuaService;
+
     public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
                                     OrderMapper orderMapper,
                                     UserMapper userMapper,
                                     TicketCategoryMapper ticketCategoryMapper,
                                     TicketStockMapper ticketStockMapper,
-                                    OrderTimeoutProducer orderTimeoutProducer) {
+                                    OrderTimeoutProducer orderTimeoutProducer,
+                                    StockLuaService stockLuaService) {
         this.orderRequestMapper = orderRequestMapper;
         this.orderMapper = orderMapper;
         this.userMapper = userMapper;
         this.ticketCategoryMapper = ticketCategoryMapper;
         this.ticketStockMapper = ticketStockMapper;
         this.orderTimeoutProducer = orderTimeoutProducer;
+        this.stockLuaService = stockLuaService;
     }
 
     @RabbitListener(queues = RabbitMqConstant.ORDER_ASYNC_QUEUE)
@@ -88,7 +93,7 @@ public class AsyncCreateOrderConsumer {
             if (user == null) {
                 LOGGER.warn("Async create order failed, requestId={}, reason={}",
                         orderRequest.getRequestId(), USER_NOT_FOUND);
-                markFailed(orderRequest, USER_NOT_FOUND);
+                markFailedAndRollbackRedis(orderRequest, USER_NOT_FOUND);
                 return;
             }
 
@@ -96,7 +101,7 @@ public class AsyncCreateOrderConsumer {
             if (ticketCategory == null) {
                 LOGGER.warn("Async create order failed, requestId={}, reason={}",
                         orderRequest.getRequestId(), TICKET_CATEGORY_NOT_FOUND);
-                markFailed(orderRequest, TICKET_CATEGORY_NOT_FOUND);
+                markFailedAndRollbackRedis(orderRequest, TICKET_CATEGORY_NOT_FOUND);
                 return;
             }
 
@@ -112,7 +117,7 @@ public class AsyncCreateOrderConsumer {
                         orderRequest.getTicketCategoryId(),
                         orderRequest.getQuantity(),
                         STOCK_NOT_ENOUGH);
-                markFailed(orderRequest, STOCK_NOT_ENOUGH);
+                markFailedAndRollbackRedis(orderRequest, STOCK_NOT_ENOUGH);
                 return;
             }
 
@@ -174,6 +179,15 @@ public class AsyncCreateOrderConsumer {
         }
         LOGGER.info("Marked async order request FAILED, requestId={}, reason={}",
                 orderRequest.getRequestId(), failReason);
+    }
+
+    private void markFailedAndRollbackRedis(TicketOrderRequest orderRequest, String failReason) {
+        markFailed(orderRequest, failReason);
+        stockLuaService.rollbackStock(orderRequest.getTicketCategoryId(), orderRequest.getQuantity());
+        LOGGER.info("Rolled back Redis stock for failed async request, requestId={}, ticketCategoryId={}, quantity={}",
+                orderRequest.getRequestId(),
+                orderRequest.getTicketCategoryId(),
+                orderRequest.getQuantity());
     }
 
     /**

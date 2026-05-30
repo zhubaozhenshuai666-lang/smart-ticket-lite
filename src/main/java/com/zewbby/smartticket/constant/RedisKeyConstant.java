@@ -20,6 +20,8 @@ public final class RedisKeyConstant {
 
     private static final String RATE_LIMIT_TICKET_PREFIX = "rate:ticket:";
 
+    private static final String STOCK_TICKET_CATEGORY_PREFIX = "stock:ticket-category:";
+
     private RedisKeyConstant() {
     }
 
@@ -57,6 +59,10 @@ public final class RedisKeyConstant {
 
     public static String rateLimitTicketKey(Long ticketCategoryId, String action) {
         return RATE_LIMIT_TICKET_PREFIX + ticketCategoryId + ":" + normalize(action);
+    }
+
+    public static String stockAvailableKey(Long ticketCategoryId) {
+        return STOCK_TICKET_CATEGORY_PREFIX + ticketCategoryId + ":available";
     }
 
     private static String normalize(String value) {

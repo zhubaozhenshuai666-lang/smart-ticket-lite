@@ -1,4 +1,4 @@
-package com.zewbby.smartticket.cache;
+package com.zewbby.smartticket.service;
 
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;

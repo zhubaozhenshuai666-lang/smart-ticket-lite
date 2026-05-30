@@ -1,6 +1,6 @@
 package com.zewbby.smartticket.service.impl;
 
-import com.zewbby.smartticket.cache.CacheService;
+import com.zewbby.smartticket.service.CacheService;
 import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.constant.RedisKeyConstant;
 import com.zewbby.smartticket.domain.vo.SessionVO;
