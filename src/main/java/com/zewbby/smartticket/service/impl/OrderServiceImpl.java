@@ -4,7 +4,7 @@ import com.zewbby.smartticket.cache.OrderSubmitGuard;
 import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
-import com.zewbby.smartticket.constant.RabbitMqConstant;
+import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.constant.RedisKeyConstant;
 import com.zewbby.smartticket.domain.dto.CreateOrderRequest;
 import com.zewbby.smartticket.domain.entity.TicketCategory;
@@ -35,7 +35,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -117,7 +116,6 @@ public class OrderServiceImpl implements OrderService {
         if (!orderSubmitGuard.tryAcquire(request.getUserId(), request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_SUBMIT);
         }
-        idempotencyTokenService.consumeOrderToken(request.getUserId(), request.getIdempotencyToken());
 
         TicketOrderRequest orderRequest = null;
         boolean redisPreDeducted = false;
@@ -127,10 +125,10 @@ public class OrderServiceImpl implements OrderService {
                 throw new BusinessException("用户不存在");
             }
 
-            TicketCategory ticketCategory = ticketCategoryMapper.selectById(request.getTicketCategoryId());
-            if (ticketCategory == null) {
-                throw new BusinessException("票档不存在");
-            }
+            //验证一致性
+            validateShowSessionTicketCategoryRelation(request);
+            //用lua消耗token
+            idempotencyTokenService.consumeOrderToken(request.getUserId(), request.getIdempotencyToken());
 
             //redis预扣库存
             stockLuaService.preDeductStock(request.getTicketCategoryId(), request.getQuantity());
@@ -199,7 +197,6 @@ public class OrderServiceImpl implements OrderService {
         if (!orderSubmitGuard.tryAcquire(request.getUserId(), request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_SUBMIT);
         }
-        idempotencyTokenService.consumeOrderToken(request.getUserId(), request.getIdempotencyToken());
 
         try {
             UserAccount user = userMapper.selectById(request.getUserId());
@@ -207,10 +204,8 @@ public class OrderServiceImpl implements OrderService {
                 throw new BusinessException("用户不存在");
             }
 
-            TicketCategory ticketCategory = ticketCategoryMapper.selectById(request.getTicketCategoryId());
-            if (ticketCategory == null) {
-                throw new BusinessException("票档不存在");
-            }
+            TicketCategory ticketCategory = getValidTicketCategory(request);
+            idempotencyTokenService.consumeOrderToken(request.getUserId(), request.getIdempotencyToken());
 
             TicketStock ticketStock = ticketStockMapper.selectByTicketCategoryId(request.getTicketCategoryId());
             if (ticketStock == null) {
@@ -234,7 +229,7 @@ public class OrderServiceImpl implements OrderService {
             order.setQuantity(request.getQuantity());
             order.setTotalAmount(totalAmount);
             order.setStatus(OrderStatusEnum.PENDING_PAYMENT.getCode());
-            order.setExpireTime(now.plus(Duration.ofMillis(RabbitMqConstant.ORDER_TIMEOUT_TTL_MILLIS)));
+            order.setExpireTime(now.plusMinutes(OrderConstant.ORDER_TIMEOUT_MINUTES));
             order.setPayTime(null);
             order.setCancelTime(null);
             order.setCloseTime(null);
@@ -256,6 +251,26 @@ public class OrderServiceImpl implements OrderService {
             return toOrderVO(order);
         } finally {
             orderSubmitGuard.release(request.getUserId(), request.getTicketCategoryId());
+        }
+    }
+
+    private TicketCategory getValidTicketCategory(CreateOrderRequest request) {
+        validateShowSessionTicketCategoryRelation(request);
+        TicketCategory ticketCategory = ticketCategoryMapper.selectById(request.getTicketCategoryId());
+        if (ticketCategory == null) {
+            throw new BusinessException(ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
+        }
+        return ticketCategory;
+    }
+
+    private void validateShowSessionTicketCategoryRelation(CreateOrderRequest request) {
+        boolean relationExists = ticketCategoryMapper.existsShowSessionTicketCategoryRelation(
+                request.getShowId(),
+                request.getSessionId(),
+                request.getTicketCategoryId()
+        );
+        if (!relationExists) {
+            throw new BusinessException(ErrorMessageConstant.SHOW_SESSION_TICKET_CATEGORY_NOT_MATCH);
         }
     }
 

@@ -171,7 +171,7 @@
 
 ## 自动超时关闭
 
-超时关闭没有对外 Controller 接口。创建订单后消息进入 RabbitMQ TTL 队列；测试配置约 `1` 分钟后由死信消费者调用关闭逻辑，定时任务每分钟兜底扫描。
+超时关闭没有对外 Controller 接口。创建订单后消息进入 RabbitMQ TTL 队列；TTL 以 `OrderConstant.ORDER_TIMEOUT_TTL_MILLIS` 为准，到期后由死信消费者调用关闭逻辑，定时任务每分钟兜底扫描。
 
 ```json
 {"code":200,"message":"success","data":{"id":32,"status":"CLOSED","closeTime":"2026-05-27T18:05:00","cancelReason":"订单超时未支付关闭"}}

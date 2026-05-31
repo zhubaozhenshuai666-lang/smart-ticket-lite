@@ -44,6 +44,8 @@ public class TicketOrder {
 
     private String cancelReason;
 
+    private Integer version;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

@@ -2,8 +2,6 @@ package com.zewbby.smartticket.constant;
 
 public final class RabbitMqConstant {
 
-    public static final int ORDER_TIMEOUT_TTL_MILLIS = 10 * 60 * 1000;
-
     public static final String ORDER_TIMEOUT_DELAY_EXCHANGE = "smart-ticket.order.timeout.delay.exchange";
 
     public static final String ORDER_TIMEOUT_DELAY_QUEUE = "smart-ticket.order.timeout.delay.queue";

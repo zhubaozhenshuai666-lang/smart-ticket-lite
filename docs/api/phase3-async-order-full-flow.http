@@ -22,7 +22,7 @@
 ### 5. 当前没有独立库存接口；库存精确验证请执行 docs/sql/phase3-async-order-check.sql。
 ### 6. 票档接口可能命中 Redis 缓存；观察库存前可执行：
 ###    redis-cli DEL 'show:detail:1' 'show:sessions:1' 'session:ticket-categories:1'
-### 7. 订单超时关闭时间以 RabbitMqConstant.ORDER_TIMEOUT_TTL_MILLIS 和 expire_time 为准。
+### 7. 订单超时关闭时间以 OrderConstant.ORDER_TIMEOUT_TTL_MILLIS 和 expire_time 为准。
 
 
 ### 1. 查询演出列表

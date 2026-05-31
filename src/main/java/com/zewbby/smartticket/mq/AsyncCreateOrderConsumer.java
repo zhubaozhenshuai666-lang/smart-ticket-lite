@@ -1,6 +1,8 @@
 package com.zewbby.smartticket.mq;
 
 import com.zewbby.smartticket.constant.RabbitMqConstant;
+import com.zewbby.smartticket.constant.ErrorMessageConstant;
+import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.domain.entity.TicketCategory;
 import com.zewbby.smartticket.domain.entity.TicketOrder;
@@ -31,8 +33,6 @@ public class AsyncCreateOrderConsumer {
     private static final Logger LOGGER = LoggerFactory.getLogger(AsyncCreateOrderConsumer.class);
 
     private static final String USER_NOT_FOUND = "用户不存在";
-
-    private static final String TICKET_CATEGORY_NOT_FOUND = "票档不存在";
 
     private static final String STOCK_NOT_ENOUGH = "库存不足";
 
@@ -98,11 +98,8 @@ public class AsyncCreateOrderConsumer {
                 return;
             }
 
-            TicketCategory ticketCategory = ticketCategoryMapper.selectById(orderRequest.getTicketCategoryId());
+            TicketCategory ticketCategory = getValidTicketCategory(orderRequest);
             if (ticketCategory == null) {
-                LOGGER.warn("Async create order failed, requestId={}, reason={}",
-                        orderRequest.getRequestId(), TICKET_CATEGORY_NOT_FOUND);
-                markFailedAndRollbackRedis(orderRequest, TICKET_CATEGORY_NOT_FOUND);
                 return;
             }
 
@@ -132,7 +129,7 @@ public class AsyncCreateOrderConsumer {
             order.setQuantity(orderRequest.getQuantity());
             order.setTotalAmount(calculateTotalAmount(ticketCategory.getPrice(), orderRequest.getQuantity()));
             order.setStatus(OrderStatusEnum.PENDING_PAYMENT.getCode());
-            order.setExpireTime(now.plusMinutes(15));
+            order.setExpireTime(now.plusMinutes(OrderConstant.ORDER_TIMEOUT_MINUTES));
             order.setPayTime(null);
             order.setCancelTime(null);
             order.setCloseTime(null);
@@ -195,6 +192,28 @@ public class AsyncCreateOrderConsumer {
                     orderRequest.getRequestId(), exception.getMessage());
             throw new AmqpRejectAndDontRequeueException("Redis stock rollback failed", exception);
         }
+    }
+
+    private TicketCategory getValidTicketCategory(TicketOrderRequest orderRequest) {
+        boolean relationExists = ticketCategoryMapper.existsShowSessionTicketCategoryRelation(
+                orderRequest.getShowId(),
+                orderRequest.getSessionId(),
+                orderRequest.getTicketCategoryId()
+        );
+        if (!relationExists) {
+            LOGGER.warn("Async create order failed, requestId={}, reason={}",
+                    orderRequest.getRequestId(), ErrorMessageConstant.SHOW_SESSION_TICKET_CATEGORY_NOT_MATCH);
+            markFailedAndRollbackRedis(orderRequest, ErrorMessageConstant.SHOW_SESSION_TICKET_CATEGORY_NOT_MATCH);
+            return null;
+        }
+
+        TicketCategory ticketCategory = ticketCategoryMapper.selectById(orderRequest.getTicketCategoryId());
+        if (ticketCategory == null) {
+            LOGGER.warn("Async create order failed, requestId={}, reason={}",
+                    orderRequest.getRequestId(), ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
+            markFailedAndRollbackRedis(orderRequest, ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
+        }
+        return ticketCategory;
     }
 
     /**

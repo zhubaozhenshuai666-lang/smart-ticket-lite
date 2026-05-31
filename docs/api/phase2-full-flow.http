@@ -17,8 +17,8 @@
 ### 3. 当前没有独立库存查询接口；库存准确验收请执行文件末尾的 MySQL SQL。
 ### 4. 票档接口有 Redis 缓存。观察库存变化前请在终端执行：
 ###    redis-cli DEL 'show:detail:1' 'show:sessions:1' 'session:ticket-categories:1'
-### 5. 当前订单超时 TTL 为 1 分钟。
-### 6. 用于支付和主动取消的订单，请在创建后 1 分钟内完成操作，否则会自动变为 CLOSED。
+### 5. 当前订单超时 TTL 以 OrderConstant.ORDER_TIMEOUT_TTL_MILLIS 为准。
+### 6. 用于支付和主动取消的订单，请在订单 expireTime 前完成操作，否则会自动变为 CLOSED。
 
 
 ### 1. 查询已存在用户
@@ -84,7 +84,7 @@ GET {{baseUrl}}/api/orders/{{paidOrderId}}
 GET {{baseUrl}}/api/sessions/{{sessionId}}/ticket-categories
 
 
-### 10. 支付第一笔订单：请在创建后 1 分钟内执行；状态应变为 PAID，payTime 应有值
+### 10. 支付第一笔订单：请在订单 expireTime 前执行；状态应变为 PAID，payTime 应有值
 POST {{baseUrl}}/api/orders/{{paidOrderId}}/pay
 
 
@@ -121,7 +121,7 @@ Content-Type: application/json
 }
 
 
-### 15. 主动取消第二笔订单：请在创建后 1 分钟内执行；应返回 status=CANCELLED、cancelTime 有值
+### 15. 主动取消第二笔订单：请在订单 expireTime 前执行；应返回 status=CANCELLED、cancelTime 有值
 POST {{baseUrl}}/api/orders/{{cancelOrderId}}/cancel
 
 

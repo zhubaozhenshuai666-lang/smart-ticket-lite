@@ -26,6 +26,7 @@
     <resultMap id="SessionVOResultMap" type="com.zewbby.smartticket.domain.vo.SessionVO">
         <id property="id" column="id"/>
         <result property="showId" column="show_id"/>
+        <result property="venueId" column="venue_id"/>
         <result property="venueName" column="venue_name"/>
         <result property="city" column="city"/>
         <result property="address" column="address"/>
@@ -83,6 +84,7 @@
         SELECT
             ps.id,
             ps.show_id,
+            v.id AS venue_id,
             v.name AS venue_name,
             v.city,
             v.address,

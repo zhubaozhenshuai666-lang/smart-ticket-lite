@@ -4,11 +4,7 @@
 
 地址：http://localhost:15672
 
-本地默认账号通常是：
-
-```text
-guest / guest
-```
+账号密码以你的本地 RabbitMQ 配置为准，不要把真实密码写入仓库文档。
 
 ## 异步下单 MQ
 

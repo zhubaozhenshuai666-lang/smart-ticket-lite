@@ -24,4 +24,14 @@
         FROM ticket_category
         WHERE id = #{id}
     </select>
+
+    <select id="existsShowSessionTicketCategoryRelation" resultType="java.lang.Boolean">
+        SELECT COUNT(1) > 0
+        FROM show_info s
+        JOIN performance_session ps ON ps.show_id = s.id
+        JOIN ticket_category tc ON tc.session_id = ps.id
+        WHERE s.id = #{showId}
+          AND ps.id = #{sessionId}
+          AND tc.id = #{ticketCategoryId}
+    </select>
 </mapper>

@@ -8,6 +8,8 @@ public final class ErrorMessageConstant {
 
     public static final String TICKET_CATEGORY_NOT_FOUND = "票档不存在";
 
+    public static final String SHOW_SESSION_TICKET_CATEGORY_NOT_MATCH = "演出、场次或票档关系不匹配";
+
     public static final String STOCK_NOT_FOUND = "库存记录不存在";
 
     public static final String STOCK_NOT_ENOUGH = "库存不足";

@@ -7,7 +7,7 @@
 
 
 ### 1. 创建等待超时关闭的订单
-### 当前测试配置的 TTL 为 1 分钟，返回的 expireTime 应约为当前时间加 1 分钟。
+### 当前测试配置的 TTL 以 OrderConstant.ORDER_TIMEOUT_TTL_MILLIS 为准，返回的 expireTime 应约为当前时间加订单超时时间。
 POST {{baseUrl}}/api/orders
 Content-Type: application/json
 

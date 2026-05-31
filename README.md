@@ -53,27 +53,82 @@
 
 Java 17、Spring Boot 3.x、Spring MVC、MyBatis-Plus、MySQL 8.x、Redis、RabbitMQ、Maven、Lombok。
 
-## 本地启动
+## 本地环境要求
 
-环境要求：JDK 17、MySQL 8.x、Redis、RabbitMQ、Maven。
+- JDK 17
+- Maven 3.9+
+- MySQL 8.x
+- Redis 6+
+- RabbitMQ 3.x
 
-1. 启动 MySQL，并准备 `smart_ticket_lite` 数据库。仓库当前主要提供阶段改造 SQL 和检查 SQL，执行前先确认本地已有基础业务表。
-2. 启动 Redis：
+## 数据库初始化
+
+完整初始化脚本位于 [docs/sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql)。
+
+1. 创建数据库：
+
+```sql
+CREATE DATABASE IF NOT EXISTS smart_ticket_lite
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_0900_ai_ci;
+```
+
+2. 执行建表脚本：
+
+```bash
+mysql -h 127.0.0.1 -P 3306 -u root -p smart_ticket_lite < docs/sql/schema.sql
+```
+
+3. 执行基础数据脚本：
+
+```bash
+mysql -h 127.0.0.1 -P 3306 -u root -p smart_ticket_lite < docs/sql/data.sql
+```
+
+初始化测试 ID：
+
+| 数据 | ID |
+|---|---:|
+| `userId` | 1 |
+| `showId` | 1 |
+| `sessionId` | 1 |
+| 看台票 `ticketCategoryId` | 1 |
+| 内场票 `ticketCategoryId` | 2 |
+| VIP 票 `ticketCategoryId` | 3 |
+
+## 本地配置与启动
+
+默认激活 `local` profile。仓库提供 [application-local.example.yml](/Users/zewbao/Desktop/smart-ticket-lite/src/main/resources/application-local.example.yml)，本地真实配置文件 [application-local.yml](/Users/zewbao/Desktop/smart-ticket-lite/src/main/resources/application-local.yml) 已在 `.gitignore` 中忽略。
+
+1. 如需重新生成本地配置，可从示例文件复制：
+
+```bash
+cp src/main/resources/application-local.example.yml src/main/resources/application-local.yml
+```
+
+2. 设置本机连接信息。不要把真实密码写入仓库，推荐使用环境变量：
+
+```bash
+export SMART_TICKET_DB_PASSWORD='你的本地 MySQL 密码'
+export SMART_TICKET_REDIS_PASSWORD='你的本地 Redis 密码，如无密码可留空'
+export SMART_TICKET_RABBITMQ_PASSWORD='你的本地 RabbitMQ 密码'
+```
+
+3. 启动 Redis：
 
 ```bash
 redis-server
 ```
 
-3. 启动 RabbitMQ，并开启管理台：
+4. 启动 RabbitMQ，并开启管理台：
 
 ```bash
 rabbitmq-server
 rabbitmq-plugins enable rabbitmq_management
 ```
 
-管理台地址：[http://localhost:15672](http://localhost:15672)，本地默认账号通常为 `guest / guest`。
+管理台地址：[http://localhost:15672](http://localhost:15672)，账号密码以你的本地 RabbitMQ 配置为准。
 
-4. 检查本地连接配置：[application-local.yml](/Users/zewbao/Desktop/smart-ticket-lite/src/main/resources/application-local.yml)。
 5. 启动项目：
 
 ```bash
@@ -82,7 +137,22 @@ mvn spring-boot:run
 
 服务默认地址：`http://localhost:8081`。
 
-## HTTP 测试
+## 核心接口说明与 HTTP 测试
+
+常用接口：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/users/{id}` | 查询测试用户 |
+| `GET` | `/api/shows` | 查询演出列表 |
+| `GET` | `/api/shows/{id}` | 查询演出详情、场次、票档 |
+| `POST` | `/api/orders/idempotency-token` | 获取一次性下单幂等 token |
+| `POST` | `/api/orders` | 同步创建订单 |
+| `POST` | `/api/orders/async` | 异步提交下单请求 |
+| `GET` | `/api/order-requests/{requestId}` | 查询异步下单结果 |
+| `POST` | `/api/orders/{orderId}/pay` | 模拟支付订单 |
+| `POST` | `/api/orders/{orderId}/cancel` | 取消待支付订单 |
+| `GET` | `/api/orders/{orderId}` | 查询订单详情 |
 
 第二阶段同步订单流程：在 IDEA 打开 [phase2-full-flow.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase2-full-flow.http)，从上到下依次点击请求左侧绿色运行按钮。
 
@@ -142,6 +212,15 @@ GET  /api/admin/stocks/{ticketCategoryId}/consistency
 ```
 
 这些接口当前没有权限控制，仅用于本地联调测试，生产环境不能直接暴露。
+
+## 测试命令
+
+```bash
+mvn test
+mvn -q -DskipTests package
+```
+
+当前测试以 Service 层单元测试、MQ 消费者单元测试、Redis 幂等 token 语义测试和 Mapper SQL 合同测试为主，不依赖本机 MySQL、Redis、RabbitMQ 常驻服务。
 
 ## 核心流程
 
@@ -209,17 +288,23 @@ RabbitMQ 在第五阶段的作用：
 -> 执行 phase5-after-test.sql 检查结果
 ```
 
-## 当前限制
+## 当前项目边界
 
+- 当前没有前端页面，接口以 HTTP 文件和 API 调用验证为主。
+- 当前没有登录/JWT/权限系统，`userId` 由请求参数直接传入，仅用于后端业务链路练习。
 - 一个订单只购买一个票档，明细直接保存在 `ticket_order`，不使用 `ticket_order_item`。
 - 演出票档为查询缓存；订单库存变化后当前未自动清理缓存，验收库存请以 MySQL 为准或先删除相关 Redis key。
-- 当前为模拟支付；RabbitMQ 可靠投递与数据库事务尚未做到完全一致。
+- 当前为模拟支付，没有支付单、退款单和真实三方支付回调。
+- 当前是单体应用，没有拆分微服务。
 - 当前已使用本地消息表降低 MQ 投递风险，但 `SENT` 仍是应用发送成功语义，还不是严格 Broker Confirm 回调落库。
 - 固定窗口限流存在窗口边界突刺问题。
-- 幂等 Token 当前使用 `hasKey + delete`，不是严格原子操作，后续可用 Lua 优化。
+- 幂等 Token 当前使用 Redis Lua 原子消费，避免旧方案的并发非原子问题。
 - 消费失败已有 DLQ 兜底，但缺少独立告警、人工补偿后台和完整失败重试治理。
-- 订单超时时间以 `RabbitMqConstant.ORDER_TIMEOUT_TTL_MILLIS` 和订单 `expire_time` 为准。
+- 订单超时时间以 `OrderConstant.ORDER_TIMEOUT_MINUTES` / `OrderConstant.ORDER_TIMEOUT_TTL_MILLIS` 和订单 `expire_time` 为准。
 
-## 后续规划
+## 后续阶段计划
 
-完整 Publisher Confirm Callback、local_message 管理接口、消费失败告警、人工补偿后台、Lua 限流/幂等、缓存失效策略、登录鉴权、监控看板、更多自动化测试。
+- 阶段 1：补齐查询、下单、异步请求、库存、超时关闭的接口级集成测试和本地验收脚本。
+- 阶段 2：完善库存一致性治理，补 Redis/MySQL 对账、缓存失效、库存回补和压测后的数据校验。
+- 阶段 3：强化 MQ 可靠消息，落地 Publisher Confirm Callback、失败重试、告警和人工补偿入口。
+- 阶段 4：补充鉴权、后台管理、监控看板和更接近真实票务平台的运营能力。

@@ -1,6 +1,7 @@
 package com.zewbby.smartticket.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.constant.RabbitMqConstant;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
@@ -24,7 +25,7 @@ public class RabbitMqConfig {
     @Bean
     public Queue orderTimeoutDelayQueue() {
         return QueueBuilder.durable(RabbitMqConstant.ORDER_TIMEOUT_DELAY_QUEUE)
-                .ttl(RabbitMqConstant.ORDER_TIMEOUT_TTL_MILLIS)
+                .ttl(OrderConstant.ORDER_TIMEOUT_TTL_MILLIS)
                 .deadLetterExchange(RabbitMqConstant.ORDER_TIMEOUT_DEAD_EXCHANGE)
                 .deadLetterRoutingKey(RabbitMqConstant.ORDER_TIMEOUT_DEAD_ROUTING_KEY)
                 .build();

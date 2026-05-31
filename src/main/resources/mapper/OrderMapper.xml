@@ -19,6 +19,7 @@
         <result property="cancelTime" column="cancel_time"/>
         <result property="closeTime" column="close_time"/>
         <result property="cancelReason" column="cancel_reason"/>
+        <result property="version" column="version"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
@@ -41,6 +42,7 @@
             cancel_time,
             close_time,
             cancel_reason,
+            version,
             created_at,
             updated_at
         ) VALUES (
@@ -57,6 +59,7 @@
             #{cancelTime},
             #{closeTime},
             #{cancelReason},
+            COALESCE(#{version}, 0),
             #{createdAt},
             #{updatedAt}
         )
@@ -78,6 +81,7 @@
             cancel_time,
             close_time,
             cancel_reason,
+            version,
             created_at,
             updated_at
         FROM ticket_order
@@ -100,6 +104,7 @@
             cancel_time,
             close_time,
             cancel_reason,
+            version,
             created_at,
             updated_at
         FROM ticket_order
@@ -122,6 +127,7 @@
             cancel_time,
             close_time,
             cancel_reason,
+            version,
             created_at,
             updated_at
         FROM ticket_order
@@ -145,6 +151,7 @@
             cancel_time,
             close_time,
             cancel_reason,
+            version,
             created_at,
             updated_at
         FROM ticket_order

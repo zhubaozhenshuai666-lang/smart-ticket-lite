@@ -51,7 +51,7 @@ GET {{baseUrl}}/api/order-requests/REQ替换为你的requestId
 
 ### RabbitMQ 管理台验证
 ### 地址：http://localhost:15672
-### 默认账号：guest / guest
+### 账号密码以你的本地 RabbitMQ 配置为准
 ### 查看 Queues and Streams -> order.async.queue
 ### 消费者正常工作时，提交后 Ready 消息数应很快回到 0。
 ###
