@@ -1,61 +1,117 @@
 @baseUrl = http://localhost:8081
-@userId = 1
+@phone = 13800000001
+@password = Test123456
+@token = paste-login-token-here
+@idempotencyToken = paste-idempotency-token-here
 @showId = 1
 @sessionId = 1
 @ticketCategoryId = 1
 @orderId = 1
+@paymentNo = PAY_PASTE_HERE
+@requestId = REQ_PASTE_HERE
 
 
-### 1. 创建订单成功
-POST {{baseUrl}}/api/orders
+### 0. 登录获取 token
+POST {{baseUrl}}/api/auth/login
 Content-Type: application/json
 
 {
-  "userId": {{userId}},
-  "showId": {{showId}},
-  "sessionId": {{sessionId}},
-  "ticketCategoryId": {{ticketCategoryId}},
-  "quantity": 1
+  "loginName": "{{phone}}",
+  "password": "{{password}}"
 }
 
 
-### 2. 查询订单，确认 expireTime 有值、payTime 为 null
+### 1. 获取一次性下单幂等 token
+GET {{baseUrl}}/api/orders/idempotency-token
+Authorization: Bearer {{token}}
+
+
+### 2. 创建订单成功，userId 来自 Bearer token，请求体不传 userId
+POST {{baseUrl}}/api/orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "showId": {{showId}},
+  "sessionId": {{sessionId}},
+  "ticketCategoryId": {{ticketCategoryId}},
+  "quantity": 1,
+  "idempotencyToken": "{{idempotencyToken}}"
+}
+
+
+### 3. 查询订单，必须只能查询当前登录用户自己的订单
 GET {{baseUrl}}/api/orders/{{orderId}}
+Authorization: Bearer {{token}}
 
 
-### 3. 支付订单成功，确认 payTime 有值
-POST {{baseUrl}}/api/orders/{{orderId}}/pay
+### 4. 查询当前登录用户订单列表
+GET {{baseUrl}}/api/users/me/orders
+Authorization: Bearer {{token}}
 
 
-### 4. 已支付订单不能取消
-POST {{baseUrl}}/api/orders/{{orderId}}/cancel
-
-
-### 5. 创建一个用于取消的订单
-POST {{baseUrl}}/api/orders
+### 5. 创建支付单，金额来自订单 totalAmount，不允许前端传金额
+POST {{baseUrl}}/api/payments/create
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "userId": {{userId}},
-  "showId": {{showId}},
-  "sessionId": {{sessionId}},
-  "ticketCategoryId": {{ticketCategoryId}},
-  "quantity": 1
+  "orderId": {{orderId}},
+  "channel": "MOCK"
 }
 
 
-### 6. 取消未支付订单成功
-### 将 @orderId 改成第 5 步返回的新订单 id 后再执行
-POST {{baseUrl}}/api/orders/{{orderId}}/cancel
+### 6. 查询自己的支付单
+GET {{baseUrl}}/api/payments/{{paymentNo}}
+Authorization: Bearer {{token}}
 
 
-### 7. 重复取消同一订单，不应重复回滚库存
-POST {{baseUrl}}/api/orders/{{orderId}}/cancel
+### 7. mock-pay 支付成功，驱动订单 PAID 和库存 locked -> sold
+POST {{baseUrl}}/api/payments/mock-pay
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "paymentNo": "{{paymentNo}}",
+  "success": true
+}
 
 
-### 8. 已取消订单不能支付
+### 8. 重复 mock-pay 成功，应幂等返回，不重复流转库存
+POST {{baseUrl}}/api/payments/mock-pay
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "paymentNo": "{{paymentNo}}",
+  "success": true
+}
+
+
+### 9. 旧直接支付接口已废弃，应提示先创建支付单，不能绕过 payment_order
 POST {{baseUrl}}/api/orders/{{orderId}}/pay
+Authorization: Bearer {{token}}
 
 
-### 9. 查询用户订单列表
-GET {{baseUrl}}/api/users/{{userId}}/orders
+### 10. 取消订单，必须是当前登录用户自己的待支付订单，并关闭 INIT/PAYING 支付单
+POST {{baseUrl}}/api/orders/{{orderId}}/cancel
+Authorization: Bearer {{token}}
+
+
+### 11. 异步下单，userId 来自 Bearer token，请求体不传 userId
+POST {{baseUrl}}/api/orders/async
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "showId": {{showId}},
+  "sessionId": {{sessionId}},
+  "ticketCategoryId": {{ticketCategoryId}},
+  "quantity": 1,
+  "idempotencyToken": "{{idempotencyToken}}"
+}
+
+
+### 12. 查询异步下单结果，必须只能查询当前登录用户自己的 requestId
+GET {{baseUrl}}/api/order-requests/{{requestId}}
+Authorization: Bearer {{token}}

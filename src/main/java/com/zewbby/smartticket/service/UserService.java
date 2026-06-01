@@ -8,4 +8,6 @@ public interface UserService {
     UserVO createUser(CreateUserRequest request);
 
     UserVO getUserById(Long id);
+
+    UserVO getCurrentUser();
 }

@@ -9,4 +9,6 @@ public interface UserMapper {
     UserAccount selectById(Long id);
 
     UserAccount selectByPhone(String phone);
+
+    UserAccount selectByUsername(String username);
 }

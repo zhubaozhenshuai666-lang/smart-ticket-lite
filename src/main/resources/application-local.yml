@@ -29,3 +29,11 @@ spring:
     listener:
       simple:
         default-requeue-rejected: false
+
+smart-ticket:
+  jwt:
+    secret: ${SMART_TICKET_JWT_SECRET:smart-ticket-dev-secret-at-least-32-bytes}
+    expire-minutes: ${SMART_TICKET_JWT_EXPIRE_MINUTES:120}
+  auth:
+    login-fail-threshold: ${SMART_TICKET_LOGIN_FAIL_THRESHOLD:5}
+    login-lock-minutes: ${SMART_TICKET_LOGIN_LOCK_MINUTES:10}

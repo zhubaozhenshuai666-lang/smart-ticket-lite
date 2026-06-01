@@ -8,6 +8,8 @@
         <id property="id" column="id"/>
         <result property="username" column="username"/>
         <result property="phone" column="phone"/>
+        <result property="password" column="password"/>
+        <result property="status" column="status"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
@@ -19,11 +21,15 @@
         INSERT INTO user_account (
             username,
             phone,
+            password,
+            status,
             created_at,
             updated_at
         ) VALUES (
             #{username},
             #{phone},
+            #{password},
+            #{status},
             #{createdAt},
             #{updatedAt}
         )
@@ -34,6 +40,8 @@
             id,
             username,
             phone,
+            password,
+            status,
             created_at,
             updated_at
         FROM user_account
@@ -45,9 +53,24 @@
             id,
             username,
             phone,
+            password,
+            status,
             created_at,
             updated_at
         FROM user_account
         WHERE phone = #{phone}
+    </select>
+
+    <select id="selectByUsername" parameterType="java.lang.String" resultMap="UserAccountResultMap">
+        SELECT
+            id,
+            username,
+            phone,
+            password,
+            status,
+            created_at,
+            updated_at
+        FROM user_account
+        WHERE username = #{username}
     </select>
 </mapper>

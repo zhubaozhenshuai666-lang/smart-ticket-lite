@@ -24,6 +24,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -222,11 +223,11 @@ public class AsyncCreateOrderConsumer {
      * @param quantity
      * @return
      */
-    private Integer calculateTotalAmount(BigDecimal price, Integer quantity) {
+    private BigDecimal calculateTotalAmount(BigDecimal price, Integer quantity) {
         if (price == null) {
             throw new IllegalStateException("票档价格不存在");
         }
-        return price.multiply(BigDecimal.valueOf(quantity)).intValue();
+        return price.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP);
     }
 
     /**

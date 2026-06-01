@@ -22,6 +22,10 @@ public class UserAccount {
 
     private String phone;
 
+    private String password;
+
+    private String status;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

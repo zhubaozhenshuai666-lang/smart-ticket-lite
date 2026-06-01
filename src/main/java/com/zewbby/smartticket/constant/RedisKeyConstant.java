@@ -24,6 +24,12 @@ public final class RedisKeyConstant {
 
     private static final String STOCK_ROLLBACK_REQUEST_PREFIX = "stock:rollback:request:";
 
+    private static final String AUTH_TOKEN_BLACKLIST_PREFIX = "auth:token:blacklist:";
+
+    private static final String AUTH_LOGIN_FAIL_PREFIX = "auth:login:fail:";
+
+    private static final String AUTH_LOGIN_LOCK_PREFIX = "auth:login:lock:";
+
     private RedisKeyConstant() {
     }
 
@@ -69,6 +75,18 @@ public final class RedisKeyConstant {
 
     public static String stockRollbackRequestKey(String requestId) {
         return STOCK_ROLLBACK_REQUEST_PREFIX + normalize(requestId);
+    }
+
+    public static String authTokenBlacklistKey(String jti) {
+        return AUTH_TOKEN_BLACKLIST_PREFIX + normalize(jti);
+    }
+
+    public static String authLoginFailKey(String loginName) {
+        return AUTH_LOGIN_FAIL_PREFIX + normalize(loginName);
+    }
+
+    public static String authLoginLockKey(String loginName) {
+        return AUTH_LOGIN_LOCK_PREFIX + normalize(loginName);
     }
 
     private static String normalize(String value) {

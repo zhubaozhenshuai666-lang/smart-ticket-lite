@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.controller;
 
+import com.zewbby.smartticket.auth.UserContext;
 import com.zewbby.smartticket.common.ApiResponse;
 import com.zewbby.smartticket.domain.dto.CreateOrderRequest;
 import com.zewbby.smartticket.domain.vo.IdempotencyTokenVO;
@@ -13,7 +14,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -33,8 +33,8 @@ public class OrderController {
     }
 
     @GetMapping("/orders/idempotency-token")
-    public ApiResponse<IdempotencyTokenVO> generateOrderIdempotencyToken(@RequestParam Long userId) {
-        return ApiResponse.successZero(idempotencyTokenService.generateOrderToken(userId));
+    public ApiResponse<IdempotencyTokenVO> generateOrderIdempotencyToken() {
+        return ApiResponse.successZero(idempotencyTokenService.generateOrderToken(UserContext.requireUserId()));
     }
 
     /**
@@ -78,13 +78,20 @@ public class OrderController {
     }
 
     /**
-     * 列出用户订单
-     * @param userId
-     * @return
+     * 列出当前登录用户订单
      */
+    @GetMapping("/users/me/orders")
+    public ApiResponse<List<OrderVO>> listCurrentUserOrders() {
+        return ApiResponse.success(orderService.listCurrentUserOrders());
+    }
+
+    /**
+     * @deprecated 兼容旧路径，忽略 path 中的 userId，只返回当前登录用户订单。
+     */
+    @Deprecated
     @GetMapping("/users/{userId}/orders")
     public ApiResponse<List<OrderVO>> listUserOrders(@PathVariable Long userId) {
-        return ApiResponse.success(orderService.listUserOrders(userId));
+        return ApiResponse.success(orderService.listCurrentUserOrders());
     }
 
     /**

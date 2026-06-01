@@ -17,6 +17,8 @@ public class UserVO {
 
     private String phone;
 
+    private String status;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

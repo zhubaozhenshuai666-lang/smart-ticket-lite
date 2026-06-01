@@ -32,4 +32,9 @@ public class UserController {
     public ApiResponse<UserVO> getUserById(@PathVariable Long id) {
         return ApiResponse.success(userService.getUserById(id));
     }
+
+    @GetMapping("/me")
+    public ApiResponse<UserVO> getCurrentUser() {
+        return ApiResponse.success(userService.getCurrentUser());
+    }
 }

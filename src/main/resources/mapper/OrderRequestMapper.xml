@@ -68,6 +68,25 @@
         WHERE request_id = #{requestId}
     </select>
 
+    <select id="selectByRequestIdAndUserId" resultMap="TicketOrderRequestResultMap">
+        SELECT
+            id,
+            request_id,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            status,
+            order_id,
+            fail_reason,
+            created_at,
+            updated_at
+        FROM ticket_order_request
+        WHERE request_id = #{requestId}
+          AND user_id = #{userId}
+    </select>
+
     <select id="selectById" resultMap="TicketOrderRequestResultMap">
         SELECT
             id,

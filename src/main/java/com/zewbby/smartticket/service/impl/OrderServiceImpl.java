@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.service.impl;
 
+import com.zewbby.smartticket.auth.UserContext;
 import com.zewbby.smartticket.cache.OrderSubmitGuard;
 import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.common.BusinessException;
@@ -19,6 +20,7 @@ import com.zewbby.smartticket.enums.OrderStatusEnum;
 import com.zewbby.smartticket.idempotency.IdempotencyTokenService;
 import com.zewbby.smartticket.mapper.OrderMapper;
 import com.zewbby.smartticket.mapper.OrderRequestMapper;
+import com.zewbby.smartticket.mapper.PaymentMapper;
 import com.zewbby.smartticket.mapper.TicketCategoryMapper;
 import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
@@ -35,6 +37,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -61,6 +64,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final OrderRequestMapper orderRequestMapper;
 
+    private final PaymentMapper paymentMapper;
+
     private final UserMapper userMapper;
 
     private final TicketCategoryMapper ticketCategoryMapper;
@@ -81,6 +86,7 @@ public class OrderServiceImpl implements OrderService {
 
     public OrderServiceImpl(OrderMapper orderMapper,
                             OrderRequestMapper orderRequestMapper,
+                            PaymentMapper paymentMapper,
                             UserMapper userMapper,
                             TicketCategoryMapper ticketCategoryMapper,
                             TicketStockMapper ticketStockMapper,
@@ -92,6 +98,7 @@ public class OrderServiceImpl implements OrderService {
                             LocalMessageService localMessageService) {
         this.orderMapper = orderMapper;
         this.orderRequestMapper = orderRequestMapper;
+        this.paymentMapper = paymentMapper;
         this.userMapper = userMapper;
         this.ticketCategoryMapper = ticketCategoryMapper;
         this.ticketStockMapper = ticketStockMapper;
@@ -111,16 +118,17 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderRequestVO submitAsyncOrder(CreateOrderRequest request) {
-        checkOrderSubmitRateLimit(request);
+        Long currentUserId = UserContext.requireUserId();
+        checkOrderSubmitRateLimit(currentUserId, request);
 
-        if (!orderSubmitGuard.tryAcquire(request.getUserId(), request.getTicketCategoryId())) {
+        if (!orderSubmitGuard.tryAcquire(currentUserId, request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_SUBMIT);
         }
 
         TicketOrderRequest orderRequest = null;
         boolean redisPreDeducted = false;
         try {
-            UserAccount user = userMapper.selectById(request.getUserId());
+            UserAccount user = userMapper.selectById(currentUserId);
             if (user == null) {
                 throw new BusinessException("用户不存在");
             }
@@ -128,9 +136,9 @@ public class OrderServiceImpl implements OrderService {
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
             //用lua消耗token
-            idempotencyTokenService.consumeOrderToken(request.getUserId(), request.getIdempotencyToken());
+            idempotencyTokenService.consumeOrderToken(currentUserId, request.getIdempotencyToken());
 
-            //redis预扣库存
+            //redis预扣库存（Lua）
             stockLuaService.preDeductStock(request.getTicketCategoryId(), request.getQuantity());
             redisPreDeducted = true;
 
@@ -139,7 +147,7 @@ public class OrderServiceImpl implements OrderService {
 
             orderRequest = new TicketOrderRequest();
             orderRequest.setRequestId(requestId);
-            orderRequest.setUserId(request.getUserId());
+            orderRequest.setUserId(currentUserId);
             orderRequest.setShowId(request.getShowId());
             orderRequest.setSessionId(request.getSessionId());
             orderRequest.setTicketCategoryId(request.getTicketCategoryId());
@@ -159,7 +167,7 @@ public class OrderServiceImpl implements OrderService {
             //整个message
             AsyncCreateOrderMessage message = new AsyncCreateOrderMessage(
                     requestId,
-                    request.getUserId(),
+                    currentUserId,
                     request.getShowId(),
                     request.getSessionId(),
                     request.getTicketCategoryId(),
@@ -173,14 +181,15 @@ public class OrderServiceImpl implements OrderService {
             //提交失败的话就回滚redis库存
             rollbackRedisStockAfterSubmitFailure(request, redisPreDeducted, "异步下单提交失败");
             //发生其他意外就释放锁
-            orderSubmitGuard.release(request.getUserId(), request.getTicketCategoryId());
+            orderSubmitGuard.release(currentUserId, request.getTicketCategoryId());
             throw exception;
         }
     }
 
     @Override
     public OrderRequestVO getOrderRequestResult(String requestId) {
-        TicketOrderRequest orderRequest = orderRequestMapper.selectByRequestId(requestId);
+        Long currentUserId = UserContext.requireUserId();
+        TicketOrderRequest orderRequest = orderRequestMapper.selectByRequestIdAndUserId(requestId, currentUserId);
         if (orderRequest == null) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REQUEST_NOT_FOUND);
         }
@@ -190,22 +199,23 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderVO createOrder(CreateOrderRequest request) {
+        Long currentUserId = UserContext.requireUserId();
         //限流
-        checkOrderSubmitRateLimit(request);
+        checkOrderSubmitRateLimit(currentUserId, request);
 
         //防重复提交
-        if (!orderSubmitGuard.tryAcquire(request.getUserId(), request.getTicketCategoryId())) {
+        if (!orderSubmitGuard.tryAcquire(currentUserId, request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_SUBMIT);
         }
 
         try {
-            UserAccount user = userMapper.selectById(request.getUserId());
+            UserAccount user = userMapper.selectById(currentUserId);
             if (user == null) {
                 throw new BusinessException("用户不存在");
             }
 
             TicketCategory ticketCategory = getValidTicketCategory(request);
-            idempotencyTokenService.consumeOrderToken(request.getUserId(), request.getIdempotencyToken());
+            idempotencyTokenService.consumeOrderToken(currentUserId, request.getIdempotencyToken());
 
             TicketStock ticketStock = ticketStockMapper.selectByTicketCategoryId(request.getTicketCategoryId());
             if (ticketStock == null) {
@@ -217,12 +227,12 @@ public class OrderServiceImpl implements OrderService {
                 throw new BusinessException("库存不足");
             }
 
-            Integer totalAmount = calculateTotalAmount(ticketCategory.getPrice(), request.getQuantity());
+            BigDecimal totalAmount = calculateTotalAmount(ticketCategory.getPrice(), request.getQuantity());
             LocalDateTime now = LocalDateTime.now();
 
             TicketOrder order = new TicketOrder();
             order.setOrderNo(generateOrderNo());
-            order.setUserId(request.getUserId());
+            order.setUserId(currentUserId);
             order.setShowId(request.getShowId());
             order.setSessionId(request.getSessionId());
             order.setTicketCategoryId(request.getTicketCategoryId());
@@ -250,7 +260,7 @@ public class OrderServiceImpl implements OrderService {
             }
             return toOrderVO(order);
         } finally {
-            orderSubmitGuard.release(request.getUserId(), request.getTicketCategoryId());
+            orderSubmitGuard.release(currentUserId, request.getTicketCategoryId());
         }
     }
 
@@ -276,12 +286,12 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public OrderVO getOrderById(Long orderId) {
-        return toOrderVO(getExistingOrder(orderId));
+        return toOrderVO(getExistingUserOrder(orderId, UserContext.requireUserId()));
     }
 
     @Override
-    public List<OrderVO> listUserOrders(Long userId) {
-        return orderMapper.selectByUserId(userId)
+    public List<OrderVO> listCurrentUserOrders() {
+        return orderMapper.selectByUserId(UserContext.requireUserId())
                 .stream()
                 .map(this::toOrderVO)
                 .collect(Collectors.toList());
@@ -295,7 +305,8 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderVO cancelOrder(Long orderId) {
-        TicketOrder order = getExistingOrder(orderId);
+        Long currentUserId = UserContext.requireUserId();
+        TicketOrder order = getExistingUserOrder(orderId, currentUserId);
         //不可以重复取消订单
         if (OrderStatusEnum.isCancelled(order.getStatus())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_CANCEL);
@@ -305,8 +316,9 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorMessageConstant.ORDER_STATUS_NOT_ALLOWED);
         }
 
-        int updateRows = orderMapper.updateCancelStatus(
+        int updateRows = orderMapper.updateCancelStatusByUserId(
                 orderId,
+                currentUserId,
                 OrderStatusEnum.PENDING_PAYMENT.getCode(),
                 OrderStatusEnum.CANCELLED.getCode(),
                 LocalDateTime.now(),
@@ -322,9 +334,10 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException("库存回滚失败");
         }
 
+        paymentMapper.closeUnpaidByOrderId(orderId, LocalDateTime.now());
         rollbackRedisStockIfAsyncOrder(order);
 
-        return toOrderVO(orderMapper.selectById(orderId));
+        return toOrderVO(orderMapper.selectByIdAndUserId(orderId, currentUserId));
     }
 
     /**
@@ -335,39 +348,7 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderVO payOrder(Long orderId) {
-        TicketOrder order = getExistingOrder(orderId);
-        //检查是否支付过了
-        if (OrderStatusEnum.isPaid(order.getStatus())) {
-            throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_PAY);
-        }
-        //检查是否为待支付
-        if (!OrderStatusEnum.isPendingPayment(order.getStatus())) {
-            throw new BusinessException(ErrorMessageConstant.ORDER_STATUS_NOT_ALLOWED);
-        }
-        //检查是否过期
-        if (order.getExpireTime() != null && LocalDateTime.now().isAfter(order.getExpireTime())) {
-            throw new BusinessException(ErrorMessageConstant.ORDER_EXPIRED);
-        }
-
-        LocalDateTime payTime = LocalDateTime.now();
-        int updateRows = orderMapper.updatePayStatus(
-                orderId,
-                OrderStatusEnum.PENDING_PAYMENT.getCode(),
-                OrderStatusEnum.PAID.getCode(),
-                payTime
-        );
-        //修改行数不是1，也就是没做任何更改(已经被其他请求更改过了)
-        if (updateRows != 1) {
-            throw new BusinessException(ErrorMessageConstant.ORDER_STATUS_NOT_ALLOWED);
-        }
-
-        //扣库存
-        int confirmRows = ticketStockMapper.confirmStock(order.getTicketCategoryId(), order.getQuantity());
-        if (confirmRows != 1) {
-            throw new BusinessException("库存确认失败");
-        }
-
-        return toOrderVO(orderMapper.selectById(orderId));
+        throw new BusinessException(ErrorMessageConstant.PAYMENT_REQUIRED);
     }
 
     /**
@@ -404,6 +385,7 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException("库存回滚失败");
         }
 
+        paymentMapper.closeUnpaidByOrderId(orderId, LocalDateTime.now());
         rollbackRedisStockIfAsyncOrder(order);
     }
 
@@ -413,11 +395,11 @@ public class OrderServiceImpl implements OrderService {
      * @param quantity
      * @return
      */
-    private Integer calculateTotalAmount(BigDecimal price, Integer quantity) {
+    private BigDecimal calculateTotalAmount(BigDecimal price, Integer quantity) {
         if (price == null) {
             throw new BusinessException("票档价格不存在");
         }
-        return price.multiply(BigDecimal.valueOf(quantity)).intValue();
+        return price.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP);
     }
 
     /**
@@ -483,9 +465,9 @@ public class OrderServiceImpl implements OrderService {
     }
 
     //查限流
-    private void checkOrderSubmitRateLimit(CreateOrderRequest request) {
+    private void checkOrderSubmitRateLimit(Long userId, CreateOrderRequest request) {
         boolean userAllowed = rateLimitService.tryAcquire(
-                RedisKeyConstant.rateLimitUserKey(request.getUserId(), ORDER_SUBMIT_ACTION),
+                RedisKeyConstant.rateLimitUserKey(userId, ORDER_SUBMIT_ACTION),
                 USER_ORDER_SUBMIT_LIMIT,
                 ORDER_SUBMIT_WINDOW_SECONDS
         );
@@ -504,15 +486,10 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    /**
-     * 检查订单是否存在
-     * @param orderId
-     * @return
-     */
-    private TicketOrder getExistingOrder(Long orderId) {
-        TicketOrder order = orderMapper.selectById(orderId);
+    private TicketOrder getExistingUserOrder(Long orderId, Long userId) {
+        TicketOrder order = orderMapper.selectByIdAndUserId(orderId, userId);
         if (order == null) {
-            throw new BusinessException("订单不存在");
+            throw new BusinessException(ErrorMessageConstant.ORDER_NOT_FOUND);
         }
         return order;
     }

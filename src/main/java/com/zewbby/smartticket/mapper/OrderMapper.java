@@ -12,6 +12,8 @@ public interface OrderMapper {
 
     TicketOrder selectById(Long id);
 
+    TicketOrder selectByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
+
     TicketOrder selectByOrderNo(String orderNo);
 
     List<TicketOrder> selectByUserId(Long userId);
@@ -19,16 +21,18 @@ public interface OrderMapper {
     List<TicketOrder> selectExpiredPendingOrders(@Param("now") LocalDateTime now,
                                                  @Param("limit") Integer limit);
 
-    int updateCancelStatus(@Param("id") Long id,
-                           @Param("oldStatus") String oldStatus,
-                           @Param("newStatus") String newStatus,
-                           @Param("cancelTime") LocalDateTime cancelTime,
-                           @Param("cancelReason") String cancelReason);
+    int updateCancelStatusByUserId(@Param("id") Long id,
+                                   @Param("userId") Long userId,
+                                   @Param("oldStatus") String oldStatus,
+                                   @Param("newStatus") String newStatus,
+                                   @Param("cancelTime") LocalDateTime cancelTime,
+                                   @Param("cancelReason") String cancelReason);
 
-    int updatePayStatus(@Param("id") Long id,
-                        @Param("oldStatus") String oldStatus,
-                        @Param("newStatus") String newStatus,
-                        @Param("payTime") LocalDateTime payTime);
+    int updatePayStatusByUserId(@Param("id") Long id,
+                                @Param("userId") Long userId,
+                                @Param("oldStatus") String oldStatus,
+                                @Param("newStatus") String newStatus,
+                                @Param("payTime") LocalDateTime payTime);
 
     int updateCloseStatus(@Param("id") Long id,
                           @Param("oldStatus") String oldStatus,

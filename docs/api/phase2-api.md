@@ -97,13 +97,14 @@
 
 - URL：`/api/orders`
 - Method：`POST`
-- 请求参数：`userId`、`showId`、`sessionId`、`ticketCategoryId`、`quantity`
+- 请求头：`Authorization: Bearer <token>`
+- 请求参数：`showId`、`sessionId`、`ticketCategoryId`、`quantity`、`idempotencyToken`
 - 请求 JSON：见下方
 - 正常场景：创建待支付订单，锁定库存并发送超时消息
-- 异常场景：用户/票档/库存不存在、库存不足、并发重复提交、MQ 发送失败
+- 异常场景：未登录、演出场次票档关系不匹配、票档/库存不存在、库存不足、并发重复提交、MQ 发送失败
 
 ```json
-{"userId":1,"showId":1,"sessionId":1,"ticketCategoryId":2,"quantity":1}
+{"showId":1,"sessionId":1,"ticketCategoryId":2,"quantity":1,"idempotencyToken":"token-from-/api/orders/idempotency-token"}
 ```
 
 ```json
@@ -117,10 +118,11 @@
 
 - URL：`/api/orders/{id}`
 - Method：`GET`
+- 请求头：`Authorization: Bearer <token>`
 - 请求参数：路径参数 `id`，订单 ID
 - 请求 JSON：无
-- 正常场景：查看订单状态及时间信息
-- 异常场景：订单不存在
+- 正常场景：查看当前登录用户自己的订单状态及时间信息
+- 异常场景：订单不存在或不属于当前登录用户
 
 ```json
 {"code":200,"message":"success","data":{"id":30,"status":"PENDING_PAYMENT","expireTime":"2026-05-27T18:01:00","payTime":null,"cancelTime":null,"closeTime":null}}
@@ -128,40 +130,65 @@
 
 ### 查询用户订单列表
 
-- URL：`/api/users/{userId}/orders`
+- URL：`/api/users/me/orders`
 - Method：`GET`
-- 请求参数：路径参数 `userId`，用户 ID
+- 请求头：`Authorization: Bearer <token>`
+- 请求参数：无
 - 请求 JSON：无
-- 正常场景：查看某用户的订单历史
+- 正常场景：查看当前登录用户的订单历史
 - 异常场景：没有订单时返回空数组
 
 ```json
 {"code":200,"message":"success","data":[{"id":30,"status":"PENDING_PAYMENT"}]}
 ```
 
-### 支付订单
+旧路径 `/api/users/{userId}/orders` 暂时保留兼容，但会忽略路径中的 `userId`，只返回当前 token 用户的订单。
 
-- URL：`/api/orders/{id}/pay`
+### 创建支付单
+
+- URL：`/api/payments/create`
 - Method：`POST`
-- 请求参数：路径参数 `id`，订单 ID
-- 请求 JSON：无
-- 正常场景：仅 `PENDING_PAYMENT` 订单可以模拟支付
-- 异常场景：订单已支付、已取消、已关闭或已过期
+- 请求头：`Authorization: Bearer <token>`
+- 请求参数：`orderId`、`channel`
+- 请求 JSON：见下方
+- 正常场景：为当前登录用户自己的 `PENDING_PAYMENT` 订单创建 `payment_order`
+- 异常场景：订单不存在、不属于当前登录用户、已支付、已取消、已关闭或已过期
 
 ```json
-{"code":200,"message":"success","data":{"id":30,"status":"PAID","payTime":"2026-05-27T18:00:20"}}
+{"orderId":30,"channel":"MOCK"}
 ```
 
-支付成功时库存变化：`locked_stock - quantity`，`sold_stock + quantity`。
+```json
+{"code":200,"message":"success","data":{"paymentNo":"PAY...","orderId":30,"amount":880.00,"channel":"MOCK","status":"INIT"}}
+```
+
+### mock-pay 支付回调
+
+- URL：`/api/payments/mock-pay`
+- Method：`POST`
+- 请求头：`Authorization: Bearer <token>`
+- 请求参数：`paymentNo`、`success`
+- 请求 JSON：见下方
+- 正常场景：当前登录用户自己的支付单支付成功，订单 `PENDING_PAYMENT -> PAID`
+- 异常场景：支付单不存在、不属于当前用户、支付单已关闭/失败、订单已取消/关闭
+
+```json
+{"paymentNo":"PAY...","success":true}
+```
+
+支付成功时库存变化：`locked_stock - quantity`，`sold_stock + quantity`。重复成功回调幂等返回，不重复流转库存。
+
+旧接口 `/api/orders/{id}/pay` 已废弃，会提示“请先创建支付单后再支付”，不能绕过 `payment_order` 直接修改订单。
 
 ### 主动取消订单
 
 - URL：`/api/orders/{id}/cancel`
 - Method：`POST`
+- 请求头：`Authorization: Bearer <token>`
 - 请求参数：路径参数 `id`，订单 ID
 - 请求 JSON：无
-- 正常场景：仅 `PENDING_PAYMENT` 订单可以取消
-- 异常场景：重复取消，或订单已经支付/关闭
+- 正常场景：仅当前登录用户自己的 `PENDING_PAYMENT` 订单可以取消
+- 异常场景：订单不存在、不属于当前登录用户、重复取消，或订单已经支付/关闭
 
 ```json
 {"code":200,"message":"success","data":{"id":31,"status":"CANCELLED","cancelTime":"2026-05-27T18:02:00","cancelReason":"用户主动取消"}}

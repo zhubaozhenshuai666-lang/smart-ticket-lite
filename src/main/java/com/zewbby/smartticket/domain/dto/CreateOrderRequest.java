@@ -1,7 +1,7 @@
 package com.zewbby.smartticket.domain.dto;
 
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -12,7 +12,10 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class CreateOrderRequest {
 
-    @NotNull(message = "用户ID不能为空")
+    /**
+     * @deprecated 用户身份必须以后端 JWT 解析出的 UserContext 为准，本字段仅为兼容旧 HTTP 示例保留。
+     */
+    @Deprecated
     private Long userId;
 
     @NotNull(message = "演出ID不能为空")

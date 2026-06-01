@@ -15,7 +15,7 @@
 - Redis 缓存演出详情、场次与票档查询
 - Redis `SET NX` 防止请求处理中重复下单
 - 订单状态机：`PENDING_PAYMENT`、`PAID`、`CANCELLED`、`CLOSED`
-- 模拟支付与主动取消
+- 支付单 `payment_order` 与 mock-pay 模拟支付回调
 - RabbitMQ TTL + 死信队列自动关闭超时订单
 - 定时任务兜底关闭过期待支付订单
 
@@ -112,6 +112,7 @@ cp src/main/resources/application-local.example.yml src/main/resources/applicati
 export SMART_TICKET_DB_PASSWORD='你的本地 MySQL 密码'
 export SMART_TICKET_REDIS_PASSWORD='你的本地 Redis 密码，如无密码可留空'
 export SMART_TICKET_RABBITMQ_PASSWORD='你的本地 RabbitMQ 密码'
+export SMART_TICKET_JWT_SECRET='至少32字节的本地JWT签名密钥'
 ```
 
 3. 启动 Redis：
@@ -143,22 +144,36 @@ mvn spring-boot:run
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
+| `POST` | `/api/auth/register` | 用户注册，密码使用 BCrypt 存储 |
+| `POST` | `/api/auth/login` | 用户登录，返回 JWT |
+| `POST` | `/api/auth/logout` | 当前 token 退出登录，写入 Redis 黑名单 |
+| `GET` | `/api/users/me` | 根据 Bearer token 查询当前用户 |
 | `GET` | `/api/users/{id}` | 查询测试用户 |
 | `GET` | `/api/shows` | 查询演出列表 |
 | `GET` | `/api/shows/{id}` | 查询演出详情、场次、票档 |
-| `POST` | `/api/orders/idempotency-token` | 获取一次性下单幂等 token |
-| `POST` | `/api/orders` | 同步创建订单 |
-| `POST` | `/api/orders/async` | 异步提交下单请求 |
-| `GET` | `/api/order-requests/{requestId}` | 查询异步下单结果 |
-| `POST` | `/api/orders/{orderId}/pay` | 模拟支付订单 |
-| `POST` | `/api/orders/{orderId}/cancel` | 取消待支付订单 |
-| `GET` | `/api/orders/{orderId}` | 查询订单详情 |
+| `GET` | `/api/orders/idempotency-token` | 登录后获取一次性下单幂等 token |
+| `POST` | `/api/orders` | 登录后同步创建订单，请求体不需要传 `userId` |
+| `POST` | `/api/orders/async` | 登录后异步提交下单请求，请求体不需要传 `userId` |
+| `GET` | `/api/order-requests/{requestId}` | 查询当前用户的异步下单结果 |
+| `GET` | `/api/users/me/orders` | 查询当前用户订单列表 |
+| `POST` | `/api/payments/create` | 为当前用户订单创建支付单 |
+| `GET` | `/api/payments/{paymentNo}` | 查询当前用户支付单 |
+| `POST` | `/api/payments/mock-pay` | 本地模拟支付成功/失败回调 |
+| `POST` | `/api/orders/{orderId}/pay` | 旧直接支付接口，已废弃，不再改订单为 PAID |
+| `POST` | `/api/orders/{orderId}/cancel` | 取消当前用户待支付订单 |
+| `GET` | `/api/orders/{orderId}` | 查询当前用户订单详情 |
 
 第二阶段同步订单流程：在 IDEA 打开 [phase2-full-flow.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase2-full-flow.http)，从上到下依次点击请求左侧绿色运行按钮。
 
 第三阶段异步下单流程：在 IDEA 打开 [phase3-async-order-full-flow.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase3-async-order-full-flow.http)，先提交异步下单，复制返回的 `requestId` 查询结果；当结果为 `SUCCESS` 后，再复制返回的 `orderId` 继续支付、取消或等待超时关闭。
 
 接口文档见 [phase2-api.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase2-api.md)。
+
+阶段 1 认证加固测试见 [phase1-auth-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase1-auth-api.http)，认证说明见 [phase1-auth-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase1-auth-report.md)。
+
+阶段 1 订单权限测试见 [phase1-order-permission-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase1-order-permission-api.http)，订单权限改造说明见 [phase1-order-permission-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase1-order-permission-report.md)。
+
+阶段 1 支付闭环测试见 [phase1-payment-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase1-payment-api.http)，支付闭环说明见 [phase1-payment-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase1-payment-report.md)。
 
 第三阶段 RabbitMQ 检查见 [phase3-rabbitmq-check.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/mq/phase3-rabbitmq-check.md)。
 
@@ -220,12 +235,23 @@ mvn test
 mvn -q -DskipTests package
 ```
 
-当前测试以 Service 层单元测试、MQ 消费者单元测试、Redis 幂等 token 语义测试和 Mapper SQL 合同测试为主，不依赖本机 MySQL、Redis、RabbitMQ 常驻服务。
+当前测试以 Service 层单元测试、Controller MockMvc 测试、MQ 消费者单元测试、Redis 幂等 token 语义测试、JWT/登录失败限制测试和 Mapper SQL 合同测试为主，不依赖本机 MySQL、Redis、RabbitMQ 常驻服务。
 
 ## 核心流程
 
 ```text
-选择演出与票档 -> 创建订单并锁库存 -> 支付 / 取消 / 超时关闭
+选择演出与票档 -> 创建订单并锁库存 -> 创建支付单 -> mock-pay 回调支付 / 取消 / 超时关闭
+```
+
+支付链路：
+
+```text
+POST /api/payments/create
+-> 创建 payment_order(INIT)，金额来自 ticket_order.total_amount
+-> POST /api/payments/mock-pay
+-> payment_order INIT -> SUCCESS
+-> ticket_order PENDING_PAYMENT -> PAID
+-> ticket_stock locked_stock -> sold_stock
 ```
 
 异步下单链路：
@@ -250,6 +276,16 @@ POST /api/orders/async
 | `PAID` | 已支付 |
 | `CANCELLED` | 用户主动取消 |
 | `CLOSED` | 超时关闭 |
+
+支付单状态：
+
+| 状态 | 含义 |
+|---|---|
+| `INIT` | 支付单已创建，等待支付 |
+| `PAYING` | 支付处理中，当前阶段预留 |
+| `SUCCESS` | 支付成功 |
+| `FAILED` | 支付失败 |
+| `CLOSED` | 订单取消或超时后关闭支付单 |
 
 | 操作 | available_stock | locked_stock | sold_stock |
 |---|---:|---:|---:|
@@ -291,10 +327,13 @@ RabbitMQ 在第五阶段的作用：
 ## 当前项目边界
 
 - 当前没有前端页面，接口以 HTTP 文件和 API 调用验证为主。
-- 当前没有登录/JWT/权限系统，`userId` 由请求参数直接传入，仅用于后端业务链路练习。
+- 当前已有登录注册与 JWT 认证能力；用户侧订单接口统一从 `UserContext` 获取当前用户，不再信任请求体或路径中的 `userId`。
+- JWT 已包含 `jti`，logout 会将 `jti` 写入 Redis 黑名单；登录失败次数使用 Redis 做临时锁定。
+- 当前没有 RBAC、管理员角色、刷新 token、OAuth2、短信验证码和图形验证码。
 - 一个订单只购买一个票档，明细直接保存在 `ticket_order`，不使用 `ticket_order_item`。
 - 演出票档为查询缓存；订单库存变化后当前未自动清理缓存，验收库存请以 MySQL 为准或先删除相关 Redis key。
-- 当前为模拟支付，没有支付单、退款单和真实三方支付回调。
+- 当前有 `payment_order` 支付单和 mock-pay 模拟回调，但没有真实三方支付、退款单、出票和核销。
+- 旧 `/api/orders/{orderId}/pay` 不再作为支付主链路，调用会提示先创建支付单。
 - 当前是单体应用，没有拆分微服务。
 - 当前已使用本地消息表降低 MQ 投递风险，但 `SENT` 仍是应用发送成功语义，还不是严格 Broker Confirm 回调落库。
 - 固定窗口限流存在窗口边界突刺问题。
@@ -304,7 +343,6 @@ RabbitMQ 在第五阶段的作用：
 
 ## 后续阶段计划
 
-- 阶段 1：补齐查询、下单、异步请求、库存、超时关闭的接口级集成测试和本地验收脚本。
 - 阶段 2：完善库存一致性治理，补 Redis/MySQL 对账、缓存失效、库存回补和压测后的数据校验。
 - 阶段 3：强化 MQ 可靠消息，落地 Publisher Confirm Callback、失败重试、告警和人工补偿入口。
-- 阶段 4：补充鉴权、后台管理、监控看板和更接近真实票务平台的运营能力。
+- 阶段 4：补充后台管理、监控看板和更接近真实票务平台的运营能力。

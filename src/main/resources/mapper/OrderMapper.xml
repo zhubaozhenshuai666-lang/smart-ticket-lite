@@ -88,6 +88,30 @@
         WHERE id = #{id}
     </select>
 
+    <select id="selectByIdAndUserId" resultMap="TicketOrderResultMap">
+        SELECT
+            id,
+            order_no,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            total_amount,
+            status,
+            expire_time,
+            pay_time,
+            cancel_time,
+            close_time,
+            cancel_reason,
+            version,
+            created_at,
+            updated_at
+        FROM ticket_order
+        WHERE id = #{id}
+          AND user_id = #{userId}
+    </select>
+
     <select id="selectByOrderNo" parameterType="java.lang.String" resultMap="TicketOrderResultMap">
         SELECT
             id,
@@ -161,7 +185,7 @@
         LIMIT #{limit}
     </select>
 
-    <update id="updateCancelStatus">
+    <update id="updateCancelStatusByUserId">
         UPDATE ticket_order
         SET
             status = #{newStatus},
@@ -169,16 +193,18 @@
             cancel_reason = #{cancelReason},
             updated_at = NOW()
         WHERE id = #{id}
+          AND user_id = #{userId}
           AND status = #{oldStatus}
     </update>
 
-    <update id="updatePayStatus">
+    <update id="updatePayStatusByUserId">
         UPDATE ticket_order
         SET
             status = #{newStatus},
             pay_time = #{payTime},
             updated_at = NOW()
         WHERE id = #{id}
+          AND user_id = #{userId}
           AND status = #{oldStatus}
     </update>
 

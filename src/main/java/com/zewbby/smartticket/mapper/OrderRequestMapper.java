@@ -9,6 +9,9 @@ public interface OrderRequestMapper {
 
     TicketOrderRequest selectByRequestId(@Param("requestId") String requestId);
 
+    TicketOrderRequest selectByRequestIdAndUserId(@Param("requestId") String requestId,
+                                                  @Param("userId") Long userId);
+
     TicketOrderRequest selectById(@Param("id") Long id);
 
     TicketOrderRequest selectByOrderId(@Param("orderId") Long orderId);

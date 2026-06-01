@@ -16,7 +16,7 @@ public interface OrderService {
 
     OrderVO getOrderById(Long orderId);
 
-    List<OrderVO> listUserOrders(Long userId);
+    List<OrderVO> listCurrentUserOrders();
 
     OrderVO cancelOrder(Long orderId);
 
