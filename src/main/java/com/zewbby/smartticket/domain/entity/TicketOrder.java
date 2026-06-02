@@ -31,6 +31,14 @@ public class TicketOrder {
 
     private Integer quantity;
 
+    private String showTitle;
+
+    private LocalDateTime sessionStartTime;
+
+    private String ticketCategoryName;
+
+    private BigDecimal ticketPrice;
+
     private BigDecimal totalAmount;
 
     private String status;

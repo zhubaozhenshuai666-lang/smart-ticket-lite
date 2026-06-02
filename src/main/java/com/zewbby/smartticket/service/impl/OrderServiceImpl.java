@@ -7,7 +7,9 @@ import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.domain.dto.CreateOrderRequest;
-import com.zewbby.smartticket.domain.entity.TicketCategory;
+import com.zewbby.smartticket.domain.dto.OrderSnapshot;
+import com.zewbby.smartticket.domain.entity.PaymentFlowLog;
+import com.zewbby.smartticket.domain.entity.PaymentOrder;
 import com.zewbby.smartticket.domain.entity.TicketOrder;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
 import com.zewbby.smartticket.domain.entity.TicketStock;
@@ -17,6 +19,9 @@ import com.zewbby.smartticket.domain.vo.OrderVO;
 import com.zewbby.smartticket.enums.CompensationStatusEnum;
 import com.zewbby.smartticket.enums.OrderRequestStatusEnum;
 import com.zewbby.smartticket.enums.OrderStatusEnum;
+import com.zewbby.smartticket.enums.PaymentCallbackResultEnum;
+import com.zewbby.smartticket.enums.PaymentFlowEventTypeEnum;
+import com.zewbby.smartticket.enums.PaymentStatusEnum;
 import com.zewbby.smartticket.enums.RedisStockDeductResult;
 import com.zewbby.smartticket.enums.RedisStockReleaseResult;
 import com.zewbby.smartticket.idempotency.IdempotencyTokenService;
@@ -27,14 +32,16 @@ import com.zewbby.smartticket.mapper.TicketCategoryMapper;
 import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
+import com.zewbby.smartticket.mq.OrderTimeoutMessage;
 import com.zewbby.smartticket.mq.OrderTimeoutProducer;
 import com.zewbby.smartticket.ratelimit.RateLimitService;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
+import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.OrderService;
+import com.zewbby.smartticket.service.PaymentAuditService;
 import com.zewbby.smartticket.service.StockCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.AmqpException;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -87,6 +94,10 @@ public class OrderServiceImpl implements OrderService {
 
     private final AsyncOrderMessagePublisher asyncOrderMessagePublisher;
 
+    private final PaymentAuditService paymentAuditService;
+
+    private final ObservabilityMetricsService observabilityMetricsService;
+
     public OrderServiceImpl(OrderMapper orderMapper,
                             OrderRequestMapper orderRequestMapper,
                             PaymentMapper paymentMapper,
@@ -98,8 +109,10 @@ public class OrderServiceImpl implements OrderService {
                             RateLimitService rateLimitService,
                             IdempotencyTokenService idempotencyTokenService,
                             StockLuaService stockLuaService,
-                            StockCacheService stockCacheService,
-                            AsyncOrderMessagePublisher asyncOrderMessagePublisher) {
+	                            StockCacheService stockCacheService,
+	                            AsyncOrderMessagePublisher asyncOrderMessagePublisher,
+	                            PaymentAuditService paymentAuditService,
+	                            ObservabilityMetricsService observabilityMetricsService) {
         this.orderMapper = orderMapper;
         this.orderRequestMapper = orderRequestMapper;
         this.paymentMapper = paymentMapper;
@@ -113,6 +126,8 @@ public class OrderServiceImpl implements OrderService {
         this.stockLuaService = stockLuaService;
         this.stockCacheService = stockCacheService;
         this.asyncOrderMessagePublisher = asyncOrderMessagePublisher;
+        this.paymentAuditService = paymentAuditService;
+        this.observabilityMetricsService = observabilityMetricsService;
     }
 
     /**
@@ -198,6 +213,7 @@ public class OrderServiceImpl implements OrderService {
             );
             if (!deductResult.isSuccess()) {
                 orderRequestMapper.markFailed(orderRequest.getId(), toPreDeductFailMessage(deductResult));
+                observabilityMetricsService.recordAsyncOrderRequestFailed();
                 throw new BusinessException(toPreDeductFailMessage(deductResult));
             }
             redisPreDeducted = true;
@@ -252,14 +268,21 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Deprecated
     @Transactional
     public OrderVO createOrder(CreateOrderRequest request) {
         return createOrder(request, UNKNOWN_CLIENT_IP);
     }
 
     @Override
+    @Deprecated
     @Transactional
     public OrderVO createOrder(CreateOrderRequest request, String clientIp) {
+        /*
+         * 同步下单只保留为兼容和本地调试入口，不再作为高并发抢票主链路。
+         * 高并发场景如果同时宣传同步和异步两套主路径，会让限流、Redis 预扣、Outbox、消费者幂等等治理边界变得混乱。
+         * 真正的抢票入口应该走 submitAsyncOrder：Redis 先削峰，local_message 再可靠投递，消费者异步创建订单。
+         */
         Long currentUserId = UserContext.requireUserId();
         //限流
         checkCoarseOrderSubmitRateLimit(currentUserId, clientIp, SYNC_ORDER_API_NAME);
@@ -276,7 +299,7 @@ public class OrderServiceImpl implements OrderService {
                 throw new BusinessException("用户不存在");
             }
 
-            TicketCategory ticketCategory = getValidTicketCategory(request);
+            OrderSnapshot snapshot = getOrderSnapshot(request);
             checkTicketOrderSubmitRateLimit(request);
             idempotencyTokenService.consumeOrderToken(currentUserId, request.getIdempotencyToken());
 
@@ -290,7 +313,7 @@ public class OrderServiceImpl implements OrderService {
                 throw new BusinessException("库存不足");
             }
 
-            BigDecimal totalAmount = calculateTotalAmount(ticketCategory.getPrice(), request.getQuantity());
+            BigDecimal totalAmount = calculateTotalAmount(snapshot.getTicketPrice(), request.getQuantity());
             LocalDateTime now = LocalDateTime.now();
 
             TicketOrder order = new TicketOrder();
@@ -300,6 +323,7 @@ public class OrderServiceImpl implements OrderService {
             order.setSessionId(request.getSessionId());
             order.setTicketCategoryId(request.getTicketCategoryId());
             order.setQuantity(request.getQuantity());
+            fillOrderSnapshot(order, snapshot);
             order.setTotalAmount(totalAmount);
             order.setStatus(OrderStatusEnum.PENDING_PAYMENT.getCode());
             order.setExpireTime(now.plusMinutes(OrderConstant.ORDER_TIMEOUT_MINUTES));
@@ -314,26 +338,26 @@ public class OrderServiceImpl implements OrderService {
             if (insertRows != 1) {
                 throw new BusinessException("订单创建失败");
             }
+            observabilityMetricsService.recordOrderCreated();
 
-            try {
-                orderTimeoutProducer.sendOrderTimeoutMessage(order.getId(), order.getOrderNo());
-            } catch (AmqpException exception) {
-                LOGGER.error("Failed to send order timeout message, orderId={}", order.getId(), exception);
-                throw new BusinessException("订单创建失败，请稍后重试");
-            }
+            orderTimeoutProducer.sendOrderTimeoutMessage(buildOrderTimeoutMessage(order));
             return toOrderVO(order);
         } finally {
             orderSubmitGuard.release(currentUserId, request.getTicketCategoryId());
         }
     }
 
-    private TicketCategory getValidTicketCategory(CreateOrderRequest request) {
+    private OrderSnapshot getOrderSnapshot(CreateOrderRequest request) {
         validateShowSessionTicketCategoryRelation(request);
-        TicketCategory ticketCategory = ticketCategoryMapper.selectById(request.getTicketCategoryId());
-        if (ticketCategory == null) {
+        OrderSnapshot snapshot = ticketCategoryMapper.selectOrderSnapshot(
+                request.getShowId(),
+                request.getSessionId(),
+                request.getTicketCategoryId()
+        );
+        if (snapshot == null) {
             throw new BusinessException(ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
         }
-        return ticketCategory;
+        return snapshot;
     }
 
     private void validateShowSessionTicketCategoryRelation(CreateOrderRequest request) {
@@ -396,8 +420,9 @@ public class OrderServiceImpl implements OrderService {
         if (rollbackRows != 1) {
             throw new BusinessException("库存回滚失败");
         }
+        observabilityMetricsService.recordOrderCancelled();
 
-        paymentMapper.closeUnpaidByOrderId(orderId, LocalDateTime.now());
+        closeUnpaidPaymentWithFlow(orderId);
         rollbackRedisStockIfAsyncOrder(order);
 
         return toOrderVO(orderMapper.selectByIdAndUserId(orderId, currentUserId));
@@ -427,10 +452,16 @@ public class OrderServiceImpl implements OrderService {
             return;
         }
         if (!OrderStatusEnum.isPendingPayment(order.getStatus())) {
+            LOGGER.info("Skipped timeout close because order is not pending payment, orderId={}, status={}",
+                    orderId, order.getStatus());
             return;
         }
 
-        //修改状态为已关闭
+        /*
+         * 超时关闭必须以数据库订单状态为准，不能信任消息 payload 直接改状态。
+         * 延迟消息可能晚到或重复到：订单如果已经 PAID，就绝不能被 CLOSED 覆盖；如果已 CANCELLED/CLOSED，也不能重复释放库存。
+         * 这里 SQL 带旧状态条件，只有 PENDING_PAYMENT -> CLOSED 成功后，才允许释放 locked_stock 并关闭未支付 payment_order。
+         */
         int updateRows = orderMapper.updateCloseStatus(
                 orderId,
                 OrderStatusEnum.PENDING_PAYMENT.getCode(),
@@ -442,14 +473,26 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorMessageConstant.ORDER_STATUS_NOT_ALLOWED);
         }
 
-        //回滚库存
+        // 订单超时关闭后必须释放 locked_stock 回 available_stock，否则用户未支付也会长期占用库存。
         int rollbackRows = ticketStockMapper.rollbackStock(order.getTicketCategoryId(), order.getQuantity());
         if (rollbackRows != 1) {
             throw new BusinessException("库存回滚失败");
         }
 
-        paymentMapper.closeUnpaidByOrderId(orderId, LocalDateTime.now());
+        // 未支付支付单要一起关闭；已经 SUCCESS 的支付单不会被这个 SQL 覆盖。
+        closeUnpaidPaymentWithFlow(orderId);
         rollbackRedisStockIfAsyncOrder(order);
+    }
+
+    private OrderTimeoutMessage buildOrderTimeoutMessage(TicketOrder order) {
+        OrderTimeoutMessage message = new OrderTimeoutMessage();
+        message.setOrderId(order.getId());
+        message.setOrderNo(order.getOrderNo());
+        message.setUserId(order.getUserId());
+        message.setExpireTime(order.getExpireTime());
+        message.setTraceId(null);
+        message.setMessageId(null);
+        return message;
     }
 
     /**
@@ -532,6 +575,7 @@ public class OrderServiceImpl implements OrderService {
             if (releaseResult.isSuccess() || releaseResult == RedisStockReleaseResult.ALREADY_COMPENSATED) {
                 orderRequestMapper.markCompensated(orderRequest.getId(), LocalDateTime.now());
             }
+            observabilityMetricsService.recordAsyncOrderRequestFailed();
             LOGGER.info("Released Redis pre-deducted stock after async submit failure, requestId={}, result={}, reason={}",
                     orderRequest.getRequestId(), releaseResult, reason);
         } catch (RuntimeException releaseException) {
@@ -589,7 +633,37 @@ public class OrderServiceImpl implements OrderService {
      */
     private void checkSoldoutFastFail(Long ticketCategoryId) {
         if (stockCacheService.isSoldOut(ticketCategoryId)) {
+            observabilityMetricsService.recordSoldoutFastFail();
             throw new BusinessException(ErrorMessageConstant.TICKET_SOLD_OUT);
+        }
+    }
+
+    private void fillOrderSnapshot(TicketOrder order, OrderSnapshot snapshot) {
+        /*
+         * 订单快照不是展示字段的重复保存，而是在保护历史交易事实。
+         * 后台后续可能修改演出名、场次时间或票档价格，但已经下单的订单必须保留下单当刻的名称和价格。
+         */
+        order.setShowTitle(snapshot.getShowTitle());
+        order.setSessionStartTime(snapshot.getSessionStartTime());
+        order.setTicketCategoryName(snapshot.getTicketCategoryName());
+        order.setTicketPrice(snapshot.getTicketPrice());
+    }
+
+    private void closeUnpaidPaymentWithFlow(Long orderId) {
+        PaymentOrder paymentOrder = paymentMapper.selectByOrderId(orderId);
+        int closeRows = paymentMapper.closeUnpaidByOrderId(orderId, LocalDateTime.now());
+        if (closeRows == 1 && paymentOrder != null) {
+            PaymentFlowLog flowLog = new PaymentFlowLog();
+            flowLog.setPaymentNo(paymentOrder.getPaymentNo());
+            flowLog.setOrderId(paymentOrder.getOrderId());
+            flowLog.setFromStatus(paymentOrder.getStatus());
+            flowLog.setToStatus(PaymentStatusEnum.CLOSED.getCode());
+            flowLog.setEventType(PaymentFlowEventTypeEnum.CLOSE_PAYMENT.name());
+            flowLog.setAmount(paymentOrder.getAmount());
+            flowLog.setResult(PaymentCallbackResultEnum.SUCCESS.name());
+            flowLog.setReason("订单取消或超时关闭，关闭未支付支付单");
+            flowLog.setCreatedAt(LocalDateTime.now());
+            paymentAuditService.recordFlowLog(flowLog);
         }
     }
 

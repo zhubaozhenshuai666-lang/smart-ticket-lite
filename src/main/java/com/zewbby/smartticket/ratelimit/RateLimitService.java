@@ -2,6 +2,7 @@ package com.zewbby.smartticket.ratelimit;
 
 import com.zewbby.smartticket.config.RateLimitProperties;
 import com.zewbby.smartticket.constant.RedisKeyConstant;
+import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -25,10 +26,14 @@ public class RateLimitService {
 
     private final DefaultRedisScript<Long> tokenBucketScript;
 
+    private final ObservabilityMetricsService observabilityMetricsService;
+
     public RateLimitService(StringRedisTemplate stringRedisTemplate,
-                            RateLimitProperties rateLimitProperties) {
+	                            RateLimitProperties rateLimitProperties,
+	                            ObservabilityMetricsService observabilityMetricsService) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.rateLimitProperties = rateLimitProperties;
+        this.observabilityMetricsService = observabilityMetricsService;
         this.tokenBucketScript = buildScript("lua/rate_limit_token_bucket.lua");
     }
 
@@ -82,9 +87,14 @@ public class RateLimitService {
                     String.valueOf(System.currentTimeMillis()),
                     String.valueOf(keyTtlSeconds)
             );
-            return result != null && result == 1L;
+            boolean allowed = result != null && result == 1L;
+            if (!allowed) {
+                observabilityMetricsService.recordRateLimitRejected();
+            }
+            return allowed;
         } catch (RuntimeException exception) {
             LOGGER.warn("Redis token bucket rate limit failed and rejects request, key={}", key, exception);
+            observabilityMetricsService.recordRateLimitRejected();
             return false;
         }
     }

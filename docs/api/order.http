@@ -26,7 +26,7 @@ GET {{baseUrl}}/api/orders/idempotency-token
 Authorization: Bearer {{token}}
 
 
-### 2. 创建订单成功，userId 来自 Bearer token，请求体不传 userId
+### 2. [已废弃] 同步创建订单，仅保留本地调试；高并发抢票不要使用这个接口
 POST {{baseUrl}}/api/orders
 Authorization: Bearer {{token}}
 Content-Type: application/json
@@ -98,7 +98,7 @@ POST {{baseUrl}}/api/orders/{{orderId}}/cancel
 Authorization: Bearer {{token}}
 
 
-### 11. 异步下单，userId 来自 Bearer token，请求体不传 userId
+### 11. 高并发购票主链路：异步下单，userId 来自 Bearer token，请求体不传 userId
 POST {{baseUrl}}/api/orders/async
 Authorization: Bearer {{token}}
 Content-Type: application/json

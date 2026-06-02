@@ -44,10 +44,12 @@ public class OrderController {
     }
 
     /**
-     * 创建订单
-     * @param request
-     * @return
+     * @deprecated 同步下单只保留为本地调试和历史兼容入口。
+     *
+     * 高并发抢票不能同时对外宣传同步/异步两套主链路，否则入口限流、Redis 预扣、Outbox 可靠消息和消费者幂等
+     * 会被拆成两套治理边界，面试和生产排障都会说不清。用户侧抢票主路径请使用 /api/orders/async。
      */
+    @Deprecated
     @PostMapping("/orders")
     public ApiResponse<OrderVO> createOrder(@Valid @RequestBody CreateOrderRequest request,
                                             HttpServletRequest httpServletRequest) {

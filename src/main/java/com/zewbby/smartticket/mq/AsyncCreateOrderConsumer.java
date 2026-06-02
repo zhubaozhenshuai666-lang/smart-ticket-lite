@@ -4,8 +4,8 @@ import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.constant.RabbitMqConstant;
 import com.zewbby.smartticket.config.MqConsumerProperties;
+import com.zewbby.smartticket.domain.dto.OrderSnapshot;
 import com.zewbby.smartticket.service.StockLuaService;
-import com.zewbby.smartticket.domain.entity.TicketCategory;
 import com.zewbby.smartticket.domain.entity.TicketOrder;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
 import com.zewbby.smartticket.domain.entity.UserAccount;
@@ -19,9 +19,9 @@ import com.zewbby.smartticket.mapper.TicketCategoryMapper;
 import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.service.DeadLetterMessageService;
+import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,15 +58,18 @@ public class AsyncCreateOrderConsumer {
 
     private final MqConsumerProperties mqConsumerProperties;
 
+    private final ObservabilityMetricsService observabilityMetricsService;
+
     public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
                                     OrderMapper orderMapper,
                                     UserMapper userMapper,
                                     TicketCategoryMapper ticketCategoryMapper,
                                     TicketStockMapper ticketStockMapper,
                                     OrderTimeoutProducer orderTimeoutProducer,
-                                    StockLuaService stockLuaService,
-                                    DeadLetterMessageService deadLetterMessageService,
-                                    MqConsumerProperties mqConsumerProperties) {
+	                                    StockLuaService stockLuaService,
+	                                    DeadLetterMessageService deadLetterMessageService,
+	                                    MqConsumerProperties mqConsumerProperties,
+	                                    ObservabilityMetricsService observabilityMetricsService) {
         this.orderRequestMapper = orderRequestMapper;
         this.orderMapper = orderMapper;
         this.userMapper = userMapper;
@@ -76,6 +79,7 @@ public class AsyncCreateOrderConsumer {
         this.stockLuaService = stockLuaService;
         this.deadLetterMessageService = deadLetterMessageService;
         this.mqConsumerProperties = mqConsumerProperties;
+        this.observabilityMetricsService = observabilityMetricsService;
     }
 
     @RabbitListener(queues = RabbitMqConstant.ORDER_ASYNC_QUEUE, containerFactory = "asyncOrderRabbitListenerContainerFactory")
@@ -143,8 +147,8 @@ public class AsyncCreateOrderConsumer {
                 return;
             }
 
-            TicketCategory ticketCategory = getValidTicketCategory(message, orderRequest);
-            if (ticketCategory == null) {
+            OrderSnapshot snapshot = getOrderSnapshot(message, orderRequest);
+            if (snapshot == null) {
                 return;
             }
 
@@ -176,7 +180,8 @@ public class AsyncCreateOrderConsumer {
             order.setSessionId(orderRequest.getSessionId());
             order.setTicketCategoryId(orderRequest.getTicketCategoryId());
             order.setQuantity(orderRequest.getQuantity());
-            order.setTotalAmount(calculateTotalAmount(ticketCategory.getPrice(), orderRequest.getQuantity()));
+            fillOrderSnapshot(order, snapshot);
+            order.setTotalAmount(calculateTotalAmount(snapshot.getTicketPrice(), orderRequest.getQuantity()));
             order.setStatus(OrderStatusEnum.PENDING_PAYMENT.getCode());
             order.setExpireTime(now.plusMinutes(OrderConstant.ORDER_TIMEOUT_MINUTES));
             order.setPayTime(null);
@@ -190,27 +195,25 @@ public class AsyncCreateOrderConsumer {
             if (insertRows != 1) {
                 throw new IllegalStateException("订单创建失败");
             }
+            observabilityMetricsService.recordOrderCreated();
             LOGGER.info("Created order for async request, requestId={}, orderId={}, orderNo={}",
                     orderRequest.getRequestId(), order.getId(), order.getOrderNo());
 
-            //发一个超时信息到超时exchange上
-            orderTimeoutProducer.sendOrderTimeoutMessage(order.getId(), order.getOrderNo());
+            /*
+             * 订单创建成功后，超时关闭消息也必须走 Outbox。
+             * 如果这里直接发 RabbitMQ，可能出现订单已提交但延迟消息丢失，最终 locked_stock 长期不释放。
+             * 写 local_message 后，即使发送器失败，也能通过 Publisher Confirm、重试和人工 retry 找回这条超时消息。
+             */
+            orderTimeoutProducer.sendOrderTimeoutMessage(buildOrderTimeoutMessage(order));
 
             //异步请求下单
             int successRows = orderRequestMapper.markSuccess(orderRequest.getId(), order.getId());
             if (successRows != 1) {
                 throw new IllegalStateException("异步下单请求状态更新失败");
             }
+            observabilityMetricsService.recordAsyncOrderRequestSuccess();
             LOGGER.info("Marked async order request SUCCESS, requestId={}, orderId={}",
                     orderRequest.getRequestId(), order.getId());
-        } catch (AmqpException exception) {
-            LOGGER.error("Failed to send timeout message for async order, requestId={}",
-                    message.getRequestId(), exception);
-            throw new ConsumerRetryableException(
-                    ConsumerExceptionTypeEnum.TRANSIENT_SYSTEM_ERROR,
-                    "发送订单超时消息失败",
-                    exception
-            );
         } catch (RuntimeException exception) {
             LOGGER.error("Failed to consume async create order message, requestId={}",
                     message.getRequestId(), exception);
@@ -220,6 +223,17 @@ public class AsyncCreateOrderConsumer {
                     exception
             );
         }
+    }
+
+    private OrderTimeoutMessage buildOrderTimeoutMessage(TicketOrder order) {
+        OrderTimeoutMessage message = new OrderTimeoutMessage();
+        message.setOrderId(order.getId());
+        message.setOrderNo(order.getOrderNo());
+        message.setUserId(order.getUserId());
+        message.setExpireTime(order.getExpireTime());
+        message.setTraceId(null);
+        message.setMessageId(null);
+        return message;
     }
 
     private void handleProcessingRequest(AsyncCreateOrderMessage message, TicketOrderRequest existingRequest) {
@@ -238,6 +252,7 @@ public class AsyncCreateOrderConsumer {
         String reason = "异步下单请求PROCESSING超时，已进入人工处理";
         int rows = orderRequestMapper.markProcessingTimeout(existingRequest.getId(), reason);
         if (rows == 1) {
+            observabilityMetricsService.recordAsyncOrderRequestFailed();
             TicketOrderRequest failedRequest = orderRequestMapper.selectByRequestId(existingRequest.getRequestId());
             compensateRedisPreDeductedStock(failedRequest, reason);
             recordDeadLetter(message, ConsumerExceptionTypeEnum.DATA_INCONSISTENCY, reason);
@@ -265,6 +280,7 @@ public class AsyncCreateOrderConsumer {
         }
         LOGGER.info("Marked async order request FAILED, requestId={}, reason={}",
                 orderRequest.getRequestId(), failReason);
+        observabilityMetricsService.recordAsyncOrderRequestFailed();
         return true;
     }
 
@@ -342,7 +358,7 @@ public class AsyncCreateOrderConsumer {
         }
     }
 
-    private TicketCategory getValidTicketCategory(AsyncCreateOrderMessage message, TicketOrderRequest orderRequest) {
+    private OrderSnapshot getOrderSnapshot(AsyncCreateOrderMessage message, TicketOrderRequest orderRequest) {
         boolean relationExists = ticketCategoryMapper.existsShowSessionTicketCategoryRelation(
                 orderRequest.getShowId(),
                 orderRequest.getSessionId(),
@@ -355,13 +371,28 @@ public class AsyncCreateOrderConsumer {
             return null;
         }
 
-        TicketCategory ticketCategory = ticketCategoryMapper.selectById(orderRequest.getTicketCategoryId());
-        if (ticketCategory == null) {
+        OrderSnapshot snapshot = ticketCategoryMapper.selectOrderSnapshot(
+                orderRequest.getShowId(),
+                orderRequest.getSessionId(),
+                orderRequest.getTicketCategoryId()
+        );
+        if (snapshot == null) {
             LOGGER.warn("Async create order failed, requestId={}, reason={}",
                     orderRequest.getRequestId(), ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
             markBusinessRejected(message, orderRequest, ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
         }
-        return ticketCategory;
+        return snapshot;
+    }
+
+    private void fillOrderSnapshot(TicketOrder order, OrderSnapshot snapshot) {
+        /*
+         * 异步消费者创建订单时也必须保存快照。
+         * 否则高并发主链路生成的订单没有历史名称和下单价格，后台改价后就无法解释用户当时到底买了什么。
+         */
+        order.setShowTitle(snapshot.getShowTitle());
+        order.setSessionStartTime(snapshot.getSessionStartTime());
+        order.setTicketCategoryName(snapshot.getTicketCategoryName());
+        order.setTicketPrice(snapshot.getTicketPrice());
     }
 
     private void recordDeadLetter(AsyncCreateOrderMessage message,

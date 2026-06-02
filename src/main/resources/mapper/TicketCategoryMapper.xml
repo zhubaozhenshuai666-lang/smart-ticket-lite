@@ -91,4 +91,21 @@
           AND ps.status = 'PUBLISHED'
           AND tc.status = 'PUBLISHED'
     </select>
+
+    <select id="selectOrderSnapshot" resultType="com.zewbby.smartticket.domain.dto.OrderSnapshot">
+        SELECT
+            s.title AS show_title,
+            ps.start_time AS session_start_time,
+            tc.category_name AS ticket_category_name,
+            tc.price AS ticket_price
+        FROM show_info s
+        JOIN performance_session ps ON ps.show_id = s.id
+        JOIN ticket_category tc ON tc.session_id = ps.id
+        WHERE s.id = #{showId}
+          AND ps.id = #{sessionId}
+          AND tc.id = #{ticketCategoryId}
+          AND s.status = 'PUBLISHED'
+          AND ps.status = 'PUBLISHED'
+          AND tc.status = 'PUBLISHED'
+    </select>
 </mapper>

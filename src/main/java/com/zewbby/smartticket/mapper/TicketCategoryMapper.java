@@ -1,6 +1,7 @@
 package com.zewbby.smartticket.mapper;
 
 import com.zewbby.smartticket.domain.entity.TicketCategory;
+import com.zewbby.smartticket.domain.dto.OrderSnapshot;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
@@ -20,4 +21,8 @@ public interface TicketCategoryMapper {
     boolean existsShowSessionTicketCategoryRelation(@Param("showId") Long showId,
                                                     @Param("sessionId") Long sessionId,
                                                     @Param("ticketCategoryId") Long ticketCategoryId);
+
+    OrderSnapshot selectOrderSnapshot(@Param("showId") Long showId,
+                                      @Param("sessionId") Long sessionId,
+                                      @Param("ticketCategoryId") Long ticketCategoryId);
 }

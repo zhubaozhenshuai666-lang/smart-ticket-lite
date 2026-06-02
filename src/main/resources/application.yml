@@ -61,3 +61,7 @@ smart-ticket:
     order-ticket-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_REFILL_RATE_PER_SECOND:20}
     key-ttl-seconds: ${SMART_TICKET_RATE_LIMIT_KEY_TTL_SECONDS:120}
     soldout-ttl-seconds: ${SMART_TICKET_SOLDOUT_TTL_SECONDS:600}
+  payment:
+    mock-callback-secret: ${SMART_TICKET_PAYMENT_MOCK_CALLBACK_SECRET:smart-ticket-mock-payment-secret-at-least-32-bytes}
+    callback-timestamp-tolerance-seconds: ${SMART_TICKET_PAYMENT_CALLBACK_TIMESTAMP_TOLERANCE_SECONDS:300}
+    callback-nonce-ttl-seconds: ${SMART_TICKET_PAYMENT_CALLBACK_NONCE_TTL_SECONDS:600}

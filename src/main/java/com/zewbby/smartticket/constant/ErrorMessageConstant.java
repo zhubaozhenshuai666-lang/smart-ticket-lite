@@ -70,6 +70,12 @@ public final class ErrorMessageConstant {
 
     public static final String PAYMENT_STATUS_NOT_ALLOWED = "当前支付单状态不允许该操作";
 
+    public static final String PAYMENT_SIGNATURE_INVALID = "支付回调签名无效";
+
+    public static final String PAYMENT_CALLBACK_EXPIRED = "支付回调已过期";
+
+    public static final String PAYMENT_CALLBACK_REPLAY = "支付回调重复提交";
+
     public static final String STOCK_CONFIRM_FAILED = "库存确认失败";
 
     public static final String RATE_LIMITED = "请求过于频繁，请稍后再试";

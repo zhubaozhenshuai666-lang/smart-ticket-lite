@@ -1,4 +1,5 @@
 @baseUrl = http://localhost:8081
+@adminToken = paste-admin-or-operator-token-here
 
 
 ### 1. Actuator health
@@ -9,15 +10,28 @@ GET {{baseUrl}}/actuator/health
 GET {{baseUrl}}/actuator/metrics
 
 
-### 3. 查询演出列表，观察控制台接口耗时日志
+### 3. 查询订单创建计数指标
+GET {{baseUrl}}/actuator/metrics/order.created.count
+
+
+### 4. 查询本地消息 DEAD 存量指标
+GET {{baseUrl}}/actuator/metrics/local.message.dead.count
+
+
+### 5. 查询后台运维指标摘要，必须使用 ADMIN / OPERATOR token
+GET {{baseUrl}}/api/admin/ops/metrics-summary
+Authorization: Bearer {{adminToken}}
+
+
+### 6. 查询演出列表，观察控制台接口耗时日志
 GET {{baseUrl}}/api/shows
 
 
-### 4. 查询演出详情，观察控制台接口耗时日志
+### 7. 查询演出详情，观察控制台接口耗时日志
 GET {{baseUrl}}/api/shows/1
 
 
-### 5. 提交异步下单，观察控制台接口耗时日志
+### 8. 提交异步下单，观察控制台接口耗时日志
 POST {{baseUrl}}/api/orders/async
 Content-Type: application/json
 

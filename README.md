@@ -66,6 +66,22 @@
 - 用户侧只查询 `PUBLISHED` 资源，下架资源不会继续进入下单归属校验
 - 库存预热按 `MySQL available_stock - 在途预扣量` 计算，Redis 已存在时使用 Lua CAS + Delta，库存恢复后清理 soldout
 
+阶段 4 - 支付安全边界：
+
+- `mock-pay` 仍然只是本地模拟支付，不接真实第三方 SDK
+- 模拟支付回调必须携带 HMAC-SHA256 签名、timestamp 和 nonce，避免裸接口被随意调用
+- `payment_callback_log` 记录每次回调原文、签名校验结果和处理结果，签名失败也落库
+- `payment_flow_log` 记录支付单创建、成功、失败、幂等重复、关闭等状态流转
+- `ticket_order` 保存演出名、场次时间、票档名、下单单价和总金额快照，历史订单不跟随后续票档改价变化
+
+阶段 4 - 观测和告警预留：
+
+- Actuator 仅暴露 `health/info/metrics`，不打开 `env/beans` 等敏感端点
+- Micrometer 注册订单、异步请求、限流、soldout 等业务 Counter
+- `local_message.DEAD`、死信 PENDING、库存差异 PENDING、补偿 FAILED 通过 Gauge 暴露
+- 后台 `GET /api/admin/ops/metrics-summary` 汇总核心运维指标，普通 USER 不能访问
+- 告警规则文档说明哪些指标需要人工或后续 Prometheus/Grafana 告警
+
 ## 技术栈
 
 Java 17、Spring Boot 3.x、Spring MVC、MyBatis-Plus、MySQL 8.x、Redis、RabbitMQ、Maven、Lombok。
@@ -171,13 +187,13 @@ mvn spring-boot:run
 | `GET` | `/api/shows` | 查询演出列表 |
 | `GET` | `/api/shows/{id}` | 查询演出详情、场次、票档 |
 | `GET` | `/api/orders/idempotency-token` | 登录后获取一次性下单幂等 token |
-| `POST` | `/api/orders` | 登录后同步创建订单，请求体不需要传 `userId` |
-| `POST` | `/api/orders/async` | 登录后异步提交下单请求，请求体不需要传 `userId` |
+| `POST` | `/api/orders` | 已废弃，仅保留为本地调试/兼容入口，不作为抢票主链路 |
+| `POST` | `/api/orders/async` | 高并发购票主链路，登录后异步提交下单请求，请求体不需要传 `userId` |
 | `GET` | `/api/order-requests/{requestId}` | 查询当前用户的异步下单结果 |
 | `GET` | `/api/users/me/orders` | 查询当前用户订单列表 |
 | `POST` | `/api/payments/create` | 为当前用户订单创建支付单 |
 | `GET` | `/api/payments/{paymentNo}` | 查询当前用户支付单 |
-| `POST` | `/api/payments/mock-pay` | 本地模拟支付成功/失败回调 |
+| `POST` | `/api/payments/mock-pay` | 本地模拟支付成功/失败回调，必须携带内部签名 |
 | `POST` | `/api/orders/{orderId}/pay` | 旧直接支付接口，已废弃，不再改订单为 PAID |
 | `POST` | `/api/orders/{orderId}/cancel` | 取消当前用户待支付订单 |
 | `GET` | `/api/orders/{orderId}` | 查询当前用户订单详情 |
@@ -209,10 +225,21 @@ mvn spring-boot:run
 | `POST` | `/api/admin/ticket-categories/{ticketCategoryId}/stock/preheat` | `ADMIN/OPERATOR` | 按在途预扣量安全预热 Redis |
 | `GET` | `/api/admin/ticket-categories/{ticketCategoryId}/stock` | `ADMIN/OPERATOR` | 查询 MySQL/Redis/在途预扣库存视图 |
 | `GET` | `/api/admin/stocks` | `ADMIN/OPERATOR` | 查询所有库存视图 |
+| `GET` | `/api/admin/ops/metrics-summary` | `ADMIN/OPERATOR` | 查询核心业务和异常存量指标摘要 |
 
 第二阶段同步订单流程：在 IDEA 打开 [phase2-full-flow.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase2-full-flow.http)，从上到下依次点击请求左侧绿色运行按钮。
 
 第三阶段异步下单流程：在 IDEA 打开 [phase3-async-order-full-flow.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase3-async-order-full-flow.http)，先提交异步下单，复制返回的 `requestId` 查询结果；当结果为 `SUCCESS` 后，再复制返回的 `orderId` 继续支付、取消或等待超时关闭。
+
+阶段 4B 主链路收敛后，高并发购票主链路只走异步下单。`POST /api/orders` 已废弃，只保留为本地调试和历史兼容入口，不参与压测，不建议写进简历主链路。压测脚本和项目答辩应统一描述为：
+
+```text
+登录 -> 幂等 token -> 多维限流 -> soldout 快速失败 -> Redis 预扣
+-> ticket_order_request -> local_message Outbox -> RabbitMQ
+-> 消费者创建订单 -> payment_order -> mock-pay
+```
+
+阶段 4B 报告见 [phase4-task-b-main-flow-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-b-main-flow-report.md)，学习笔记见 [phase4-task-b-learning.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-b-learning.md)。
 
 接口文档见 [phase2-api.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase2-api.md)。
 
@@ -220,7 +247,7 @@ mvn spring-boot:run
 
 阶段 1 订单权限测试见 [phase1-order-permission-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase1-order-permission-api.http)，订单权限改造说明见 [phase1-order-permission-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase1-order-permission-report.md)。
 
-阶段 1 支付闭环测试见 [phase1-payment-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase1-payment-api.http)，支付闭环说明见 [phase1-payment-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase1-payment-report.md)。
+阶段 1 支付闭环测试见 [phase1-payment-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase1-payment-api.http)，支付闭环说明见 [phase1-payment-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase1-payment-report.md)。阶段 4D 后，`mock-pay` 不再是裸接口：请求体需要 `paymentNo/success/timestamp/nonce/signature`，签名算法和边界说明见 [phase4-task-d-payment-security-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-d-payment-security-report.md)。
 
 第三阶段 RabbitMQ 检查见 [phase3-rabbitmq-check.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/mq/phase3-rabbitmq-check.md)。
 
@@ -236,6 +263,9 @@ mvn spring-boot:run
 第四阶段验收入口：
 
 - 观测能力：[phase4-observability.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-observability.md)
+- 阶段 4E 观测增强报告：[phase4-task-e-observability-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-e-observability-report.md)
+- 阶段 4E 观测学习笔记：[phase4-task-e-learning.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-e-learning.md)
+- 阶段 4E 告警规则：[phase4-alert-rules.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-alert-rules.md)
 - 限流设计：[phase4-rate-limit-design.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-rate-limit-design.md)
 - 幂等测试：[phase4-idempotency-token-api.http](/Users/zewbao/Desktop/smart-ticket-lite/docs/api/phase4-idempotency-token-api.http)
 - 库存 version：[phase4-stock-optimistic-lock.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-stock-optimistic-lock.md)
@@ -299,6 +329,7 @@ POST /api/admin/dead-letters/{id}/retry
 POST /api/admin/dead-letters/{id}/ignore
 POST /api/admin/dead-letters/{id}/resolve
 GET  /api/admin/stocks/{ticketCategoryId}/consistency
+GET  /api/admin/ops/metrics-summary
 ```
 
 这些接口当前位于 `/api/admin/**`，受 JWT 拦截器保护，但还没有 RBAC 管理员角色，生产环境不能直接暴露。
@@ -310,7 +341,36 @@ mvn test
 mvn -q -DskipTests package
 ```
 
-当前测试以 Service 层单元测试、Controller MockMvc 测试、MQ 消费者单元测试、Redis 幂等 token 语义测试、JWT/登录失败限制测试和 Mapper SQL 合同测试为主，不依赖本机 MySQL、Redis、RabbitMQ 常驻服务。
+当前测试包含 Service 层单元测试、Controller MockMvc 测试、MQ 消费者单元测试、Redis 幂等 token 语义测试、JWT/登录失败限制测试、Mapper SQL 合同测试，以及阶段 4 新增的 Testcontainers 集成测试入口。
+
+阶段 4 Testcontainers 说明：
+
+- 报告：[phase4-task-a-testcontainers-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-a-testcontainers-report.md)
+- 学习笔记：[phase4-task-a-learning.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-a-learning.md)
+
+阶段 4 主链路收敛与真实压测入口：
+
+- 主链路收敛报告：[phase4-task-b-main-flow-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-b-main-flow-report.md)
+- 主链路学习笔记：[phase4-task-b-learning.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-b-learning.md)
+- 阶段 4C 压测执行报告：[phase4-task-c-pressure-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-c-pressure-report.md)
+- 阶段 4C 压测学习笔记：[phase4-task-c-learning.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-c-learning.md)
+- 阶段 4C k6 脚本：[phase4-async-order-main-flow-k6.js](/Users/zewbao/Desktop/smart-ticket-lite/docs/performance/phase4-async-order-main-flow-k6.js)
+- 阶段 4C 压测前 SQL：[phase4-pressure-before.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase4-pressure-before.sql)
+- 阶段 4C 压测后 SQL：[phase4-pressure-after.sql](/Users/zewbao/Desktop/smart-ticket-lite/docs/sql/phase4-pressure-after.sql)
+- 阶段 4C 压测报告：[phase4-pressure-test-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-pressure-test-report.md)
+- 阶段 4D 支付安全边界报告：[phase4-task-d-payment-security-report.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-d-payment-security-report.md)
+- 阶段 4D 支付建模学习笔记：[phase4-task-d-learning.md](/Users/zewbao/Desktop/smart-ticket-lite/docs/phase4-task-d-learning.md)
+
+阶段 4C 当前没有伪造性能数据：如果本机没有安装 `k6` 或没有准备好 MySQL / Redis / RabbitMQ / Spring Boot 环境，报告中的 TPS、P95、P99、错误率必须保持“未执行，待本地压测填写”。
+
+本地执行真实 MySQL / Redis / RabbitMQ 容器集成测试前，需要先启动 Docker Desktop：
+
+```bash
+docker ps
+mvn -Dtest='*IntegrationTest' test
+```
+
+如果当前机器没有 Docker，Testcontainers 集成测试会被跳过。此时 `mvn test` 成功只能代表单元测试和 Mock 测试通过，不能代表真实容器链路已经跑通。
 
 ## 核心流程
 
@@ -322,9 +382,11 @@ mvn -q -DskipTests package
 
 ```text
 POST /api/payments/create
--> 创建 payment_order(INIT)，金额来自 ticket_order.total_amount
--> POST /api/payments/mock-pay
+-> 创建 payment_order(INIT)，金额来自 ticket_order.total_amount 快照
+-> POST /api/payments/mock-pay，校验 HMAC-SHA256 签名和 timestamp/nonce
+-> 写 payment_callback_log 回调原文
 -> payment_order INIT -> SUCCESS
+-> 写 payment_flow_log 支付状态流转
 -> ticket_order PENDING_PAYMENT -> PAID
 -> ticket_stock locked_stock -> sold_stock
 ```
@@ -347,6 +409,8 @@ POST /api/orders/async
 -> MySQL 条件扣库存
 -> 创建 ticket_order(PENDING_PAYMENT)
 -> ticket_order_request 标记 SUCCESS 并写入 orderId
+-> 写入 ORDER_TIMEOUT_CLOSE local_message
+-> LocalMessagePublishTask 投递订单超时关闭延迟消息
 -> 用户通过 GET /api/order-requests/{requestId} 查询结果
 ```
 
@@ -421,8 +485,9 @@ RabbitMQ 在第五阶段的作用：
 - 演出票档为查询缓存；订单库存变化后当前未自动清理缓存，验收库存请以 MySQL 为准或先删除相关 Redis key。
 - 当前有 `payment_order` 支付单和 mock-pay 模拟回调，但没有真实三方支付、退款单、出票和核销。
 - 旧 `/api/orders/{orderId}/pay` 不再作为支付主链路，调用会提示先创建支付单。
+- 同步下单 `/api/orders` 已废弃，只能作为本地调试/兼容入口；高并发购票主链路只走 `/api/orders/async`。
 - 当前是单体应用，没有拆分微服务。
-- 当前已使用本地消息表和 Publisher Confirm 降低 MQ 投递风险；`SENT` 只表示已调用发送，`CONFIRMED` 才表示 Broker ack。
+- 当前已使用本地消息表和 Publisher Confirm 降低 MQ 投递风险；异步创单和订单超时关闭消息都进入 `local_message`。`SENT` 只表示已调用发送，`CONFIRMED` 才表示 Broker ack，不代表消费者已经创建订单或关闭订单成功。
 - 当前库存巡检会按 `expectedRedisAvailable = mysqlAvailable - inFlightDeductedQuantity` 判断差异；自动巡检默认关闭，自动修复默认关闭。
 - 下单入口限流已升级为 Redis Lua 令牌桶，并接入用户、IP、接口、票档多维保护；生产阈值仍需要真实压测校准。
 - soldout 标记只是售罄快速失败优化，不替代 Redis 预扣和 MySQL 条件库存更新。

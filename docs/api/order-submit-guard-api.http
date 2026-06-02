@@ -1,4 +1,7 @@
 @baseUrl = http://localhost:8081
+
+### 注意
+### 本文件是历史同步下单防重复提交调试样例；阶段 4B 后，高并发主链路只走 /api/orders/async。
 @userId = 1
 @showId = 1
 @sessionId = 1

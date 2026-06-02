@@ -95,13 +95,15 @@
 
 ### 创建订单
 
+> 阶段 4B 后，`POST /api/orders` 已废弃，仅保留为本地调试 / 历史兼容入口。高并发购票主链路只使用 `POST /api/orders/async`。
+
 - URL：`/api/orders`
 - Method：`POST`
 - 请求头：`Authorization: Bearer <token>`
 - 请求参数：`showId`、`sessionId`、`ticketCategoryId`、`quantity`、`idempotencyToken`
 - 请求 JSON：见下方
-- 正常场景：创建待支付订单，锁定库存并发送超时消息
-- 异常场景：未登录、演出场次票档关系不匹配、票档/库存不存在、库存不足、并发重复提交、MQ 发送失败
+- 正常场景：本地调试创建待支付订单，锁定库存，并写入订单超时关闭 Outbox 消息
+- 异常场景：未登录、演出场次票档关系不匹配、票档/库存不存在、库存不足、并发重复提交、本地消息写入失败
 
 ```json
 {"showId":1,"sessionId":1,"ticketCategoryId":2,"quantity":1,"idempotencyToken":"token-from-/api/orders/idempotency-token"}
@@ -113,6 +115,15 @@
 
 创建成功时库存变化：`available_stock - quantity`，`locked_stock + quantity`。
 当前测试超时约为 `1` 分钟；支付或主动取消测试应在订单自动关闭前完成。
+
+### 高并发异步下单
+
+- URL：`/api/orders/async`
+- Method：`POST`
+- 请求头：`Authorization: Bearer <token>`
+- 请求参数：`showId`、`sessionId`、`ticketCategoryId`、`quantity`、`idempotencyToken`
+- 正常场景：返回 `requestId`，后续通过 `/api/order-requests/{requestId}` 查询订单创建结果
+- 主链路：限流、soldout 快速失败、Redis 预扣、`ticket_order_request`、`local_message`、RabbitMQ、消费者创建订单
 
 ### 查询订单
 

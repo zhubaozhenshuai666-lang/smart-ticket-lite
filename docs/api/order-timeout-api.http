@@ -1,4 +1,8 @@
 @baseUrl = http://localhost:8081
+
+### 注意
+### 本文件是历史超时关闭调试样例。阶段 4B 后，订单超时关闭消息已经纳入 local_message Outbox；
+### 高并发购票主链路只走 /api/orders/async，/api/orders 仅作本地调试。
 @userId = 1
 @showId = 1
 @sessionId = 1

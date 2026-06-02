@@ -1,4 +1,8 @@
 @baseUrl = http://localhost:8081
+
+### 注意
+### 本文件是历史状态机调试样例。阶段 4B 后，高并发购票主链路只走 /api/orders/async；
+### /api/orders 已废弃，仅保留本地调试/兼容，不参与压测和主链路说明。
 @userId = 1
 @showId = 1
 @sessionId = 1

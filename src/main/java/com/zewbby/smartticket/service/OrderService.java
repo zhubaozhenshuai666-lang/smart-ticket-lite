@@ -8,8 +8,10 @@ import java.util.List;
 
 public interface OrderService {
 
+    @Deprecated
     OrderVO createOrder(CreateOrderRequest request);
 
+    @Deprecated
     OrderVO createOrder(CreateOrderRequest request, String clientIp);
 
     OrderRequestVO submitAsyncOrder(CreateOrderRequest request);
