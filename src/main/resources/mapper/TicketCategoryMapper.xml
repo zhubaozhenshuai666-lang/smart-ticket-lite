@@ -9,6 +9,7 @@
         <result property="sessionId" column="session_id"/>
         <result property="categoryName" column="category_name"/>
         <result property="price" column="price"/>
+        <result property="status" column="status"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
@@ -19,11 +20,64 @@
             session_id,
             category_name,
             price,
+            status,
             created_at,
             updated_at
         FROM ticket_category
         WHERE id = #{id}
     </select>
+
+    <select id="adminSelectBySessionId" parameterType="java.lang.Long" resultMap="TicketCategoryResultMap">
+        SELECT
+            id,
+            session_id,
+            category_name,
+            price,
+            status,
+            created_at,
+            updated_at
+        FROM ticket_category
+        WHERE session_id = #{sessionId}
+        ORDER BY price ASC, id ASC
+    </select>
+
+    <insert id="insert"
+            parameterType="com.zewbby.smartticket.domain.entity.TicketCategory"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO ticket_category (
+            session_id,
+            category_name,
+            price,
+            status,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{sessionId},
+            #{categoryName},
+            #{price},
+            #{status},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <update id="update">
+        UPDATE ticket_category
+        SET
+            category_name = #{categoryName},
+            price = #{price},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE ticket_category
+        SET
+            status = #{status},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
 
     <select id="existsShowSessionTicketCategoryRelation" resultType="java.lang.Boolean">
         SELECT COUNT(1) > 0
@@ -33,5 +87,8 @@
         WHERE s.id = #{showId}
           AND ps.id = #{sessionId}
           AND tc.id = #{ticketCategoryId}
+          AND s.status = 'PUBLISHED'
+          AND ps.status = 'PUBLISHED'
+          AND tc.status = 'PUBLISHED'
     </select>
 </mapper>

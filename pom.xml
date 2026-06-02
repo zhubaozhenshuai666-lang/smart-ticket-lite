@@ -55,6 +55,12 @@
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
+        <!-- Spring AMQP 消费端有限重试：用于 listener retry + 自定义 MessageRecoverer -->
+        <dependency>
+            <groupId>org.springframework.retry</groupId>
+            <artifactId>spring-retry</artifactId>
+        </dependency>
+
         <!-- Actuator：第四阶段用于基础健康检查和运行指标观测 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

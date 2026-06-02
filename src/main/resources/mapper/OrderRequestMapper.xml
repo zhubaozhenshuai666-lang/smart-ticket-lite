@@ -14,10 +14,41 @@
         <result property="quantity" column="quantity"/>
         <result property="status" column="status"/>
         <result property="orderId" column="order_id"/>
+        <result property="processingAt" column="processing_at"/>
+        <result property="redisDeducted" column="redis_deducted"/>
+        <result property="deductedQuantity" column="deducted_quantity"/>
+        <result property="deductedAt" column="deducted_at"/>
+        <result property="compensated" column="compensated"/>
+        <result property="compensationStatus" column="compensation_status"/>
+        <result property="compensatedAt" column="compensated_at"/>
         <result property="failReason" column="fail_reason"/>
+        <result property="messageId" column="message_id"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
+
+    <sql id="BaseColumns">
+        id,
+        request_id,
+        user_id,
+        show_id,
+        session_id,
+        ticket_category_id,
+        quantity,
+        status,
+        order_id,
+        processing_at,
+        redis_deducted,
+        deducted_quantity,
+        deducted_at,
+        compensated,
+        compensation_status,
+        compensated_at,
+        fail_reason,
+        message_id,
+        created_at,
+        updated_at
+    </sql>
 
     <insert id="insert"
             parameterType="com.zewbby.smartticket.domain.entity.TicketOrderRequest"
@@ -32,7 +63,15 @@
             quantity,
             status,
             order_id,
+            processing_at,
+            redis_deducted,
+            deducted_quantity,
+            deducted_at,
+            compensated,
+            compensation_status,
+            compensated_at,
             fail_reason,
+            message_id,
             created_at,
             updated_at
         ) VALUES (
@@ -44,7 +83,15 @@
             #{quantity},
             #{status},
             #{orderId},
+            #{processingAt},
+            #{redisDeducted},
+            #{deductedQuantity},
+            #{deductedAt},
+            #{compensated},
+            #{compensationStatus},
+            #{compensatedAt},
             #{failReason},
+            #{messageId},
             #{createdAt},
             #{updatedAt}
         )
@@ -52,36 +99,14 @@
 
     <select id="selectByRequestId" resultMap="TicketOrderRequestResultMap">
         SELECT
-            id,
-            request_id,
-            user_id,
-            show_id,
-            session_id,
-            ticket_category_id,
-            quantity,
-            status,
-            order_id,
-            fail_reason,
-            created_at,
-            updated_at
+            <include refid="BaseColumns"/>
         FROM ticket_order_request
         WHERE request_id = #{requestId}
     </select>
 
     <select id="selectByRequestIdAndUserId" resultMap="TicketOrderRequestResultMap">
         SELECT
-            id,
-            request_id,
-            user_id,
-            show_id,
-            session_id,
-            ticket_category_id,
-            quantity,
-            status,
-            order_id,
-            fail_reason,
-            created_at,
-            updated_at
+            <include refid="BaseColumns"/>
         FROM ticket_order_request
         WHERE request_id = #{requestId}
           AND user_id = #{userId}
@@ -89,36 +114,14 @@
 
     <select id="selectById" resultMap="TicketOrderRequestResultMap">
         SELECT
-            id,
-            request_id,
-            user_id,
-            show_id,
-            session_id,
-            ticket_category_id,
-            quantity,
-            status,
-            order_id,
-            fail_reason,
-            created_at,
-            updated_at
+            <include refid="BaseColumns"/>
         FROM ticket_order_request
         WHERE id = #{id}
     </select>
 
     <select id="selectByOrderId" resultMap="TicketOrderRequestResultMap">
         SELECT
-            id,
-            request_id,
-            user_id,
-            show_id,
-            session_id,
-            ticket_category_id,
-            quantity,
-            status,
-            order_id,
-            fail_reason,
-            created_at,
-            updated_at
+            <include refid="BaseColumns"/>
         FROM ticket_order_request
         WHERE order_id = #{orderId}
         LIMIT 1
@@ -126,23 +129,56 @@
 
     <select id="selectProcessingByRequestId" resultMap="TicketOrderRequestResultMap">
         SELECT
-            id,
-            request_id,
-            user_id,
-            show_id,
-            session_id,
-            ticket_category_id,
-            quantity,
-            status,
-            order_id,
-            fail_reason,
-            created_at,
-            updated_at
+            <include refid="BaseColumns"/>
         FROM ticket_order_request
         WHERE request_id = #{requestId}
           AND status = 'PROCESSING'
         FOR UPDATE
     </select>
+
+    <update id="markPreDeducted">
+        UPDATE ticket_order_request
+        SET
+            status = 'PRE_DEDUCTED',
+            redis_deducted = TRUE,
+            deducted_quantity = #{deductedQuantity},
+            deducted_at = #{deductedAt},
+            compensation_status = 'NONE',
+            fail_reason = NULL,
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'INIT'
+    </update>
+
+    <update id="markQueued">
+        UPDATE ticket_order_request
+        SET
+            status = 'QUEUED',
+            message_id = #{messageId},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'PRE_DEDUCTED'
+    </update>
+
+    <update id="refreshQueuedMessage">
+        UPDATE ticket_order_request
+        SET
+            status = 'QUEUED',
+            message_id = #{messageId},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'QUEUED'
+    </update>
+
+    <update id="tryMarkProcessing">
+        UPDATE ticket_order_request
+        SET
+            status = 'PROCESSING',
+            processing_at = NOW(),
+            updated_at = NOW()
+        WHERE request_id = #{requestId}
+          AND status IN ('PRE_DEDUCTED', 'QUEUED')
+    </update>
 
     <update id="markSuccess">
         UPDATE ticket_order_request
@@ -162,6 +198,90 @@
             fail_reason = #{failReason},
             updated_at = NOW()
         WHERE id = #{id}
+          AND status IN ('INIT', 'PRE_DEDUCTED', 'QUEUED', 'PROCESSING')
+    </update>
+
+    <update id="markProcessingTimeout">
+        UPDATE ticket_order_request
+        SET
+            status = 'FAILED',
+            fail_reason = #{failReason},
+            updated_at = NOW()
+        WHERE id = #{id}
           AND status = 'PROCESSING'
     </update>
+
+    <update id="resetForManualRetry">
+        UPDATE ticket_order_request
+        SET
+            status = 'QUEUED',
+            fail_reason = NULL,
+            processing_at = NULL,
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status IN ('FAILED', 'PROCESSING')
+          AND order_id IS NULL
+          AND compensated = FALSE
+          AND compensation_status IN ('NONE', 'COMPENSATE_FAILED')
+    </update>
+
+    <update id="tryMarkCompensating">
+        UPDATE ticket_order_request
+        SET
+            compensation_status = 'COMPENSATING',
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'FAILED'
+          AND redis_deducted = TRUE
+          AND compensated = FALSE
+          AND compensation_status IN ('NONE', 'COMPENSATE_FAILED')
+    </update>
+
+    <update id="markCompensateFailed">
+        UPDATE ticket_order_request
+        SET
+            compensation_status = 'COMPENSATE_FAILED',
+            fail_reason = #{failReason},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'FAILED'
+          AND compensation_status = 'COMPENSATING'
+    </update>
+
+    <update id="markCompensated">
+        UPDATE ticket_order_request
+        SET
+            status = 'COMPENSATED',
+            compensated = TRUE,
+            compensation_status = 'COMPENSATED',
+            compensated_at = #{compensatedAt},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'FAILED'
+          AND compensated = FALSE
+    </update>
+
+    <select id="sumInFlightDeductedQuantity" resultType="java.lang.Integer">
+        SELECT COALESCE(SUM(deducted_quantity), 0)
+        FROM ticket_order_request
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND status IN ('PRE_DEDUCTED', 'QUEUED', 'PROCESSING')
+          AND redis_deducted = TRUE
+          AND compensated = FALSE
+          AND compensation_status IN ('NONE', 'COMPENSATE_FAILED')
+          AND deducted_quantity > 0
+    </select>
+
+    <select id="selectFailedRequestsNeedCompensation" resultMap="TicketOrderRequestResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM ticket_order_request
+        WHERE status = 'FAILED'
+          AND redis_deducted = TRUE
+          AND compensated = FALSE
+          AND compensation_status IN ('NONE', 'COMPENSATE_FAILED')
+          AND deducted_quantity > 0
+        ORDER BY updated_at ASC
+        LIMIT #{limit}
+    </select>
 </mapper>

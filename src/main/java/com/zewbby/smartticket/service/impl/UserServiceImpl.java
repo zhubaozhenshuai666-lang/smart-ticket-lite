@@ -7,6 +7,7 @@ import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.domain.dto.CreateUserRequest;
 import com.zewbby.smartticket.domain.entity.UserAccount;
 import com.zewbby.smartticket.domain.vo.UserVO;
+import com.zewbby.smartticket.enums.UserRoleEnum;
 import com.zewbby.smartticket.enums.UserStatusEnum;
 import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.service.UserService;
@@ -49,6 +50,8 @@ public class UserServiceImpl implements UserService {
         user.setPhone(request.getPhone());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setStatus(UserStatusEnum.NORMAL.name());
+        // 普通创建用户接口也不允许前端指定后台角色，避免绕过 /api/auth/register 伪造 ADMIN。
+        user.setRoleCode(UserRoleEnum.USER.getCode());
         //刚刚的时间给赋上
         user.setCreatedAt(now);
         user.setUpdatedAt(now);

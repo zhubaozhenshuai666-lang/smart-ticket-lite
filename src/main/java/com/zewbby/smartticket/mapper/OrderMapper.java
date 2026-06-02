@@ -21,6 +21,14 @@ public interface OrderMapper {
     List<TicketOrder> selectExpiredPendingOrders(@Param("now") LocalDateTime now,
                                                  @Param("limit") Integer limit);
 
+    int countPendingByShowId(@Param("showId") Long showId);
+
+    int countPendingBySessionId(@Param("sessionId") Long sessionId);
+
+    int countPendingByTicketCategoryId(@Param("ticketCategoryId") Long ticketCategoryId);
+
+    int countByTicketCategoryId(@Param("ticketCategoryId") Long ticketCategoryId);
+
     int updateCancelStatusByUserId(@Param("id") Long id,
                                    @Param("userId") Long userId,
                                    @Param("oldStatus") String oldStatus,

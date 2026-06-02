@@ -3,16 +3,23 @@ package com.zewbby.smartticket.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.constant.RabbitMqConstant;
+import com.zewbby.smartticket.mq.DeadLetterMessageRecoverer;
+import com.zewbby.smartticket.mq.RabbitPublisherCallbackHandler;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
+import org.springframework.retry.interceptor.RetryOperationsInterceptor;
 
 @Configuration
 public class RabbitMqConfig {
@@ -103,5 +110,46 @@ public class RabbitMqConfig {
     @Bean
     public MessageConverter rabbitMessageConverter(ObjectMapper objectMapper) {
         return new Jackson2JsonMessageConverter(objectMapper);
+    }
+
+    @Bean
+    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory,
+                                         MessageConverter rabbitMessageConverter,
+                                         RabbitPublisherCallbackHandler rabbitPublisherCallbackHandler) {
+        RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
+        rabbitTemplate.setMessageConverter(rabbitMessageConverter);
+        rabbitTemplate.setMandatory(true);
+        rabbitTemplate.setConfirmCallback(rabbitPublisherCallbackHandler);
+        rabbitTemplate.setReturnsCallback(rabbitPublisherCallbackHandler);
+        return rabbitTemplate;
+    }
+
+    @Bean
+    public RetryOperationsInterceptor asyncOrderRetryInterceptor(DeadLetterMessageRecoverer deadLetterMessageRecoverer,
+                                                                MqConsumerProperties mqConsumerProperties) {
+        /*
+         * 这里选择方案 A：消费者本地有限重试，重试耗尽后由自定义 MessageRecoverer 写 dead_letter_message。
+         * 注意：重试解决的是“短暂系统异常”重试几次可能恢复；业务拒绝和重复消息应在消费者内部直接 ack，
+         * 不应该被 RabbitMQ 反复重投。
+         */
+        long intervalMillis = mqConsumerProperties.getRetryIntervalSeconds() * 1000L;
+        return RetryInterceptorBuilder.stateless()
+                .maxAttempts(mqConsumerProperties.getMaxRetryCount())
+                .backOffOptions(intervalMillis, 1.0, intervalMillis)
+                .recoverer(deadLetterMessageRecoverer)
+                .build();
+    }
+
+    @Bean
+    public SimpleRabbitListenerContainerFactory asyncOrderRabbitListenerContainerFactory(
+            ConnectionFactory connectionFactory,
+            MessageConverter rabbitMessageConverter,
+            RetryOperationsInterceptor asyncOrderRetryInterceptor) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        factory.setMessageConverter(rabbitMessageConverter);
+        factory.setDefaultRequeueRejected(false);
+        factory.setAdviceChain(asyncOrderRetryInterceptor);
+        return factory;
     }
 }

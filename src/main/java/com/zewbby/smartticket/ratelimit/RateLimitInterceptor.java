@@ -1,6 +1,7 @@
 package com.zewbby.smartticket.ratelimit;
 
 import com.zewbby.smartticket.common.BusinessException;
+import com.zewbby.smartticket.config.RateLimitProperties;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.RedisKeyConstant;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,13 +12,18 @@ import org.springframework.web.servlet.HandlerInterceptor;
 @Component
 public class RateLimitInterceptor implements HandlerInterceptor {
 
-    private static final RateLimitRule IP_URI_RULE = new RateLimitRule(20, 10);
-
-    private static final RateLimitRule API_RULE = new RateLimitRule(200, 10);
-
     private final RateLimitService rateLimitService;
-    public RateLimitInterceptor(RateLimitService rateLimitService) {
+
+    private final ClientIpResolver clientIpResolver;
+
+    private final RateLimitProperties rateLimitProperties;
+
+    public RateLimitInterceptor(RateLimitService rateLimitService,
+                                ClientIpResolver clientIpResolver,
+                                RateLimitProperties rateLimitProperties) {
         this.rateLimitService = rateLimitService;
+        this.clientIpResolver = clientIpResolver;
+        this.rateLimitProperties = rateLimitProperties;
     }
 
     @Override
@@ -30,13 +36,15 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         //获取uri
         String uri = request.getRequestURI();
         //获取客户端ip
-        String clientIp = resolveClientIp(request);
+        String clientIp = clientIpResolver.resolve(request);
 
         //ip限流
-        boolean ipAllowed = rateLimitService.tryAcquire(
+        boolean ipAllowed = rateLimitService.tryAcquireTokenBucket(
                 RedisKeyConstant.rateLimitIpKey(clientIp, uri),
-                IP_URI_RULE.getLimit(),
-                IP_URI_RULE.getWindowSeconds()
+                rateLimitProperties.getOrderIpCapacity(),
+                rateLimitProperties.getOrderIpRefillRatePerSecond(),
+                1,
+                rateLimitProperties.getKeyTtlSeconds()
         );
         //限流了
         if (!ipAllowed) {
@@ -44,30 +52,17 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         }
 
         //接口限流
-        boolean apiAllowed = rateLimitService.tryAcquire(
+        boolean apiAllowed = rateLimitService.tryAcquireTokenBucket(
                 RedisKeyConstant.rateLimitApiKey(uri),
-                API_RULE.getLimit(),
-                API_RULE.getWindowSeconds()
+                rateLimitProperties.getOrderApiCapacity(),
+                rateLimitProperties.getOrderApiRefillRatePerSecond(),
+                1,
+                rateLimitProperties.getKeyTtlSeconds()
         );
         if (!apiAllowed) {
             throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
         }
 
         return true;
-    }
-
-    //解析客户段ip地址
-    private String resolveClientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            return forwardedFor.split(",")[0].trim();
-        }
-
-        String realIp = request.getHeader("X-Real-IP");
-        if (realIp != null && !realIp.isBlank()) {
-            return realIp;
-        }
-
-        return request.getRemoteAddr();
     }
 }

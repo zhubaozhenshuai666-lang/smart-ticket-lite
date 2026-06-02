@@ -22,6 +22,8 @@ public final class ErrorMessageConstant {
 
     public static final String UNAUTHORIZED = "请先登录";
 
+    public static final String NO_ADMIN_PERMISSION = "无权限访问后台接口";
+
     public static final String TOKEN_INVALID = "token无效";
 
     public static final String TOKEN_EXPIRED = "token已过期";
@@ -39,6 +41,8 @@ public final class ErrorMessageConstant {
     public static final String STOCK_NOT_FOUND = "库存记录不存在";
 
     public static final String STOCK_NOT_ENOUGH = "库存不足";
+
+    public static final String TICKET_SOLD_OUT = "票档已售罄";
 
     public static final String STOCK_NOT_PREHEATED = "库存未预热，请先预热库存";
 

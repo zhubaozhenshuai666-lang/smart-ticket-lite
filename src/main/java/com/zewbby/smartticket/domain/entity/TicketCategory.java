@@ -25,7 +25,24 @@ public class TicketCategory {
 
     private BigDecimal price;
 
+    private String status;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
+
+    public TicketCategory(Long id,
+                          Long sessionId,
+                          String categoryName,
+                          BigDecimal price,
+                          LocalDateTime createdAt,
+                          LocalDateTime updatedAt) {
+        this.id = id;
+        this.sessionId = sessionId;
+        this.categoryName = categoryName;
+        this.price = price;
+        this.status = "PUBLISHED";
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+    }
 }

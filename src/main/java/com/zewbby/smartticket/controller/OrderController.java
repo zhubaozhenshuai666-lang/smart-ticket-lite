@@ -7,7 +7,9 @@ import com.zewbby.smartticket.domain.vo.IdempotencyTokenVO;
 import com.zewbby.smartticket.domain.vo.OrderRequestVO;
 import com.zewbby.smartticket.domain.vo.OrderVO;
 import com.zewbby.smartticket.idempotency.IdempotencyTokenService;
+import com.zewbby.smartticket.ratelimit.ClientIpResolver;
 import com.zewbby.smartticket.service.OrderService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,10 +28,14 @@ public class OrderController {
 
     private final IdempotencyTokenService idempotencyTokenService;
 
+    private final ClientIpResolver clientIpResolver;
+
     public OrderController(OrderService orderService,
-                           IdempotencyTokenService idempotencyTokenService) {
+                           IdempotencyTokenService idempotencyTokenService,
+                           ClientIpResolver clientIpResolver) {
         this.orderService = orderService;
         this.idempotencyTokenService = idempotencyTokenService;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @GetMapping("/orders/idempotency-token")
@@ -43,8 +49,9 @@ public class OrderController {
      * @return
      */
     @PostMapping("/orders")
-    public ApiResponse<OrderVO> createOrder(@Valid @RequestBody CreateOrderRequest request) {
-        return ApiResponse.success(orderService.createOrder(request));
+    public ApiResponse<OrderVO> createOrder(@Valid @RequestBody CreateOrderRequest request,
+                                            HttpServletRequest httpServletRequest) {
+        return ApiResponse.success(orderService.createOrder(request, clientIpResolver.resolve(httpServletRequest)));
     }
 
     /**
@@ -53,8 +60,9 @@ public class OrderController {
      * @return
      */
     @PostMapping("/orders/async")
-    public ApiResponse<OrderRequestVO> submitAsyncOrder(@Valid @RequestBody CreateOrderRequest request) {
-        return ApiResponse.successZero(orderService.submitAsyncOrder(request));
+    public ApiResponse<OrderRequestVO> submitAsyncOrder(@Valid @RequestBody CreateOrderRequest request,
+                                                        HttpServletRequest httpServletRequest) {
+        return ApiResponse.successZero(orderService.submitAsyncOrder(request, clientIpResolver.resolve(httpServletRequest)));
     }
 
     /**

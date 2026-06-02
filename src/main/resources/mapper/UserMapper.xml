@@ -10,6 +10,7 @@
         <result property="phone" column="phone"/>
         <result property="password" column="password"/>
         <result property="status" column="status"/>
+        <result property="roleCode" column="role_code"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
@@ -23,6 +24,7 @@
             phone,
             password,
             status,
+            role_code,
             created_at,
             updated_at
         ) VALUES (
@@ -30,6 +32,7 @@
             #{phone},
             #{password},
             #{status},
+            #{roleCode},
             #{createdAt},
             #{updatedAt}
         )
@@ -42,6 +45,7 @@
             phone,
             password,
             status,
+            role_code,
             created_at,
             updated_at
         FROM user_account
@@ -55,6 +59,7 @@
             phone,
             password,
             status,
+            role_code,
             created_at,
             updated_at
         FROM user_account
@@ -68,6 +73,7 @@
             phone,
             password,
             status,
+            role_code,
             created_at,
             updated_at
         FROM user_account

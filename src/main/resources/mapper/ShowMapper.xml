@@ -43,6 +43,27 @@
         <result property="availableStock" column="available_stock"/>
     </resultMap>
 
+    <resultMap id="ShowInfoResultMap" type="com.zewbby.smartticket.domain.entity.ShowInfo">
+        <id property="id" column="id"/>
+        <result property="title" column="title"/>
+        <result property="artist" column="artist"/>
+        <result property="venueId" column="venue_id"/>
+        <result property="description" column="description"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <resultMap id="PerformanceSessionResultMap" type="com.zewbby.smartticket.domain.entity.PerformanceSession">
+        <id property="id" column="id"/>
+        <result property="showId" column="show_id"/>
+        <result property="startTime" column="start_time"/>
+        <result property="endTime" column="end_time"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
     <select id="selectShowList" resultMap="ShowListVOResultMap">
         SELECT
             si.id,
@@ -52,8 +73,9 @@
             v.name AS venue_name,
             MIN(ps.start_time) AS nearest_start_time
         FROM show_info si
-        LEFT JOIN performance_session ps ON ps.show_id = si.id
+        LEFT JOIN performance_session ps ON ps.show_id = si.id AND ps.status = 'PUBLISHED'
         LEFT JOIN venue v ON v.id = si.venue_id
+        WHERE si.status = 'PUBLISHED'
         GROUP BY
             si.id,
             si.title,
@@ -73,9 +95,10 @@
             v.name AS venue_name,
             v.address
         FROM show_info si
-        LEFT JOIN performance_session ps ON ps.show_id = si.id
+        LEFT JOIN performance_session ps ON ps.show_id = si.id AND ps.status = 'PUBLISHED'
         LEFT JOIN venue v ON v.id = si.venue_id
         WHERE si.id = #{showId}
+          AND si.status = 'PUBLISHED'
         ORDER BY ps.start_time ASC
         LIMIT 1
     </select>
@@ -94,6 +117,8 @@
         LEFT JOIN show_info si ON si.id = ps.show_id
         LEFT JOIN venue v ON v.id = si.venue_id
         WHERE ps.show_id = #{showId}
+          AND ps.status = 'PUBLISHED'
+          AND si.status = 'PUBLISHED'
         ORDER BY ps.start_time ASC
     </select>
 
@@ -110,6 +135,148 @@
         FROM ticket_category tc
         LEFT JOIN ticket_stock ts ON ts.ticket_category_id = tc.id
         WHERE tc.session_id = #{sessionId}
+          AND tc.status = 'PUBLISHED'
         ORDER BY tc.price ASC
     </select>
+
+    <select id="adminSelectShows" resultMap="ShowInfoResultMap">
+        SELECT
+            id,
+            title,
+            artist,
+            venue_id,
+            description,
+            status,
+            created_at,
+            updated_at
+        FROM show_info
+        <where>
+            <if test="status != null and status != ''">
+                status = #{status}
+            </if>
+        </where>
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectShowInfoById" parameterType="java.lang.Long" resultMap="ShowInfoResultMap">
+        SELECT
+            id,
+            title,
+            artist,
+            venue_id,
+            description,
+            status,
+            created_at,
+            updated_at
+        FROM show_info
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insertShow"
+            parameterType="com.zewbby.smartticket.domain.entity.ShowInfo"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO show_info (
+            title,
+            artist,
+            venue_id,
+            description,
+            status,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{title},
+            #{artist},
+            #{venueId},
+            #{description},
+            #{status},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateShow">
+        UPDATE show_info
+        SET
+            title = #{title},
+            artist = #{artist},
+            venue_id = #{venueId},
+            description = #{description},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateShowStatus">
+        UPDATE show_info
+        SET
+            status = #{status},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <select id="adminSelectSessionsByShowId" parameterType="java.lang.Long" resultMap="PerformanceSessionResultMap">
+        SELECT
+            id,
+            show_id,
+            start_time,
+            end_time,
+            status,
+            created_at,
+            updated_at
+        FROM performance_session
+        WHERE show_id = #{showId}
+        ORDER BY start_time ASC
+    </select>
+
+    <select id="selectSessionById" parameterType="java.lang.Long" resultMap="PerformanceSessionResultMap">
+        SELECT
+            id,
+            show_id,
+            start_time,
+            end_time,
+            status,
+            created_at,
+            updated_at
+        FROM performance_session
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insertSession"
+            parameterType="com.zewbby.smartticket.domain.entity.PerformanceSession"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO performance_session (
+            show_id,
+            start_time,
+            end_time,
+            status,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{showId},
+            #{startTime},
+            #{endTime},
+            #{status},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <update id="updateSession">
+        UPDATE performance_session
+        SET
+            start_time = #{startTime},
+            end_time = #{endTime},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateSessionStatus">
+        UPDATE performance_session
+        SET
+            status = #{status},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
 </mapper>

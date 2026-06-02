@@ -10,7 +10,11 @@ public interface OrderService {
 
     OrderVO createOrder(CreateOrderRequest request);
 
+    OrderVO createOrder(CreateOrderRequest request, String clientIp);
+
     OrderRequestVO submitAsyncOrder(CreateOrderRequest request);
+
+    OrderRequestVO submitAsyncOrder(CreateOrderRequest request, String clientIp);
 
     OrderRequestVO getOrderRequestResult(String requestId);
 

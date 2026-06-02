@@ -185,6 +185,33 @@
         LIMIT #{limit}
     </select>
 
+    <select id="countPendingByShowId" resultType="int">
+        SELECT COUNT(1)
+        FROM ticket_order
+        WHERE show_id = #{showId}
+          AND status = 'PENDING_PAYMENT'
+    </select>
+
+    <select id="countPendingBySessionId" resultType="int">
+        SELECT COUNT(1)
+        FROM ticket_order
+        WHERE session_id = #{sessionId}
+          AND status = 'PENDING_PAYMENT'
+    </select>
+
+    <select id="countPendingByTicketCategoryId" resultType="int">
+        SELECT COUNT(1)
+        FROM ticket_order
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND status = 'PENDING_PAYMENT'
+    </select>
+
+    <select id="countByTicketCategoryId" resultType="int">
+        SELECT COUNT(1)
+        FROM ticket_order
+        WHERE ticket_category_id = #{ticketCategoryId}
+    </select>
+
     <update id="updateCancelStatusByUserId">
         UPDATE ticket_order
         SET

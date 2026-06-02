@@ -19,6 +19,8 @@ public class UserVO {
 
     private String status;
 
+    private String roleCode;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

@@ -26,6 +26,8 @@ public class UserAccount {
 
     private String status;
 
+    private String roleCode;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

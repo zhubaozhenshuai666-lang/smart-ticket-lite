@@ -34,3 +34,30 @@ smart-ticket:
   auth:
     login-fail-threshold: ${SMART_TICKET_LOGIN_FAIL_THRESHOLD:5}
     login-lock-minutes: ${SMART_TICKET_LOGIN_LOCK_MINUTES:10}
+  local-message:
+    sender-enabled: ${SMART_TICKET_LOCAL_MESSAGE_SENDER_ENABLED:true}
+    batch-size: ${SMART_TICKET_LOCAL_MESSAGE_BATCH_SIZE:100}
+    confirm-timeout-seconds: ${SMART_TICKET_LOCAL_MESSAGE_CONFIRM_TIMEOUT_SECONDS:60}
+    default-max-retry-count: ${SMART_TICKET_LOCAL_MESSAGE_MAX_RETRY_COUNT:5}
+  mq-consumer:
+    max-retry-count: ${SMART_TICKET_MQ_CONSUMER_MAX_RETRY_COUNT:3}
+    retry-interval-seconds: ${SMART_TICKET_MQ_CONSUMER_RETRY_INTERVAL_SECONDS:10}
+    processing-timeout-seconds: ${SMART_TICKET_MQ_CONSUMER_PROCESSING_TIMEOUT_SECONDS:120}
+  stock-consistency:
+    enabled: ${SMART_TICKET_STOCK_CONSISTENCY_ENABLED:false}
+    fixed-delay-seconds: ${SMART_TICKET_STOCK_CONSISTENCY_FIXED_DELAY_SECONDS:300}
+    batch-size: ${SMART_TICKET_STOCK_CONSISTENCY_BATCH_SIZE:100}
+    auto-repair-enabled: ${SMART_TICKET_STOCK_CONSISTENCY_AUTO_REPAIR_ENABLED:false}
+  rate-limit:
+    enabled: ${SMART_TICKET_RATE_LIMIT_ENABLED:true}
+    algorithm: ${SMART_TICKET_RATE_LIMIT_ALGORITHM:token-bucket}
+    order-user-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_USER_CAPACITY:5}
+    order-user-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_USER_REFILL_RATE_PER_SECOND:1}
+    order-ip-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_IP_CAPACITY:30}
+    order-ip-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_IP_REFILL_RATE_PER_SECOND:5}
+    order-api-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_API_CAPACITY:500}
+    order-api-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_API_REFILL_RATE_PER_SECOND:100}
+    order-ticket-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_CAPACITY:100}
+    order-ticket-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_REFILL_RATE_PER_SECOND:20}
+    key-ttl-seconds: ${SMART_TICKET_RATE_LIMIT_KEY_TTL_SECONDS:120}
+    soldout-ttl-seconds: ${SMART_TICKET_SOLDOUT_TTL_SECONDS:600}

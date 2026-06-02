@@ -48,6 +48,74 @@
         ORDER BY ticket_category_id ASC
     </select>
 
+    <select id="selectPageAfterId" resultMap="TicketStockResultMap">
+        SELECT
+            id,
+            ticket_category_id,
+            total_stock,
+            available_stock,
+            locked_stock,
+            sold_stock,
+            version,
+            created_at,
+            updated_at
+        FROM ticket_stock
+        WHERE id &gt; #{lastId}
+        ORDER BY id ASC
+        LIMIT #{limit}
+    </select>
+
+    <insert id="insert"
+            parameterType="com.zewbby.smartticket.domain.entity.TicketStock"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO ticket_stock (
+            ticket_category_id,
+            total_stock,
+            available_stock,
+            locked_stock,
+            sold_stock,
+            version,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{ticketCategoryId},
+            #{totalStock},
+            #{availableStock},
+            #{lockedStock},
+            #{soldStock},
+            COALESCE(#{version}, 0),
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <update id="initExistingStock">
+        UPDATE ticket_stock
+        SET
+            total_stock = #{availableStock},
+            available_stock = #{availableStock},
+            locked_stock = 0,
+            sold_stock = 0,
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND locked_stock = 0
+          AND sold_stock = 0
+    </update>
+
+    <update id="adjustAvailableStock">
+        UPDATE ticket_stock
+        SET
+            total_stock = total_stock + #{adjustQuantity},
+            available_stock = available_stock + #{adjustQuantity},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND available_stock + #{adjustQuantity} &gt;= 0
+          AND total_stock + #{adjustQuantity} &gt;= locked_stock + sold_stock
+    </update>
+
     <update id="decreaseStock">
         UPDATE ticket_stock
         SET

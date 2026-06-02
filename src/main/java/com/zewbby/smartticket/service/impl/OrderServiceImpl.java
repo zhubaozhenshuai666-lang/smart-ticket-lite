@@ -6,7 +6,6 @@ import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
-import com.zewbby.smartticket.constant.RedisKeyConstant;
 import com.zewbby.smartticket.domain.dto.CreateOrderRequest;
 import com.zewbby.smartticket.domain.entity.TicketCategory;
 import com.zewbby.smartticket.domain.entity.TicketOrder;
@@ -15,8 +14,11 @@ import com.zewbby.smartticket.domain.entity.TicketStock;
 import com.zewbby.smartticket.domain.entity.UserAccount;
 import com.zewbby.smartticket.domain.vo.OrderRequestVO;
 import com.zewbby.smartticket.domain.vo.OrderVO;
+import com.zewbby.smartticket.enums.CompensationStatusEnum;
 import com.zewbby.smartticket.enums.OrderRequestStatusEnum;
 import com.zewbby.smartticket.enums.OrderStatusEnum;
+import com.zewbby.smartticket.enums.RedisStockDeductResult;
+import com.zewbby.smartticket.enums.RedisStockReleaseResult;
 import com.zewbby.smartticket.idempotency.IdempotencyTokenService;
 import com.zewbby.smartticket.mapper.OrderMapper;
 import com.zewbby.smartticket.mapper.OrderRequestMapper;
@@ -27,8 +29,9 @@ import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
 import com.zewbby.smartticket.mq.OrderTimeoutProducer;
 import com.zewbby.smartticket.ratelimit.RateLimitService;
-import com.zewbby.smartticket.service.LocalMessageService;
+import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import com.zewbby.smartticket.service.OrderService;
+import com.zewbby.smartticket.service.StockCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpException;
@@ -52,13 +55,11 @@ public class OrderServiceImpl implements OrderService {
 
     private static final String TIMEOUT_CLOSE_REASON = "订单超时未支付关闭";
 
-    private static final String ORDER_SUBMIT_ACTION = "order-submit";
+    private static final String SYNC_ORDER_API_NAME = "orders:create";
 
-    private static final int USER_ORDER_SUBMIT_LIMIT = 5;
+    private static final String ASYNC_ORDER_API_NAME = "orders:async";
 
-    private static final int TICKET_ORDER_SUBMIT_LIMIT = 50;
-
-    private static final long ORDER_SUBMIT_WINDOW_SECONDS = 10L;
+    private static final String UNKNOWN_CLIENT_IP = "unknown";
 
     private final OrderMapper orderMapper;
 
@@ -82,7 +83,9 @@ public class OrderServiceImpl implements OrderService {
 
     private final StockLuaService stockLuaService;
 
-    private final LocalMessageService localMessageService;
+    private final StockCacheService stockCacheService;
+
+    private final AsyncOrderMessagePublisher asyncOrderMessagePublisher;
 
     public OrderServiceImpl(OrderMapper orderMapper,
                             OrderRequestMapper orderRequestMapper,
@@ -95,7 +98,8 @@ public class OrderServiceImpl implements OrderService {
                             RateLimitService rateLimitService,
                             IdempotencyTokenService idempotencyTokenService,
                             StockLuaService stockLuaService,
-                            LocalMessageService localMessageService) {
+                            StockCacheService stockCacheService,
+                            AsyncOrderMessagePublisher asyncOrderMessagePublisher) {
         this.orderMapper = orderMapper;
         this.orderRequestMapper = orderRequestMapper;
         this.paymentMapper = paymentMapper;
@@ -107,19 +111,37 @@ public class OrderServiceImpl implements OrderService {
         this.rateLimitService = rateLimitService;
         this.idempotencyTokenService = idempotencyTokenService;
         this.stockLuaService = stockLuaService;
-        this.localMessageService = localMessageService;
+        this.stockCacheService = stockCacheService;
+        this.asyncOrderMessagePublisher = asyncOrderMessagePublisher;
     }
 
     /**
-     * 提交异步订单
-     * @param request
-     * @return
+     * 提交异步订单请求，并在入口阶段完成 Redis 预扣库存。
+     *
+     * 这个方法解决高并发下“所有请求都直接进入 MySQL 扣库存”的压力问题：
+     * 入口先创建 INIT 请求记录，再用 requestId 调 Redis Lua 原子预扣库存。Redis 扣成功只表示抢购资格暂时占住，
+     * 还不代表正式订单已创建；消费者仍然要做 MySQL 条件扣库存作为最终持久化保护。
+     *
+     * 成功返回 QUEUED/PRE_DEDUCTED 之后，用户只能拿 requestId 查询后续处理结果。
+     * 如果 Redis 预扣失败，请求会标记 FAILED，不会进入消息发送链路。
+     * 如果 Redis 已扣但消息发送等后续步骤失败，本方法会立即释放 Redis 预扣，并把请求标记为 COMPENSATED，
+     * 避免可抢库存被长期占住。
+     *
+     * @param request 下单参数，userId 字段不可信，真实用户必须来自 UserContext。
+     * @return 异步下单请求视图，包含 requestId 和当前状态。
      */
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = BusinessException.class)
     public OrderRequestVO submitAsyncOrder(CreateOrderRequest request) {
+        return submitAsyncOrder(request, UNKNOWN_CLIENT_IP);
+    }
+
+    @Override
+    @Transactional(noRollbackFor = BusinessException.class)
+    public OrderRequestVO submitAsyncOrder(CreateOrderRequest request, String clientIp) {
         Long currentUserId = UserContext.requireUserId();
-        checkOrderSubmitRateLimit(currentUserId, request);
+        checkCoarseOrderSubmitRateLimit(currentUserId, clientIp, ASYNC_ORDER_API_NAME);
+        checkSoldoutFastFail(request.getTicketCategoryId());
 
         if (!orderSubmitGuard.tryAcquire(currentUserId, request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_SUBMIT);
@@ -135,12 +157,9 @@ public class OrderServiceImpl implements OrderService {
 
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
+            checkTicketOrderSubmitRateLimit(request);
             //用lua消耗token
             idempotencyTokenService.consumeOrderToken(currentUserId, request.getIdempotencyToken());
-
-            //redis预扣库存（Lua）
-            stockLuaService.preDeductStock(request.getTicketCategoryId(), request.getQuantity());
-            redisPreDeducted = true;
 
             LocalDateTime now = LocalDateTime.now();
             String requestId = generateRequestId();
@@ -152,17 +171,49 @@ public class OrderServiceImpl implements OrderService {
             orderRequest.setSessionId(request.getSessionId());
             orderRequest.setTicketCategoryId(request.getTicketCategoryId());
             orderRequest.setQuantity(request.getQuantity());
-            orderRequest.setStatus(OrderRequestStatusEnum.PROCESSING.getCode());
+            orderRequest.setStatus(OrderRequestStatusEnum.INIT.getCode());
             orderRequest.setOrderId(null);
+            orderRequest.setProcessingAt(null);
+            orderRequest.setRedisDeducted(false);
+            orderRequest.setDeductedQuantity(0);
+            orderRequest.setDeductedAt(null);
+            orderRequest.setCompensated(false);
+            orderRequest.setCompensationStatus(CompensationStatusEnum.NONE.getCode());
+            orderRequest.setCompensatedAt(null);
             orderRequest.setFailReason(null);
+            orderRequest.setMessageId(null);
             orderRequest.setCreatedAt(now);
             orderRequest.setUpdatedAt(now);
 
-            //带着requestId插入一下，如果插入失败(也就是说有这个订单了)就抛异常
+            // INIT 记录先落库，后续 Redis 预扣失败也能留下明确失败状态，便于排查和后续补偿巡检。
             int insertRows = orderRequestMapper.insert(orderRequest);
             if (insertRows != 1) {
                 throw new BusinessException("异步下单请求创建失败");
             }
+
+            RedisStockDeductResult deductResult = stockLuaService.preDeductStock(
+                    requestId,
+                    request.getTicketCategoryId(),
+                    request.getQuantity()
+            );
+            if (!deductResult.isSuccess()) {
+                orderRequestMapper.markFailed(orderRequest.getId(), toPreDeductFailMessage(deductResult));
+                throw new BusinessException(toPreDeductFailMessage(deductResult));
+            }
+            redisPreDeducted = true;
+
+            int preDeductedRows = orderRequestMapper.markPreDeducted(
+                    orderRequest.getId(),
+                    request.getQuantity(),
+                    now
+            );
+            if (preDeductedRows != 1) {
+                throw new BusinessException("异步下单请求预扣状态更新失败");
+            }
+            orderRequest.setStatus(OrderRequestStatusEnum.PRE_DEDUCTED.getCode());
+            orderRequest.setRedisDeducted(true);
+            orderRequest.setDeductedQuantity(request.getQuantity());
+            orderRequest.setDeductedAt(now);
 
             //整个message
             AsyncCreateOrderMessage message = new AsyncCreateOrderMessage(
@@ -173,13 +224,17 @@ public class OrderServiceImpl implements OrderService {
                     request.getTicketCategoryId(),
                     request.getQuantity()
             );
-            // 本地消息和下单请求在同一个事务中保存，由定时任务负责可靠投递 MQ。
-            localMessageService.createAsyncCreateOrderMessage(message);
+            String messageId = asyncOrderMessagePublisher.publish(message);
+            int queuedRows = orderRequestMapper.markQueued(orderRequest.getId(), messageId);
+            if (queuedRows != 1) {
+                throw new BusinessException("异步下单请求排队状态更新失败");
+            }
+            orderRequest.setStatus(OrderRequestStatusEnum.QUEUED.getCode());
+            orderRequest.setMessageId(messageId);
 
             return toOrderRequestVO(orderRequest);
         } catch (RuntimeException exception) {
-            //提交失败的话就回滚redis库存
-            rollbackRedisStockAfterSubmitFailure(request, redisPreDeducted, "异步下单提交失败");
+            releaseRedisPreDeductedStockAfterSubmitFailure(orderRequest, redisPreDeducted, "异步下单提交失败");
             //发生其他意外就释放锁
             orderSubmitGuard.release(currentUserId, request.getTicketCategoryId());
             throw exception;
@@ -199,9 +254,16 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderVO createOrder(CreateOrderRequest request) {
+        return createOrder(request, UNKNOWN_CLIENT_IP);
+    }
+
+    @Override
+    @Transactional
+    public OrderVO createOrder(CreateOrderRequest request, String clientIp) {
         Long currentUserId = UserContext.requireUserId();
         //限流
-        checkOrderSubmitRateLimit(currentUserId, request);
+        checkCoarseOrderSubmitRateLimit(currentUserId, clientIp, SYNC_ORDER_API_NAME);
+        checkSoldoutFastFail(request.getTicketCategoryId());
 
         //防重复提交
         if (!orderSubmitGuard.tryAcquire(currentUserId, request.getTicketCategoryId())) {
@@ -215,6 +277,7 @@ public class OrderServiceImpl implements OrderService {
             }
 
             TicketCategory ticketCategory = getValidTicketCategory(request);
+            checkTicketOrderSubmitRateLimit(request);
             idempotencyTokenService.consumeOrderToken(currentUserId, request.getIdempotencyToken());
 
             TicketStock ticketStock = ticketStockMapper.selectByTicketCategoryId(request.getTicketCategoryId());
@@ -436,53 +499,97 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private void rollbackRedisStockAfterSubmitFailure(CreateOrderRequest request,
-                                                     boolean redisPreDeducted,
-                                                     String reason) {
+    private void releaseRedisPreDeductedStockAfterSubmitFailure(TicketOrderRequest orderRequest,
+                                                               boolean redisPreDeducted,
+                                                               String reason) {
         if (!redisPreDeducted) {
             return;
         }
-        rollbackRedisStockAfterSubmitFailure(request.getTicketCategoryId(), request.getQuantity(), reason);
+        if (orderRequest == null) {
+            return;
+        }
+        releaseRedisPreDeductedStock(orderRequest, reason);
     }
 
     /**
-     * 提交失败的话回滚redis库存
-     * @param ticketCategoryId
-     * @param quantity
-     * @param reason
+     * 释放异步下单入口已经预扣的 Redis 库存。
+     *
+     * Redis 预扣成功后，如果消息链路或请求状态更新失败，系统会处在“Redis 已扣、MySQL 正式订单未落库”的中间态。
+     * 这个中间态如果不处理，用户没有订单，但 Redis 可售库存被占住；如果重复释放，又会把 Redis 库存加多。
+     * 所以这里调用带 requestId 的 release Lua：它只会释放存在 deducted key 的请求，并写 compensated key 防重。
+     *
+     * @param orderRequest 已创建的异步下单请求。
+     * @param reason 失败原因，用于日志和 request 状态记录。
      */
-    private void rollbackRedisStockAfterSubmitFailure(Long ticketCategoryId,
-                                                     Integer quantity,
-                                                     String reason) {
+    private void releaseRedisPreDeductedStock(TicketOrderRequest orderRequest, String reason) {
+        orderRequestMapper.markFailed(orderRequest.getId(), reason);
         try {
-            stockLuaService.rollbackStock(ticketCategoryId, quantity);
-            LOGGER.info("Rolled back Redis stock after async submit failure, ticketCategoryId={}, quantity={}, reason={}",
-                    ticketCategoryId, quantity, reason);
-        } catch (RuntimeException rollbackException) {
-            LOGGER.error("Failed to rollback Redis stock after async submit failure, ticketCategoryId={}, quantity={}, reason={}",
-                    ticketCategoryId, quantity, reason, rollbackException);
+            RedisStockReleaseResult releaseResult = stockLuaService.releasePreDeductedStock(
+                    orderRequest.getRequestId(),
+                    orderRequest.getTicketCategoryId(),
+                    orderRequest.getQuantity()
+            );
+            if (releaseResult.isSuccess() || releaseResult == RedisStockReleaseResult.ALREADY_COMPENSATED) {
+                orderRequestMapper.markCompensated(orderRequest.getId(), LocalDateTime.now());
+            }
+            LOGGER.info("Released Redis pre-deducted stock after async submit failure, requestId={}, result={}, reason={}",
+                    orderRequest.getRequestId(), releaseResult, reason);
+        } catch (RuntimeException releaseException) {
+            LOGGER.error("Failed to release Redis pre-deducted stock after async submit failure, requestId={}, reason={}",
+                    orderRequest.getRequestId(), reason, releaseException);
         }
     }
 
-    //查限流
-    private void checkOrderSubmitRateLimit(Long userId, CreateOrderRequest request) {
-        boolean userAllowed = rateLimitService.tryAcquire(
-                RedisKeyConstant.rateLimitUserKey(userId, ORDER_SUBMIT_ACTION),
-                USER_ORDER_SUBMIT_LIMIT,
-                ORDER_SUBMIT_WINDOW_SECONDS
-        );
+    private String toPreDeductFailMessage(RedisStockDeductResult deductResult) {
+        if (deductResult == RedisStockDeductResult.STOCK_NOT_FOUND) {
+            return ErrorMessageConstant.STOCK_NOT_PREHEATED;
+        }
+        if (deductResult == RedisStockDeductResult.STOCK_NOT_ENOUGH) {
+            return ErrorMessageConstant.STOCK_NOT_ENOUGH;
+        }
+        if (deductResult == RedisStockDeductResult.DUPLICATE) {
+            return ErrorMessageConstant.ORDER_REPEAT_SUBMIT;
+        }
+        return deductResult.getMessage();
+    }
 
-        if (!userAllowed) {
+    /**
+     * 下单入口粗粒度限流。
+     *
+     * 这一步只依赖当前登录用户、客户端 IP 和接口名，不需要查库，因此可以尽早挡住刷接口流量。
+     * 用户维度防止单账号疯狂提交，IP 维度防止单来源打爆入口，API 维度保护整体下单能力。
+     * 票档维度限流放到归属校验之后，避免非法 ticketCategoryId 也污染热点票档限流桶。
+     */
+    private void checkCoarseOrderSubmitRateLimit(Long userId, String clientIp, String apiName) {
+        boolean allowed = rateLimitService.tryAcquireOrderSubmit(userId, clientIp, apiName, null, false);
+        if (!allowed) {
             throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
         }
+    }
 
-        boolean ticketAllowed = rateLimitService.tryAcquire(
-                RedisKeyConstant.rateLimitTicketKey(request.getTicketCategoryId(), ORDER_SUBMIT_ACTION),
-                TICKET_ORDER_SUBMIT_LIMIT,
-                ORDER_SUBMIT_WINDOW_SECONDS
-        );
-        if (!ticketAllowed) {
+    /**
+     * 票档维度限流。
+     *
+     * 热门票档会把大量请求集中到同一个 Redis 预扣 key 和后续 MQ 链路；票档限流可以把热点资源的峰值削平。
+     * 这里在 showId -> sessionId -> ticketCategoryId 归属校验之后执行，确保被计入限流桶的 ticketCategoryId
+     * 至少是一个合法业务组合。
+     */
+    private void checkTicketOrderSubmitRateLimit(CreateOrderRequest request) {
+        if (!rateLimitService.tryAcquireOrderTicket(request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
+        }
+    }
+
+    /**
+     * soldout 快速失败。
+     *
+     * soldout 是性能优化，不是最终库存事实。它表示最近 Redis 预扣已经发现该票档库存不足，
+     * 所以后续请求没有必要再创建 ticket_order_request、写 local_message 或进入 MQ。
+     * 库存预热、库存补偿和人工调整库存后必须清理该标记，否则会误杀恢复后的库存。
+     */
+    private void checkSoldoutFastFail(Long ticketCategoryId) {
+        if (stockCacheService.isSoldOut(ticketCategoryId)) {
+            throw new BusinessException(ErrorMessageConstant.TICKET_SOLD_OUT);
         }
     }
 

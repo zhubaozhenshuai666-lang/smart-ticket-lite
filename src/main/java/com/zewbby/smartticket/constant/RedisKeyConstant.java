@@ -20,9 +20,21 @@ public final class RedisKeyConstant {
 
     private static final String RATE_LIMIT_TICKET_PREFIX = "rate:ticket:";
 
-    private static final String STOCK_TICKET_CATEGORY_PREFIX = "stock:ticket-category:";
+    private static final String ORDER_RATE_LIMIT_USER_PREFIX = "rate:limit:user:";
 
-    private static final String STOCK_ROLLBACK_REQUEST_PREFIX = "stock:rollback:request:";
+    private static final String ORDER_RATE_LIMIT_IP_PREFIX = "rate:limit:ip:";
+
+    private static final String ORDER_RATE_LIMIT_API_PREFIX = "rate:limit:api:";
+
+    private static final String ORDER_RATE_LIMIT_TICKET_PREFIX = "rate:limit:ticket:";
+
+    private static final String STOCK_TICKET_CATEGORY_PREFIX = "ticket:stock:";
+
+    private static final String STOCK_DEDUCTED_REQUEST_PREFIX = "ticket:stock:deducted:";
+
+    private static final String STOCK_COMPENSATED_REQUEST_PREFIX = "ticket:stock:compensated:";
+
+    private static final String STOCK_SOLDOUT_PREFIX = "ticket:soldout:";
 
     private static final String AUTH_TOKEN_BLACKLIST_PREFIX = "auth:token:blacklist:";
 
@@ -69,12 +81,40 @@ public final class RedisKeyConstant {
         return RATE_LIMIT_TICKET_PREFIX + ticketCategoryId + ":" + normalize(action);
     }
 
+    public static String orderRateLimitUserKey(Long userId) {
+        return ORDER_RATE_LIMIT_USER_PREFIX + userId + ":order";
+    }
+
+    public static String orderRateLimitIpKey(String ip) {
+        return ORDER_RATE_LIMIT_IP_PREFIX + normalize(ip) + ":order";
+    }
+
+    public static String orderRateLimitApiKey(String apiName) {
+        return ORDER_RATE_LIMIT_API_PREFIX + normalize(apiName);
+    }
+
+    public static String orderRateLimitTicketKey(Long ticketCategoryId) {
+        return ORDER_RATE_LIMIT_TICKET_PREFIX + ticketCategoryId;
+    }
+
     public static String stockAvailableKey(Long ticketCategoryId) {
-        return STOCK_TICKET_CATEGORY_PREFIX + ticketCategoryId + ":available";
+        return STOCK_TICKET_CATEGORY_PREFIX + ticketCategoryId;
     }
 
     public static String stockRollbackRequestKey(String requestId) {
-        return STOCK_ROLLBACK_REQUEST_PREFIX + normalize(requestId);
+        return stockCompensatedRequestKey(requestId);
+    }
+
+    public static String stockDeductedRequestKey(String requestId) {
+        return STOCK_DEDUCTED_REQUEST_PREFIX + normalize(requestId);
+    }
+
+    public static String stockCompensatedRequestKey(String requestId) {
+        return STOCK_COMPENSATED_REQUEST_PREFIX + normalize(requestId);
+    }
+
+    public static String stockSoldoutKey(Long ticketCategoryId) {
+        return STOCK_SOLDOUT_PREFIX + ticketCategoryId;
     }
 
     public static String authTokenBlacklistKey(String jti) {

@@ -34,7 +34,23 @@ public class TicketOrderRequest {
 
     private Long orderId;
 
+    private LocalDateTime processingAt;
+
+    private Boolean redisDeducted;
+
+    private Integer deductedQuantity;
+
+    private LocalDateTime deductedAt;
+
+    private Boolean compensated;
+
+    private String compensationStatus;
+
+    private LocalDateTime compensatedAt;
+
     private String failReason;
+
+    private String messageId;
 
     private LocalDateTime createdAt;
 
