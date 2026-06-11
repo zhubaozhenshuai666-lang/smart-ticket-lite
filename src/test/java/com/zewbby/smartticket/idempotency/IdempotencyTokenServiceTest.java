@@ -8,9 +8,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -105,24 +106,25 @@ class IdempotencyTokenServiceTest {
     @Test
     void generateOrderTokensCreatesDefaultBatchWhenCountIsMissing() {
         IdempotencyTokenService service = new IdempotencyTokenService(stringRedisTemplate);
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(stringRedisTemplate.executePipelined(any(RedisCallback.class))).thenReturn(List.of());
 
         var tokens = service.generateOrderTokens(1L, null);
 
         assertThat(tokens).hasSize(10);
         assertThat(tokens).extracting("token").doesNotHaveDuplicates();
-        verify(valueOperations, times(10)).set(anyString(), eq("1"), eq(Duration.ofSeconds(300)));
+        verify(stringRedisTemplate, times(1)).executePipelined(any(RedisCallback.class));
+        verify(valueOperations, never()).set(anyString(), eq("1"), any());
     }
 
     @Test
     void generateOrderTokensCapsBatchSize() {
         IdempotencyTokenService service = new IdempotencyTokenService(stringRedisTemplate);
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(stringRedisTemplate.executePipelined(any(RedisCallback.class))).thenReturn(List.of());
 
         var tokens = service.generateOrderTokens(1L, 120);
 
         assertThat(tokens).hasSize(100);
-        verify(valueOperations, times(100)).set(anyString(), eq("1"), eq(Duration.ofSeconds(300)));
+        verify(stringRedisTemplate, times(1)).executePipelined(any(RedisCallback.class));
     }
 
     @Test

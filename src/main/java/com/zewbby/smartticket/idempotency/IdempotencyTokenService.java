@@ -5,11 +5,15 @@ import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.RedisKeyConstant;
 import com.zewbby.smartticket.domain.vo.IdempotencyTokenVO;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.redis.connection.RedisStringCommands;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.types.Expiration;
 import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,7 +45,7 @@ public class IdempotencyTokenService {
      */
     public IdempotencyTokenVO generateOrderToken(Long userId) {
         //生成token
-        String token = "idem_" + UUID.randomUUID().toString().replace("-", "");
+        String token = generateTokenValue();
         //生成对应幂等token
         String key = RedisKeyConstant.orderIdempotencyTokenKey(userId, token);
         //记录下来对应的token到redis里
@@ -59,8 +63,10 @@ public class IdempotencyTokenService {
         int safeCount = normalizeBatchCount(count);
         List<IdempotencyTokenVO> tokens = new ArrayList<>(safeCount);
         for (int i = 0; i < safeCount; i++) {
-            tokens.add(generateOrderToken(userId));
+            String token = generateTokenValue();
+            tokens.add(new IdempotencyTokenVO(token, ORDER_TOKEN_EXPIRE_SECONDS));
         }
+        writeTokensByPipeline(userId, tokens);
         return tokens;
     }
 
@@ -82,6 +88,27 @@ public class IdempotencyTokenService {
                 Collections.singletonList(tokenKey)
         );
         return result != null && result == 1L;
+    }
+
+    private String generateTokenValue() {
+        return "idem_" + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private void writeTokensByPipeline(Long userId, List<IdempotencyTokenVO> tokens) {
+        byte[] value = "1".getBytes(StandardCharsets.UTF_8);
+        stringRedisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (IdempotencyTokenVO token : tokens) {
+                byte[] key = RedisKeyConstant.orderIdempotencyTokenKey(userId, token.getToken())
+                        .getBytes(StandardCharsets.UTF_8);
+                connection.stringCommands().set(
+                        key,
+                        value,
+                        Expiration.seconds(ORDER_TOKEN_EXPIRE_SECONDS),
+                        RedisStringCommands.SetOption.UPSERT
+                );
+            }
+            return null;
+        });
     }
 
     private int normalizeBatchCount(Integer count) {
