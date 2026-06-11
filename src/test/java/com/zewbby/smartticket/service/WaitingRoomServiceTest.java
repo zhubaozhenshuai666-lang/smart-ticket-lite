@@ -7,16 +7,20 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,6 +53,41 @@ class WaitingRoomServiceTest {
         assertThat(token.getToken()).startsWith("admit_");
         assertThat(token.getExpireSeconds()).isEqualTo(90);
         verify(valueOperations).set(anyString(), eq("1"), eq(Duration.ofSeconds(90)));
+    }
+
+    @Test
+    void issueAdmissionTokensCreatesDefaultBatchByPipeline() {
+        properties.setAdmissionTokenExpireSeconds(90);
+        when(stringRedisTemplate.executePipelined(any(RedisCallback.class))).thenReturn(List.of());
+
+        var tokens = waitingRoomService.issueAdmissionTokens(1L, 2L, null);
+
+        assertThat(tokens).hasSize(10);
+        assertThat(tokens).extracting("token").doesNotHaveDuplicates();
+        assertThat(tokens).allSatisfy(token -> {
+            assertThat(token.getToken()).startsWith("admit_");
+            assertThat(token.getExpireSeconds()).isEqualTo(90);
+        });
+        verify(stringRedisTemplate, times(1)).executePipelined(any(RedisCallback.class));
+        verify(valueOperations, never()).set(anyString(), eq("1"), any());
+    }
+
+    @Test
+    void issueAdmissionTokensCapsBatchSize() {
+        properties.setMaxAdmissionTokenBatchSize(20);
+        when(stringRedisTemplate.executePipelined(any(RedisCallback.class))).thenReturn(List.of());
+
+        var tokens = waitingRoomService.issueAdmissionTokens(1L, 2L, 50);
+
+        assertThat(tokens).hasSize(20);
+        verify(stringRedisTemplate, times(1)).executePipelined(any(RedisCallback.class));
+    }
+
+    @Test
+    void issueAdmissionTokensRejectsInvalidBatchSize() {
+        assertThatThrownBy(() -> waitingRoomService.issueAdmissionTokens(1L, 2L, 0))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("等待室入场资格批量数量必须大于 0");
     }
 
     @Test

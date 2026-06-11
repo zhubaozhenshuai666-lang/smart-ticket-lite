@@ -30,6 +30,7 @@ import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
 import com.zewbby.smartticket.mq.OrderTimeoutMessage;
 import com.zewbby.smartticket.mq.OrderTimeoutProducer;
 import com.zewbby.smartticket.ratelimit.RateLimitService;
+import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import com.zewbby.smartticket.service.BucketRouteService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
@@ -114,6 +115,9 @@ class OrderServiceImplTest {
 
     @Mock
     private ObservabilityMetricsService observabilityMetricsService;
+
+    @Mock
+    private AsyncOrderInFlightService asyncOrderInFlightService;
 
     private OrderServiceImpl orderService;
 
@@ -378,6 +382,37 @@ class OrderServiceImplTest {
         verify(asyncOrderMessagePublisher, never()).publish(any());
         verify(idempotencyTokenService, never()).consumeOrderToken(anyLong(), anyString());
         verify(stockLuaService, never()).preDeductStock(anyString(), anyLong(), anyInt());
+    }
+
+    @Test
+    void submitAsyncOrderRejectsWhenInFlightQueueIsFullBeforeConsumingToken() {
+        orderService = orderServiceWithInFlightControl();
+        mockCommonCreateOrderChecks(true);
+        when(asyncOrderInFlightService.tryAcquire(2L)).thenReturn(false);
+
+        assertThatThrownBy(() -> orderService.submitAsyncOrder(validRequest()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining(ErrorMessageConstant.ORDER_QUEUE_BUSY);
+
+        verify(idempotencyTokenService, never()).consumeOrderToken(anyLong(), anyString());
+        verify(stockLuaService, never()).preDeductStock(anyString(), anyLong(), anyInt());
+        verify(asyncOrderMessagePublisher, never()).publish(anyString(), any());
+    }
+
+    @Test
+    void submitAsyncOrderReleasesInFlightWhenRedisPreDeductFails() {
+        orderService = orderServiceWithInFlightControl();
+        mockCommonCreateOrderChecks(true);
+        when(asyncOrderInFlightService.tryAcquire(2L)).thenReturn(true);
+        when(stockLuaService.preDeductStock(anyString(), anyLong(), anyInt()))
+                .thenReturn(RedisStockDeductResult.STOCK_NOT_ENOUGH);
+
+        assertThatThrownBy(() -> orderService.submitAsyncOrder(validRequest()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining(ErrorMessageConstant.STOCK_NOT_ENOUGH);
+
+        verify(asyncOrderInFlightService).release(2L);
+        verify(asyncOrderMessagePublisher, never()).publish(anyString(), any());
     }
 
     @Test
@@ -707,6 +742,39 @@ class OrderServiceImplTest {
                 null,
                 asyncOrderSubmitProperties
         );
+    }
+
+    private OrderServiceImpl orderServiceWithInFlightControl() {
+        return new OrderServiceImpl(
+                orderMapper,
+                orderRequestMapper,
+                paymentMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                null,
+                orderSubmitGuard,
+                orderTimeoutProducer,
+                rateLimitService,
+                idempotencyTokenService,
+                stockLuaService,
+                stockCacheService,
+                new BucketRouteService(),
+                asyncOrderMessagePublisher,
+                paymentAuditService,
+                observabilityMetricsService,
+                disabledBucketPropertiesForTest(),
+                null,
+                null,
+                null,
+                defaultAsyncSubmitPropertiesForTest(),
+                null,
+                asyncOrderInFlightService
+        );
+    }
+
+    private AsyncOrderSubmitProperties defaultAsyncSubmitPropertiesForTest() {
+        return new AsyncOrderSubmitProperties();
     }
 
     private StockBucketProperties disabledBucketPropertiesForTest() {

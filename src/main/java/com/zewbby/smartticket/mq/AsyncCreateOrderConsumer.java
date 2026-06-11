@@ -21,8 +21,11 @@ import com.zewbby.smartticket.mapper.TicketCategoryMapper;
 import com.zewbby.smartticket.mapper.TicketStockBucketMapper;
 import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
+import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.DeadLetterMessageService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
+import com.zewbby.smartticket.service.OrderSnapshotCacheService;
+import com.zewbby.smartticket.service.ShowRelationCacheService;
 import com.zewbby.smartticket.service.UserStatusCacheService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
@@ -71,6 +74,12 @@ public class AsyncCreateOrderConsumer {
 
     private final UserStatusCacheService userStatusCacheService;
 
+    private final ShowRelationCacheService showRelationCacheService;
+
+    private final OrderSnapshotCacheService orderSnapshotCacheService;
+
+    private final AsyncOrderInFlightService asyncOrderInFlightService;
+
     @Autowired
     public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
                                     OrderMapper orderMapper,
@@ -83,8 +92,11 @@ public class AsyncCreateOrderConsumer {
 	                                    DeadLetterMessageService deadLetterMessageService,
 	                                    MqConsumerProperties mqConsumerProperties,
 	                                    ObservabilityMetricsService observabilityMetricsService,
-	                                    StockBucketProperties stockBucketProperties,
-                                        UserStatusCacheService userStatusCacheService) {
+                                        StockBucketProperties stockBucketProperties,
+                                        UserStatusCacheService userStatusCacheService,
+                                        ShowRelationCacheService showRelationCacheService,
+                                        OrderSnapshotCacheService orderSnapshotCacheService,
+                                        AsyncOrderInFlightService asyncOrderInFlightService) {
         this.orderRequestMapper = orderRequestMapper;
         this.orderMapper = orderMapper;
         this.userMapper = userMapper;
@@ -98,6 +110,41 @@ public class AsyncCreateOrderConsumer {
         this.observabilityMetricsService = observabilityMetricsService;
         this.stockBucketProperties = stockBucketProperties;
         this.userStatusCacheService = userStatusCacheService;
+        this.showRelationCacheService = showRelationCacheService;
+        this.orderSnapshotCacheService = orderSnapshotCacheService;
+        this.asyncOrderInFlightService = asyncOrderInFlightService;
+    }
+
+    public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
+                                    OrderMapper orderMapper,
+                                    UserMapper userMapper,
+                                    TicketCategoryMapper ticketCategoryMapper,
+                                    TicketStockMapper ticketStockMapper,
+                                    TicketStockBucketMapper ticketStockBucketMapper,
+                                    OrderTimeoutProducer orderTimeoutProducer,
+                                    StockLuaService stockLuaService,
+                                    DeadLetterMessageService deadLetterMessageService,
+                                    MqConsumerProperties mqConsumerProperties,
+                                    ObservabilityMetricsService observabilityMetricsService,
+                                    StockBucketProperties stockBucketProperties,
+                                    UserStatusCacheService userStatusCacheService,
+                                    ShowRelationCacheService showRelationCacheService) {
+        this(orderRequestMapper,
+                orderMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                ticketStockBucketMapper,
+                orderTimeoutProducer,
+                stockLuaService,
+                deadLetterMessageService,
+                mqConsumerProperties,
+                observabilityMetricsService,
+                stockBucketProperties,
+                userStatusCacheService,
+                showRelationCacheService,
+                null,
+                null);
     }
 
     public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
@@ -122,6 +169,7 @@ public class AsyncCreateOrderConsumer {
                 mqConsumerProperties,
                 observabilityMetricsService,
                 disabledBucketProperties(),
+                null,
                 null);
     }
 
@@ -149,6 +197,36 @@ public class AsyncCreateOrderConsumer {
                 mqConsumerProperties,
                 observabilityMetricsService,
                 stockBucketProperties,
+                null,
+                null);
+    }
+
+    public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
+                                    OrderMapper orderMapper,
+                                    UserMapper userMapper,
+                                    TicketCategoryMapper ticketCategoryMapper,
+                                    TicketStockMapper ticketStockMapper,
+                                    TicketStockBucketMapper ticketStockBucketMapper,
+                                    OrderTimeoutProducer orderTimeoutProducer,
+                                    StockLuaService stockLuaService,
+                                    DeadLetterMessageService deadLetterMessageService,
+                                    MqConsumerProperties mqConsumerProperties,
+                                    ObservabilityMetricsService observabilityMetricsService,
+                                    StockBucketProperties stockBucketProperties,
+                                    UserStatusCacheService userStatusCacheService) {
+        this(orderRequestMapper,
+                orderMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                ticketStockBucketMapper,
+                orderTimeoutProducer,
+                stockLuaService,
+                deadLetterMessageService,
+                mqConsumerProperties,
+                observabilityMetricsService,
+                stockBucketProperties,
+                userStatusCacheService,
                 null);
     }
 
@@ -276,6 +354,7 @@ public class AsyncCreateOrderConsumer {
             if (successRows != 1) {
                 throw new IllegalStateException("异步下单请求状态更新失败");
             }
+            releaseAsyncOrderInFlight(orderRequest);
             observabilityMetricsService.recordAsyncOrderRequestSuccess();
             LOGGER.info("Marked async order request SUCCESS, requestId={}, orderId={}",
                     orderRequest.getRequestId(), order.getId());
@@ -345,6 +424,7 @@ public class AsyncCreateOrderConsumer {
         TicketOrderRequest existingRequest = orderRequestMapper.selectByRequestId(message.getRequestId());
         if (existingRequest == null) {
             recordDeadLetter(message, ConsumerExceptionTypeEnum.DATA_INCONSISTENCY, "异步下单请求补建失败");
+            releaseAsyncOrderInFlight(message.getTicketCategoryId());
             LOGGER.warn("Recorded dead letter because async order request cannot be created, requestId={}",
                     message.getRequestId());
             return null;
@@ -421,6 +501,7 @@ public class AsyncCreateOrderConsumer {
             observabilityMetricsService.recordAsyncOrderRequestFailed();
             TicketOrderRequest failedRequest = orderRequestMapper.selectByRequestId(existingRequest.getRequestId());
             compensateRedisPreDeductedStock(failedRequest, reason);
+            releaseAsyncOrderInFlight(existingRequest);
             recordDeadLetter(message, ConsumerExceptionTypeEnum.DATA_INCONSISTENCY, reason);
         }
     }
@@ -433,7 +514,9 @@ public class AsyncCreateOrderConsumer {
          * 继续让 RabbitMQ 重试只会刷日志、拖慢队列。所以这里直接更新 request 失败并做 Redis 补偿，
          * 同时落 dead_letter_message，便于后续人工判断是否忽略或修正数据后重试。
          */
-        markFailedAndCompensateRedis(orderRequest, failReason);
+        if (markFailedAndCompensateRedis(orderRequest, failReason)) {
+            releaseAsyncOrderInFlight(orderRequest);
+        }
         recordDeadLetter(message, ConsumerExceptionTypeEnum.BUSINESS_REJECT, failReason);
     }
 
@@ -450,11 +533,12 @@ public class AsyncCreateOrderConsumer {
         return true;
     }
 
-    private void markFailedAndCompensateRedis(TicketOrderRequest orderRequest, String failReason) {
+    private boolean markFailedAndCompensateRedis(TicketOrderRequest orderRequest, String failReason) {
         if (!markFailed(orderRequest, failReason)) {
-            return;
+            return false;
         }
         compensateRedisPreDeductedStock(orderRequest, failReason);
+        return true;
     }
 
     private void compensateRedisPreDeductedStock(TicketOrderRequest orderRequest, String failReason) {
@@ -527,11 +611,7 @@ public class AsyncCreateOrderConsumer {
     }
 
     private OrderSnapshot getOrderSnapshot(AsyncCreateOrderMessage message, TicketOrderRequest orderRequest) {
-        boolean relationExists = ticketCategoryMapper.existsShowSessionTicketCategoryRelation(
-                orderRequest.getShowId(),
-                orderRequest.getSessionId(),
-                orderRequest.getTicketCategoryId()
-        );
+        boolean relationExists = existsPublishedRelation(orderRequest);
         if (!relationExists) {
             LOGGER.warn("Async create order failed, requestId={}, reason={}",
                     orderRequest.getRequestId(), ErrorMessageConstant.SHOW_SESSION_TICKET_CATEGORY_NOT_MATCH);
@@ -539,17 +619,57 @@ public class AsyncCreateOrderConsumer {
             return null;
         }
 
-        OrderSnapshot snapshot = ticketCategoryMapper.selectOrderSnapshot(
-                orderRequest.getShowId(),
-                orderRequest.getSessionId(),
-                orderRequest.getTicketCategoryId()
-        );
+        OrderSnapshot snapshot = selectOrderSnapshot(orderRequest);
         if (snapshot == null) {
             LOGGER.warn("Async create order failed, requestId={}, reason={}",
                     orderRequest.getRequestId(), ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
             markBusinessRejected(message, orderRequest, ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
         }
         return snapshot;
+    }
+
+    private OrderSnapshot selectOrderSnapshot(TicketOrderRequest orderRequest) {
+        if (orderSnapshotCacheService != null) {
+            return orderSnapshotCacheService.getPublishedSnapshot(
+                    orderRequest.getShowId(),
+                    orderRequest.getSessionId(),
+                    orderRequest.getTicketCategoryId()
+            );
+        }
+        return ticketCategoryMapper.selectOrderSnapshot(
+                orderRequest.getShowId(),
+                orderRequest.getSessionId(),
+                orderRequest.getTicketCategoryId()
+        );
+    }
+
+    private boolean existsPublishedRelation(TicketOrderRequest orderRequest) {
+        if (showRelationCacheService != null) {
+            return showRelationCacheService.existsPublishedRelation(
+                    orderRequest.getShowId(),
+                    orderRequest.getSessionId(),
+                    orderRequest.getTicketCategoryId()
+            );
+        }
+        return ticketCategoryMapper.existsShowSessionTicketCategoryRelation(
+                orderRequest.getShowId(),
+                orderRequest.getSessionId(),
+                orderRequest.getTicketCategoryId()
+        );
+    }
+
+    private void releaseAsyncOrderInFlight(TicketOrderRequest orderRequest) {
+        if (orderRequest == null) {
+            return;
+        }
+        releaseAsyncOrderInFlight(orderRequest.getTicketCategoryId());
+    }
+
+    private void releaseAsyncOrderInFlight(Long ticketCategoryId) {
+        if (asyncOrderInFlightService == null) {
+            return;
+        }
+        asyncOrderInFlightService.release(ticketCategoryId);
     }
 
     private void fillOrderSnapshot(TicketOrder order, OrderSnapshot snapshot) {

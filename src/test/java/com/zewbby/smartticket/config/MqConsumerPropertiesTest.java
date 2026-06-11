@@ -24,4 +24,30 @@ class MqConsumerPropertiesTest {
 
         assertThat(properties.getMaxConcurrentConsumers()).isEqualTo(32);
     }
+
+    @Test
+    void consumerConcurrencyAndShardCountAreCapped() {
+        MqConsumerProperties properties = new MqConsumerProperties();
+        properties.setMaxConcurrentConsumerCap(64);
+        properties.setConcurrentConsumers(128);
+        properties.setMaxConcurrentConsumers(256);
+        properties.setMaxAsyncQueueShardCount(32);
+        properties.setAsyncQueueShardCount(128);
+
+        assertThat(properties.getConcurrentConsumers()).isEqualTo(64);
+        assertThat(properties.getMaxConcurrentConsumers()).isEqualTo(64);
+        assertThat(properties.getAsyncQueueShardCount()).isEqualTo(32);
+    }
+
+    @Test
+    void prefetchCountIsBoundedByMaxPrefetchAndUnackedBudget() {
+        MqConsumerProperties properties = new MqConsumerProperties();
+        properties.setConcurrentConsumers(20);
+        properties.setMaxConcurrentConsumers(50);
+        properties.setPrefetchCount(100);
+        properties.setMaxPrefetchCount(30);
+        properties.setMaxUnackedMessages(500);
+
+        assertThat(properties.getPrefetchCount()).isEqualTo(10);
+    }
 }

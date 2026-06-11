@@ -60,6 +60,12 @@ public class OrderController {
         return ApiResponse.successZero(waitingRoomService.issueAdmissionToken(UserContext.requireUserId(), ticketCategoryId));
     }
 
+    @GetMapping("/waiting-room/admission-tokens")
+    public ApiResponse<List<IdempotencyTokenVO>> issueWaitingRoomAdmissionTokens(@RequestParam Long ticketCategoryId,
+                                                                                 @RequestParam(value = "count", required = false) Integer count) {
+        return ApiResponse.successZero(waitingRoomService.issueAdmissionTokens(UserContext.requireUserId(), ticketCategoryId, count));
+    }
+
     /**
      * @deprecated 同步下单只保留为本地调试和历史兼容入口。
      *

@@ -19,8 +19,11 @@ import com.zewbby.smartticket.mapper.TicketCategoryMapper;
 import com.zewbby.smartticket.mapper.TicketStockBucketMapper;
 import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
+import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.DeadLetterMessageService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
+import com.zewbby.smartticket.service.OrderSnapshotCacheService;
+import com.zewbby.smartticket.service.ShowRelationCacheService;
 import com.zewbby.smartticket.service.StockLuaService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,6 +77,15 @@ class AsyncCreateOrderConsumerTest {
 
     @Mock
     private ObservabilityMetricsService observabilityMetricsService;
+
+    @Mock
+    private ShowRelationCacheService showRelationCacheService;
+
+    @Mock
+    private AsyncOrderInFlightService asyncOrderInFlightService;
+
+    @Mock
+    private OrderSnapshotCacheService orderSnapshotCacheService;
 
     private AsyncCreateOrderConsumer consumer;
 
@@ -132,6 +144,82 @@ class AsyncCreateOrderConsumerTest {
         assertThat(timeoutCaptor.getValue().getExpireTime()).isEqualTo(createdOrder.getExpireTime());
         assertThat(timeoutCaptor.getValue().getTraceId()).isEqualTo("order-timeout-200");
         verify(orderRequestMapper).markSuccess(10L, 200L);
+    }
+
+    @Test
+    void consumerUsesShowRelationCacheWhenAvailable() {
+        consumer = consumerWithShowRelationCache();
+        TicketOrderRequest queued = queuedRequest();
+        TicketOrderRequest processing = processingRequest();
+        when(orderRequestMapper.selectByRequestId("REQ1")).thenReturn(queued);
+        when(orderRequestMapper.tryMarkProcessing("REQ1")).thenReturn(1);
+        when(orderRequestMapper.selectProcessingByRequestId("REQ1")).thenReturn(processing);
+        when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
+        when(showRelationCacheService.existsPublishedRelation(1L, 1L, 2L)).thenReturn(true);
+        when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
+        when(ticketStockMapper.decreaseStock(2L, 1)).thenReturn(1);
+        when(orderMapper.insert(any(TicketOrder.class))).thenAnswer(invocation -> {
+            TicketOrder order = invocation.getArgument(0);
+            order.setId(200L);
+            return 1;
+        });
+        when(orderRequestMapper.markSuccess(10L, 200L)).thenReturn(1);
+
+        consumer.consume(new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1));
+
+        verify(showRelationCacheService).existsPublishedRelation(1L, 1L, 2L);
+        verify(ticketCategoryMapper, never()).existsShowSessionTicketCategoryRelation(anyLong(), anyLong(), anyLong());
+        verify(orderMapper).insert(any(TicketOrder.class));
+    }
+
+    @Test
+    void consumerReleasesInFlightAfterSuccessfulOrderCreation() {
+        consumer = consumerWithInFlightService();
+        TicketOrderRequest queued = queuedRequest();
+        TicketOrderRequest processing = processingRequest();
+        when(orderRequestMapper.selectByRequestId("REQ1")).thenReturn(queued);
+        when(orderRequestMapper.tryMarkProcessing("REQ1")).thenReturn(1);
+        when(orderRequestMapper.selectProcessingByRequestId("REQ1")).thenReturn(processing);
+        when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
+        when(ticketCategoryMapper.existsShowSessionTicketCategoryRelation(1L, 1L, 2L)).thenReturn(true);
+        when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
+        when(ticketStockMapper.decreaseStock(2L, 1)).thenReturn(1);
+        when(orderMapper.insert(any(TicketOrder.class))).thenAnswer(invocation -> {
+            TicketOrder order = invocation.getArgument(0);
+            order.setId(200L);
+            return 1;
+        });
+        when(orderRequestMapper.markSuccess(10L, 200L)).thenReturn(1);
+
+        consumer.consume(new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1));
+
+        verify(asyncOrderInFlightService).release(2L);
+    }
+
+    @Test
+    void consumerUsesOrderSnapshotCacheWhenAvailable() {
+        consumer = consumerWithOrderSnapshotCache();
+        TicketOrderRequest queued = queuedRequest();
+        TicketOrderRequest processing = processingRequest();
+        when(orderRequestMapper.selectByRequestId("REQ1")).thenReturn(queued);
+        when(orderRequestMapper.tryMarkProcessing("REQ1")).thenReturn(1);
+        when(orderRequestMapper.selectProcessingByRequestId("REQ1")).thenReturn(processing);
+        when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
+        when(ticketCategoryMapper.existsShowSessionTicketCategoryRelation(1L, 1L, 2L)).thenReturn(true);
+        when(orderSnapshotCacheService.getPublishedSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
+        when(ticketStockMapper.decreaseStock(2L, 1)).thenReturn(1);
+        when(orderMapper.insert(any(TicketOrder.class))).thenAnswer(invocation -> {
+            TicketOrder order = invocation.getArgument(0);
+            order.setId(200L);
+            return 1;
+        });
+        when(orderRequestMapper.markSuccess(10L, 200L)).thenReturn(1);
+
+        consumer.consume(new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1));
+
+        verify(orderSnapshotCacheService).getPublishedSnapshot(1L, 1L, 2L);
+        verify(ticketCategoryMapper, never()).selectOrderSnapshot(anyLong(), anyLong(), anyLong());
+        verify(orderMapper).insert(any(TicketOrder.class));
     }
 
     @Test
@@ -376,6 +464,79 @@ class AsyncCreateOrderConsumerTest {
                 mqConsumerProperties,
                 observabilityMetricsService,
                 stockBucketProperties
+        );
+    }
+
+    private AsyncCreateOrderConsumer consumerWithShowRelationCache() {
+        MqConsumerProperties mqConsumerProperties = new MqConsumerProperties();
+        mqConsumerProperties.setProcessingTimeoutSeconds(120);
+        StockBucketProperties stockBucketProperties = new StockBucketProperties();
+        stockBucketProperties.setEnabled(false);
+        return new AsyncCreateOrderConsumer(
+                orderRequestMapper,
+                orderMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                ticketStockBucketMapper,
+                orderTimeoutProducer,
+                stockLuaService,
+                deadLetterMessageService,
+                mqConsumerProperties,
+                observabilityMetricsService,
+                stockBucketProperties,
+                null,
+                showRelationCacheService
+        );
+    }
+
+    private AsyncCreateOrderConsumer consumerWithInFlightService() {
+        MqConsumerProperties mqConsumerProperties = new MqConsumerProperties();
+        mqConsumerProperties.setProcessingTimeoutSeconds(120);
+        StockBucketProperties stockBucketProperties = new StockBucketProperties();
+        stockBucketProperties.setEnabled(false);
+        return new AsyncCreateOrderConsumer(
+                orderRequestMapper,
+                orderMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                ticketStockBucketMapper,
+                orderTimeoutProducer,
+                stockLuaService,
+                deadLetterMessageService,
+                mqConsumerProperties,
+                observabilityMetricsService,
+                stockBucketProperties,
+                null,
+                null,
+                null,
+                asyncOrderInFlightService
+        );
+    }
+
+    private AsyncCreateOrderConsumer consumerWithOrderSnapshotCache() {
+        MqConsumerProperties mqConsumerProperties = new MqConsumerProperties();
+        mqConsumerProperties.setProcessingTimeoutSeconds(120);
+        StockBucketProperties stockBucketProperties = new StockBucketProperties();
+        stockBucketProperties.setEnabled(false);
+        return new AsyncCreateOrderConsumer(
+                orderRequestMapper,
+                orderMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                ticketStockBucketMapper,
+                orderTimeoutProducer,
+                stockLuaService,
+                deadLetterMessageService,
+                mqConsumerProperties,
+                observabilityMetricsService,
+                stockBucketProperties,
+                null,
+                null,
+                orderSnapshotCacheService,
+                null
         );
     }
 

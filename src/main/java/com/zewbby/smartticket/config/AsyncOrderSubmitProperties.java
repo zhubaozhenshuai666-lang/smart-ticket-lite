@@ -32,6 +32,18 @@ public class AsyncOrderSubmitProperties {
 
     private long directRabbitConfirmTimeoutMillis = 500L;
 
+    /**
+     * 是否启用异步下单 in-flight 退避。
+     *
+     * 它限制“Redis 已准备进入预扣/MQ，但消费者还没处理到终态”的请求数，防止热点票档把 MQ、消费者和 MySQL
+     * 堆到不可恢复的延迟区间。
+     */
+    private boolean inFlightControlEnabled = true;
+
+    private long maxInFlightPerTicketCategory = 20000L;
+
+    private long inFlightCounterTtlSeconds = 600L;
+
     public boolean isPersistRequestBeforePublish() {
         return persistRequestBeforePublish;
     }
@@ -62,5 +74,29 @@ public class AsyncOrderSubmitProperties {
 
     public void setDirectRabbitConfirmTimeoutMillis(long directRabbitConfirmTimeoutMillis) {
         this.directRabbitConfirmTimeoutMillis = directRabbitConfirmTimeoutMillis;
+    }
+
+    public boolean isInFlightControlEnabled() {
+        return inFlightControlEnabled;
+    }
+
+    public void setInFlightControlEnabled(boolean inFlightControlEnabled) {
+        this.inFlightControlEnabled = inFlightControlEnabled;
+    }
+
+    public long getMaxInFlightPerTicketCategory() {
+        return Math.max(1L, maxInFlightPerTicketCategory);
+    }
+
+    public void setMaxInFlightPerTicketCategory(long maxInFlightPerTicketCategory) {
+        this.maxInFlightPerTicketCategory = maxInFlightPerTicketCategory;
+    }
+
+    public long getInFlightCounterTtlSeconds() {
+        return Math.max(30L, inFlightCounterTtlSeconds);
+    }
+
+    public void setInFlightCounterTtlSeconds(long inFlightCounterTtlSeconds) {
+        this.inFlightCounterTtlSeconds = inFlightCounterTtlSeconds;
     }
 }

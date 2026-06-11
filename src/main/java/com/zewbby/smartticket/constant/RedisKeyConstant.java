@@ -14,6 +14,8 @@ public final class RedisKeyConstant {
 
     private static final String WAITING_ROOM_ADMISSION_PREFIX = "waiting-room:admission:";
 
+    private static final String ASYNC_ORDER_IN_FLIGHT_PREFIX = "order:async:inflight:";
+
     private static final String RATE_LIMIT_IP_PREFIX = "rate:ip:";
 
     private static final String RATE_LIMIT_USER_PREFIX = "rate:user:";
@@ -78,6 +80,10 @@ public final class RedisKeyConstant {
                 + "ticket:" + ticketCategoryId
                 + ":user:" + userId
                 + ":token:" + normalize(token);
+    }
+
+    public static String asyncOrderInFlightKey(Long ticketCategoryId) {
+        return ASYNC_ORDER_IN_FLIGHT_PREFIX + "ticket:" + ticketCategoryId;
     }
 
     public static String rateLimitIpKey(String ip, String uri) {

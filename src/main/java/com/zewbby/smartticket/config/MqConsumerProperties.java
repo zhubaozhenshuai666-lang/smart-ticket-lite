@@ -21,6 +21,14 @@ public class MqConsumerProperties {
 
     private int asyncQueueShardCount = 16;
 
+    private int maxConcurrentConsumerCap = 128;
+
+    private int maxPrefetchCount = 50;
+
+    private int maxUnackedMessages = 1000;
+
+    private int maxAsyncQueueShardCount = 64;
+
     public int getMaxRetryCount() {
         return maxRetryCount;
     }
@@ -46,7 +54,7 @@ public class MqConsumerProperties {
     }
 
     public int getConcurrentConsumers() {
-        return Math.max(1, concurrentConsumers);
+        return Math.min(Math.max(1, concurrentConsumers), getMaxConcurrentConsumerCap());
     }
 
     public void setConcurrentConsumers(int concurrentConsumers) {
@@ -54,7 +62,7 @@ public class MqConsumerProperties {
     }
 
     public int getMaxConcurrentConsumers() {
-        return Math.max(getConcurrentConsumers(), maxConcurrentConsumers);
+        return Math.min(Math.max(getConcurrentConsumers(), maxConcurrentConsumers), getMaxConcurrentConsumerCap());
     }
 
     public void setMaxConcurrentConsumers(int maxConcurrentConsumers) {
@@ -62,7 +70,9 @@ public class MqConsumerProperties {
     }
 
     public int getPrefetchCount() {
-        return Math.max(1, prefetchCount);
+        int boundedPrefetch = Math.min(Math.max(1, prefetchCount), getMaxPrefetchCount());
+        int perConsumerBudget = Math.max(1, getMaxUnackedMessages() / getMaxConcurrentConsumers());
+        return Math.min(boundedPrefetch, perConsumerBudget);
     }
 
     public void setPrefetchCount(int prefetchCount) {
@@ -70,10 +80,42 @@ public class MqConsumerProperties {
     }
 
     public int getAsyncQueueShardCount() {
-        return Math.max(1, asyncQueueShardCount);
+        return Math.min(Math.max(1, asyncQueueShardCount), getMaxAsyncQueueShardCount());
     }
 
     public void setAsyncQueueShardCount(int asyncQueueShardCount) {
         this.asyncQueueShardCount = asyncQueueShardCount;
+    }
+
+    public int getMaxConcurrentConsumerCap() {
+        return Math.max(1, maxConcurrentConsumerCap);
+    }
+
+    public void setMaxConcurrentConsumerCap(int maxConcurrentConsumerCap) {
+        this.maxConcurrentConsumerCap = maxConcurrentConsumerCap;
+    }
+
+    public int getMaxPrefetchCount() {
+        return Math.max(1, maxPrefetchCount);
+    }
+
+    public void setMaxPrefetchCount(int maxPrefetchCount) {
+        this.maxPrefetchCount = maxPrefetchCount;
+    }
+
+    public int getMaxUnackedMessages() {
+        return Math.max(1, maxUnackedMessages);
+    }
+
+    public void setMaxUnackedMessages(int maxUnackedMessages) {
+        this.maxUnackedMessages = maxUnackedMessages;
+    }
+
+    public int getMaxAsyncQueueShardCount() {
+        return Math.max(1, maxAsyncQueueShardCount);
+    }
+
+    public void setMaxAsyncQueueShardCount(int maxAsyncQueueShardCount) {
+        this.maxAsyncQueueShardCount = maxAsyncQueueShardCount;
     }
 }

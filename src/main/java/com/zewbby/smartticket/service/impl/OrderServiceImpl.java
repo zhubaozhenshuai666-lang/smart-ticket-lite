@@ -41,9 +41,11 @@ import com.zewbby.smartticket.mq.OrderTimeoutMessage;
 import com.zewbby.smartticket.mq.OrderTimeoutProducer;
 import com.zewbby.smartticket.ratelimit.RateLimitService;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
+import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.BucketRouteService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.OrderService;
+import com.zewbby.smartticket.service.OrderSnapshotCacheService;
 import com.zewbby.smartticket.service.PaymentAuditService;
 import com.zewbby.smartticket.service.ShowRelationCacheService;
 import com.zewbby.smartticket.service.StockCacheService;
@@ -120,9 +122,13 @@ public class OrderServiceImpl implements OrderService {
 
     private final ShowRelationCacheService showRelationCacheService;
 
+    private final OrderSnapshotCacheService orderSnapshotCacheService;
+
     private final AsyncOrderSubmitProperties asyncOrderSubmitProperties;
 
     private final UserStatusCacheService userStatusCacheService;
+
+    private final AsyncOrderInFlightService asyncOrderInFlightService;
 
     @Autowired
     public OrderServiceImpl(OrderMapper orderMapper,
@@ -145,8 +151,10 @@ public class OrderServiceImpl implements OrderService {
                                 StockBucketProperties stockBucketProperties,
                                 WaitingRoomService waitingRoomService,
                                 ShowRelationCacheService showRelationCacheService,
+                                OrderSnapshotCacheService orderSnapshotCacheService,
                                 AsyncOrderSubmitProperties asyncOrderSubmitProperties,
-                                UserStatusCacheService userStatusCacheService) {
+                                UserStatusCacheService userStatusCacheService,
+                                AsyncOrderInFlightService asyncOrderInFlightService) {
         this.orderMapper = orderMapper;
         this.orderRequestMapper = orderRequestMapper;
         this.paymentMapper = paymentMapper;
@@ -167,8 +175,59 @@ public class OrderServiceImpl implements OrderService {
         this.stockBucketProperties = stockBucketProperties;
         this.waitingRoomService = waitingRoomService;
         this.showRelationCacheService = showRelationCacheService;
+        this.orderSnapshotCacheService = orderSnapshotCacheService;
         this.asyncOrderSubmitProperties = asyncOrderSubmitProperties;
         this.userStatusCacheService = userStatusCacheService;
+        this.asyncOrderInFlightService = asyncOrderInFlightService;
+    }
+
+    public OrderServiceImpl(OrderMapper orderMapper,
+                            OrderRequestMapper orderRequestMapper,
+                            PaymentMapper paymentMapper,
+                            UserMapper userMapper,
+                            TicketCategoryMapper ticketCategoryMapper,
+                            TicketStockMapper ticketStockMapper,
+                            TicketStockBucketMapper ticketStockBucketMapper,
+                            OrderSubmitGuard orderSubmitGuard,
+                            OrderTimeoutProducer orderTimeoutProducer,
+                            RateLimitService rateLimitService,
+                            IdempotencyTokenService idempotencyTokenService,
+                            StockLuaService stockLuaService,
+                            StockCacheService stockCacheService,
+                            BucketRouteService bucketRouteService,
+                            AsyncOrderMessagePublisher asyncOrderMessagePublisher,
+                            PaymentAuditService paymentAuditService,
+                            ObservabilityMetricsService observabilityMetricsService,
+                            StockBucketProperties stockBucketProperties,
+                            WaitingRoomService waitingRoomService,
+                            ShowRelationCacheService showRelationCacheService,
+                            OrderSnapshotCacheService orderSnapshotCacheService,
+                            AsyncOrderSubmitProperties asyncOrderSubmitProperties,
+                            UserStatusCacheService userStatusCacheService) {
+        this(orderMapper,
+                orderRequestMapper,
+                paymentMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                ticketStockBucketMapper,
+                orderSubmitGuard,
+                orderTimeoutProducer,
+                rateLimitService,
+                idempotencyTokenService,
+                stockLuaService,
+                stockCacheService,
+                bucketRouteService,
+                asyncOrderMessagePublisher,
+                paymentAuditService,
+                observabilityMetricsService,
+                stockBucketProperties,
+                waitingRoomService,
+                showRelationCacheService,
+                orderSnapshotCacheService,
+                asyncOrderSubmitProperties,
+                userStatusCacheService,
+                null);
     }
 
     public OrderServiceImpl(OrderMapper orderMapper,
@@ -211,7 +270,9 @@ public class OrderServiceImpl implements OrderService {
                 stockBucketProperties,
                 waitingRoomService,
                 showRelationCacheService,
+                null,
                 defaultAsyncOrderSubmitProperties(),
+                null,
                 null);
     }
 
@@ -256,7 +317,9 @@ public class OrderServiceImpl implements OrderService {
                 stockBucketProperties,
                 waitingRoomService,
                 showRelationCacheService,
+                null,
                 asyncOrderSubmitProperties,
+                null,
                 null);
     }
 
@@ -295,7 +358,9 @@ public class OrderServiceImpl implements OrderService {
                 disabledBucketProperties(),
                 null,
                 null,
+                null,
                 defaultAsyncOrderSubmitProperties(),
+                null,
                 null);
     }
 
@@ -343,12 +408,15 @@ public class OrderServiceImpl implements OrderService {
 
         TicketOrderRequest orderRequest = null;
         boolean redisPreDeducted = false;
+        boolean inFlightAcquired = false;
         try {
             ensureUserCanSubmit(currentUserId);
 
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
             checkTicketOrderSubmitRateLimit(request);
+            acquireAsyncOrderInFlight(request.getTicketCategoryId());
+            inFlightAcquired = true;
             checkWaitingRoomAdmission(currentUserId, request);
             //用lua消耗token
             idempotencyTokenService.consumeOrderToken(currentUserId, request.getIdempotencyToken());
@@ -395,6 +463,7 @@ public class OrderServiceImpl implements OrderService {
         } catch (RuntimeException exception) {
             //回滚redis预扣
             releaseRedisPreDeductedStockAfterSubmitFailure(orderRequest, redisPreDeducted, "异步下单提交失败");
+            releaseAsyncOrderInFlightAfterSubmitFailure(request.getTicketCategoryId(), inFlightAcquired);
             //发生其他意外就释放锁
             orderSubmitGuard.release(currentUserId, request.getTicketCategoryId());
             throw exception;
@@ -540,7 +609,7 @@ public class OrderServiceImpl implements OrderService {
 
     private OrderSnapshot getOrderSnapshot(CreateOrderRequest request) {
         validateShowSessionTicketCategoryRelation(request);
-        OrderSnapshot snapshot = ticketCategoryMapper.selectOrderSnapshot(
+        OrderSnapshot snapshot = selectOrderSnapshot(
                 request.getShowId(),
                 request.getSessionId(),
                 request.getTicketCategoryId()
@@ -549,6 +618,13 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
         }
         return snapshot;
+    }
+
+    private OrderSnapshot selectOrderSnapshot(Long showId, Long sessionId, Long ticketCategoryId) {
+        if (orderSnapshotCacheService != null) {
+            return orderSnapshotCacheService.getPublishedSnapshot(showId, sessionId, ticketCategoryId);
+        }
+        return ticketCategoryMapper.selectOrderSnapshot(showId, sessionId, ticketCategoryId);
     }
 
     private void validateShowSessionTicketCategoryRelation(CreateOrderRequest request) {
@@ -943,6 +1019,23 @@ public class OrderServiceImpl implements OrderService {
         if (!rateLimitService.tryAcquireOrderTicket(request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
         }
+    }
+
+    private void acquireAsyncOrderInFlight(Long ticketCategoryId) {
+        if (asyncOrderInFlightService == null) {
+            return;
+        }
+        if (!asyncOrderInFlightService.tryAcquire(ticketCategoryId)) {
+            observabilityMetricsService.recordRateLimitRejected();
+            throw new BusinessException(ErrorMessageConstant.ORDER_QUEUE_BUSY);
+        }
+    }
+
+    private void releaseAsyncOrderInFlightAfterSubmitFailure(Long ticketCategoryId, boolean inFlightAcquired) {
+        if (!inFlightAcquired || asyncOrderInFlightService == null) {
+            return;
+        }
+        asyncOrderInFlightService.release(ticketCategoryId);
     }
 
     private void checkWaitingRoomAdmission(Long userId, CreateOrderRequest request) {
