@@ -33,4 +33,20 @@ public class CreateOrderRequest {
 
     @NotBlank(message = "幂等token不能为空")
     private String idempotencyToken;
+
+    private String admissionToken;
+
+    public CreateOrderRequest(Long userId,
+                              Long showId,
+                              Long sessionId,
+                              Long ticketCategoryId,
+                              Integer quantity,
+                              String idempotencyToken) {
+        this.userId = userId;
+        this.showId = showId;
+        this.sessionId = sessionId;
+        this.ticketCategoryId = ticketCategoryId;
+        this.quantity = quantity;
+        this.idempotencyToken = idempotencyToken;
+    }
 }

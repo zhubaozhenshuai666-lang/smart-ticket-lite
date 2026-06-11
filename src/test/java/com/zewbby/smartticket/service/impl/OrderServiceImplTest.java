@@ -652,7 +652,8 @@ class OrderServiceImplTest {
                 asyncOrderMessagePublisher,
                 paymentAuditService,
                 observabilityMetricsService,
-                properties
+                properties,
+                null
         );
     }
 

@@ -44,6 +44,7 @@ import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.OrderService;
 import com.zewbby.smartticket.service.PaymentAuditService;
 import com.zewbby.smartticket.service.StockCacheService;
+import com.zewbby.smartticket.service.WaitingRoomService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -111,6 +112,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final StockBucketProperties stockBucketProperties;
 
+    private final WaitingRoomService waitingRoomService;
+
     @Autowired
     public OrderServiceImpl(OrderMapper orderMapper,
                             OrderRequestMapper orderRequestMapper,
@@ -129,7 +132,8 @@ public class OrderServiceImpl implements OrderService {
 	                            AsyncOrderMessagePublisher asyncOrderMessagePublisher,
 	                            PaymentAuditService paymentAuditService,
 	                            ObservabilityMetricsService observabilityMetricsService,
-	                            StockBucketProperties stockBucketProperties) {
+	                            StockBucketProperties stockBucketProperties,
+                                WaitingRoomService waitingRoomService) {
         this.orderMapper = orderMapper;
         this.orderRequestMapper = orderRequestMapper;
         this.paymentMapper = paymentMapper;
@@ -148,6 +152,7 @@ public class OrderServiceImpl implements OrderService {
         this.paymentAuditService = paymentAuditService;
         this.observabilityMetricsService = observabilityMetricsService;
         this.stockBucketProperties = stockBucketProperties;
+        this.waitingRoomService = waitingRoomService;
     }
 
     public OrderServiceImpl(OrderMapper orderMapper,
@@ -182,7 +187,8 @@ public class OrderServiceImpl implements OrderService {
                 asyncOrderMessagePublisher,
                 paymentAuditService,
                 observabilityMetricsService,
-                disabledBucketProperties());
+                disabledBucketProperties(),
+                null);
     }
 
     private static StockBucketProperties disabledBucketProperties() {
@@ -234,6 +240,7 @@ public class OrderServiceImpl implements OrderService {
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
             checkTicketOrderSubmitRateLimit(request);
+            checkWaitingRoomAdmission(currentUserId, request);
             //用lua消耗token
             idempotencyTokenService.consumeOrderToken(currentUserId, request.getIdempotencyToken());
 
@@ -774,6 +781,13 @@ public class OrderServiceImpl implements OrderService {
         if (!rateLimitService.tryAcquireOrderTicket(request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
         }
+    }
+
+    private void checkWaitingRoomAdmission(Long userId, CreateOrderRequest request) {
+        if (waitingRoomService == null || !waitingRoomService.isEnabled()) {
+            return;
+        }
+        waitingRoomService.consumeAdmissionToken(userId, request.getTicketCategoryId(), request.getAdmissionToken());
     }
 
     /**

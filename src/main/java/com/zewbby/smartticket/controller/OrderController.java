@@ -9,6 +9,7 @@ import com.zewbby.smartticket.domain.vo.OrderVO;
 import com.zewbby.smartticket.idempotency.IdempotencyTokenService;
 import com.zewbby.smartticket.ratelimit.ClientIpResolver;
 import com.zewbby.smartticket.service.OrderService;
+import com.zewbby.smartticket.service.WaitingRoomService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,12 +32,16 @@ public class OrderController {
 
     private final ClientIpResolver clientIpResolver;
 
+    private final WaitingRoomService waitingRoomService;
+
     public OrderController(OrderService orderService,
                            IdempotencyTokenService idempotencyTokenService,
-                           ClientIpResolver clientIpResolver) {
+                           ClientIpResolver clientIpResolver,
+                           WaitingRoomService waitingRoomService) {
         this.orderService = orderService;
         this.idempotencyTokenService = idempotencyTokenService;
         this.clientIpResolver = clientIpResolver;
+        this.waitingRoomService = waitingRoomService;
     }
 
     @GetMapping("/orders/idempotency-token")
@@ -48,6 +53,11 @@ public class OrderController {
     public ApiResponse<List<IdempotencyTokenVO>> generateOrderIdempotencyTokens(
             @RequestParam(value = "count", required = false) Integer count) {
         return ApiResponse.successZero(idempotencyTokenService.generateOrderTokens(UserContext.requireUserId(), count));
+    }
+
+    @GetMapping("/waiting-room/admission-token")
+    public ApiResponse<IdempotencyTokenVO> issueWaitingRoomAdmissionToken(@RequestParam Long ticketCategoryId) {
+        return ApiResponse.successZero(waitingRoomService.issueAdmissionToken(UserContext.requireUserId(), ticketCategoryId));
     }
 
     /**

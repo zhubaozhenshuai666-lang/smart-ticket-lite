@@ -69,6 +69,9 @@ smart-ticket:
     porter-lock-ttl-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_LOCK_TTL_SECONDS:30}
     porter-move-record-ttl-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_MOVE_RECORD_TTL_SECONDS:86400}
     porter-fixed-delay-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_FIXED_DELAY_SECONDS:300}
+  waiting-room:
+    enabled: ${SMART_TICKET_WAITING_ROOM_ENABLED:false}
+    admission-token-expire-seconds: ${SMART_TICKET_WAITING_ROOM_ADMISSION_TOKEN_EXPIRE_SECONDS:120}
   rate-limit:
     enabled: ${SMART_TICKET_RATE_LIMIT_ENABLED:true}
     algorithm: ${SMART_TICKET_RATE_LIMIT_ALGORITHM:token-bucket}

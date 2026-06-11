@@ -12,6 +12,8 @@ public final class RedisKeyConstant {
 
     private static final String ORDER_IDEMPOTENCY_TOKEN_PREFIX = "order:idempotency:user:";
 
+    private static final String WAITING_ROOM_ADMISSION_PREFIX = "waiting-room:admission:";
+
     private static final String RATE_LIMIT_IP_PREFIX = "rate:ip:";
 
     private static final String RATE_LIMIT_USER_PREFIX = "rate:user:";
@@ -69,6 +71,13 @@ public final class RedisKeyConstant {
 
     public static String orderIdempotencyTokenKey(Long userId, String token) {
         return ORDER_IDEMPOTENCY_TOKEN_PREFIX + userId + ":token:" + normalize(token);
+    }
+
+    public static String waitingRoomAdmissionTokenKey(Long ticketCategoryId, Long userId, String token) {
+        return WAITING_ROOM_ADMISSION_PREFIX
+                + "ticket:" + ticketCategoryId
+                + ":user:" + userId
+                + ":token:" + normalize(token);
     }
 
     public static String rateLimitIpKey(String ip, String uri) {
