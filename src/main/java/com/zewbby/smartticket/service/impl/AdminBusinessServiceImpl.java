@@ -170,6 +170,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     @Transactional
     public void publishShow(Long showId) {
         requireShow(showId);
+        ensureShowNotStarted(showId);
         showMapper.updateShowStatus(showId, ShowStatusEnum.PUBLISHED.getCode());
         refreshShowRelationCacheIfAvailable();
     }
@@ -195,7 +196,8 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     @Override
     @Transactional
     public PerformanceSession createSession(Long showId, AdminCreateSessionRequest request) {
-        requireShow(showId);
+        ShowInfo showInfo = requireShow(showId);
+        ensureShowMetadataEditable(showInfo);
         validateSessionTime(request.getStartTime(), request.getEndTime());
         LocalDateTime now = LocalDateTime.now();
         PerformanceSession session = new PerformanceSession();
@@ -228,6 +230,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     public void publishSession(Long sessionId) {
         PerformanceSession session = requireSession(sessionId);
         requireShow(session.getShowId());
+        ensureSessionNotStarted(session, "场次已开演，禁止发布");
         showMapper.updateSessionStatus(sessionId, ShowStatusEnum.PUBLISHED.getCode());
         refreshShowRelationCacheIfAvailable();
     }
@@ -295,7 +298,8 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     @Override
     @Transactional
     public void publishTicketCategory(Long ticketCategoryId) {
-        requireTicketCategory(ticketCategoryId);
+        TicketCategory ticketCategory = requireTicketCategory(ticketCategoryId);
+        ensureTicketCategorySessionNotStarted(ticketCategory, "票档所属场次已开演，禁止发布票档");
         ticketCategoryMapper.updateStatus(ticketCategoryId, TicketCategoryStatusEnum.PUBLISHED.getCode());
         refreshShowRelationCacheIfAvailable();
     }
@@ -530,23 +534,54 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
         if (isPublished(showInfo.getStatus())) {
             throw new BusinessException("开售期间演出元数据已冻结，禁止修改或下架");
         }
+        ensureShowNotStarted(showInfo.getId());
     }
 
     private void ensureSessionMetadataEditable(PerformanceSession session) {
         if (isPublished(session.getStatus())) {
             throw new BusinessException("开售期间场次元数据已冻结，禁止修改或下架");
         }
+        ensureSessionNotStarted(session, "场次已开演，基础元数据禁止修改或下架");
     }
 
     private void ensureTicketCategoryMetadataEditable(TicketCategory ticketCategory) {
         if (isPublished(ticketCategory.getStatus())) {
             throw new BusinessException("开售期间票档元数据已冻结，禁止修改或下架");
         }
+        ensureTicketCategorySessionNotStarted(ticketCategory, "票档所属场次已开演，基础元数据禁止修改或下架");
     }
 
     private boolean isPublished(String status) {
         return ShowStatusEnum.PUBLISHED.getCode().equals(status)
                 || TicketCategoryStatusEnum.PUBLISHED.getCode().equals(status);
+    }
+
+    private void ensureShowNotStarted(Long showId) {
+        List<PerformanceSession> sessions = showMapper.adminSelectSessionsByShowId(showId);
+        if (sessions == null || sessions.isEmpty()) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        for (PerformanceSession session : sessions) {
+            if (hasStarted(session, now)) {
+                throw new BusinessException("演出已有场次开演，基础元数据禁止修改、下架或发布");
+            }
+        }
+    }
+
+    private void ensureTicketCategorySessionNotStarted(TicketCategory ticketCategory, String message) {
+        PerformanceSession session = requireSession(ticketCategory.getSessionId());
+        ensureSessionNotStarted(session, message);
+    }
+
+    private void ensureSessionNotStarted(PerformanceSession session, String message) {
+        if (hasStarted(session, LocalDateTime.now())) {
+            throw new BusinessException(message);
+        }
+    }
+
+    private boolean hasStarted(PerformanceSession session, LocalDateTime now) {
+        return session.getStartTime() != null && !session.getStartTime().isAfter(now);
     }
 
     private void refreshShowRelationCacheIfAvailable() {

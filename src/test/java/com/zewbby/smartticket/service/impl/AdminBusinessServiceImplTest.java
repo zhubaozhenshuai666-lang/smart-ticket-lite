@@ -36,6 +36,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -266,6 +267,7 @@ class AdminBusinessServiceImplTest {
         existing.setStatus(TicketCategoryStatusEnum.DRAFT.getCode());
         existing.setPrice(BigDecimal.valueOf(880));
         when(ticketCategoryMapper.selectById(2L)).thenReturn(existing);
+        when(showMapper.selectSessionById(1L)).thenReturn(session(ShowStatusEnum.DRAFT.getCode()));
         when(orderMapper.countByTicketCategoryId(2L)).thenReturn(1);
         var request = new com.zewbby.smartticket.domain.dto.AdminUpdateTicketCategoryRequest();
         request.setCategoryName("内场票");
@@ -318,6 +320,89 @@ class AdminBusinessServiceImplTest {
         assertThatThrownBy(() -> service.updateTicketCategory(2L, request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("开售期间票档元数据已冻结");
+
+        verify(ticketCategoryMapper, never()).update(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void updateShowRejectsWhenAnySessionAlreadyStarted() {
+        ShowInfo showInfo = showInfo(ShowStatusEnum.DRAFT.getCode());
+        PerformanceSession startedSession = session(ShowStatusEnum.DRAFT.getCode());
+        startedSession.setStartTime(LocalDateTime.now().minusMinutes(1));
+        when(showMapper.selectShowInfoById(1L)).thenReturn(showInfo);
+        when(showMapper.adminSelectSessionsByShowId(1L)).thenReturn(List.of(startedSession));
+        AdminUpdateShowRequest request = new AdminUpdateShowRequest();
+        request.setTitle("新标题");
+        request.setArtist("测试艺人");
+        request.setVenueId(1L);
+        request.setDescription("更新");
+
+        assertThatThrownBy(() -> service.updateShow(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("演出已有场次开演");
+
+        verify(showMapper, never()).updateShow(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void publishShowRejectsWhenAnySessionAlreadyStarted() {
+        PerformanceSession startedSession = session(ShowStatusEnum.DRAFT.getCode());
+        startedSession.setStartTime(LocalDateTime.now().minusMinutes(1));
+        when(showMapper.selectShowInfoById(1L)).thenReturn(showInfo(ShowStatusEnum.DRAFT.getCode()));
+        when(showMapper.adminSelectSessionsByShowId(1L)).thenReturn(List.of(startedSession));
+
+        assertThatThrownBy(() -> service.publishShow(1L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("演出已有场次开演");
+
+        verify(showMapper, never()).updateShowStatus(1L, ShowStatusEnum.PUBLISHED.getCode());
+    }
+
+    @Test
+    void publishSessionRejectsStartedSession() {
+        PerformanceSession startedSession = session(ShowStatusEnum.DRAFT.getCode());
+        startedSession.setStartTime(LocalDateTime.now().minusMinutes(1));
+        when(showMapper.selectSessionById(1L)).thenReturn(startedSession);
+        when(showMapper.selectShowInfoById(1L)).thenReturn(showInfo(ShowStatusEnum.DRAFT.getCode()));
+
+        assertThatThrownBy(() -> service.publishSession(1L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("场次已开演");
+
+        verify(showMapper, never()).updateSessionStatus(1L, ShowStatusEnum.PUBLISHED.getCode());
+    }
+
+    @Test
+    void publishTicketCategoryRejectsWhenParentSessionAlreadyStarted() {
+        TicketCategory existing = ticketCategory();
+        existing.setStatus(TicketCategoryStatusEnum.DRAFT.getCode());
+        PerformanceSession startedSession = session(ShowStatusEnum.DRAFT.getCode());
+        startedSession.setStartTime(LocalDateTime.now().minusMinutes(1));
+        when(ticketCategoryMapper.selectById(2L)).thenReturn(existing);
+        when(showMapper.selectSessionById(1L)).thenReturn(startedSession);
+
+        assertThatThrownBy(() -> service.publishTicketCategory(2L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("票档所属场次已开演");
+
+        verify(ticketCategoryMapper, never()).updateStatus(2L, TicketCategoryStatusEnum.PUBLISHED.getCode());
+    }
+
+    @Test
+    void updateTicketCategoryRejectsWhenParentSessionAlreadyStarted() {
+        TicketCategory existing = ticketCategory();
+        existing.setStatus(TicketCategoryStatusEnum.DRAFT.getCode());
+        PerformanceSession startedSession = session(ShowStatusEnum.DRAFT.getCode());
+        startedSession.setStartTime(LocalDateTime.now().minusMinutes(1));
+        when(ticketCategoryMapper.selectById(2L)).thenReturn(existing);
+        when(showMapper.selectSessionById(1L)).thenReturn(startedSession);
+        var request = new com.zewbby.smartticket.domain.dto.AdminUpdateTicketCategoryRequest();
+        request.setCategoryName("内场票");
+        request.setPrice(BigDecimal.valueOf(980));
+
+        assertThatThrownBy(() -> service.updateTicketCategory(2L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("票档所属场次已开演");
 
         verify(ticketCategoryMapper, never()).update(org.mockito.ArgumentMatchers.any());
     }
