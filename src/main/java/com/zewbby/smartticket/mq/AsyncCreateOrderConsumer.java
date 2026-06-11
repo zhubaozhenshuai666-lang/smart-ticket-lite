@@ -4,6 +4,7 @@ import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.constant.RabbitMqConstant;
 import com.zewbby.smartticket.config.MqConsumerProperties;
+import com.zewbby.smartticket.config.StockBucketProperties;
 import com.zewbby.smartticket.domain.dto.OrderSnapshot;
 import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.domain.entity.TicketOrder;
@@ -16,10 +17,12 @@ import com.zewbby.smartticket.enums.RedisStockReleaseResult;
 import com.zewbby.smartticket.mapper.OrderMapper;
 import com.zewbby.smartticket.mapper.OrderRequestMapper;
 import com.zewbby.smartticket.mapper.TicketCategoryMapper;
+import com.zewbby.smartticket.mapper.TicketStockBucketMapper;
 import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.service.DeadLetterMessageService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -50,6 +53,8 @@ public class AsyncCreateOrderConsumer {
 
     private final TicketStockMapper ticketStockMapper;
 
+    private final TicketStockBucketMapper ticketStockBucketMapper;
+
     private final OrderTimeoutProducer orderTimeoutProducer;
 
     private final StockLuaService stockLuaService;
@@ -60,29 +65,66 @@ public class AsyncCreateOrderConsumer {
 
     private final ObservabilityMetricsService observabilityMetricsService;
 
+    private final StockBucketProperties stockBucketProperties;
+
+    @Autowired
+    public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
+                                    OrderMapper orderMapper,
+                                    UserMapper userMapper,
+                                    TicketCategoryMapper ticketCategoryMapper,
+                                    TicketStockMapper ticketStockMapper,
+                                    TicketStockBucketMapper ticketStockBucketMapper,
+                                    OrderTimeoutProducer orderTimeoutProducer,
+	                                    StockLuaService stockLuaService,
+	                                    DeadLetterMessageService deadLetterMessageService,
+	                                    MqConsumerProperties mqConsumerProperties,
+	                                    ObservabilityMetricsService observabilityMetricsService,
+	                                    StockBucketProperties stockBucketProperties) {
+        this.orderRequestMapper = orderRequestMapper;
+        this.orderMapper = orderMapper;
+        this.userMapper = userMapper;
+        this.ticketCategoryMapper = ticketCategoryMapper;
+        this.ticketStockMapper = ticketStockMapper;
+        this.ticketStockBucketMapper = ticketStockBucketMapper;
+        this.orderTimeoutProducer = orderTimeoutProducer;
+        this.stockLuaService = stockLuaService;
+        this.deadLetterMessageService = deadLetterMessageService;
+        this.mqConsumerProperties = mqConsumerProperties;
+        this.observabilityMetricsService = observabilityMetricsService;
+        this.stockBucketProperties = stockBucketProperties;
+    }
+
     public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
                                     OrderMapper orderMapper,
                                     UserMapper userMapper,
                                     TicketCategoryMapper ticketCategoryMapper,
                                     TicketStockMapper ticketStockMapper,
                                     OrderTimeoutProducer orderTimeoutProducer,
-	                                    StockLuaService stockLuaService,
-	                                    DeadLetterMessageService deadLetterMessageService,
-	                                    MqConsumerProperties mqConsumerProperties,
-	                                    ObservabilityMetricsService observabilityMetricsService) {
-        this.orderRequestMapper = orderRequestMapper;
-        this.orderMapper = orderMapper;
-        this.userMapper = userMapper;
-        this.ticketCategoryMapper = ticketCategoryMapper;
-        this.ticketStockMapper = ticketStockMapper;
-        this.orderTimeoutProducer = orderTimeoutProducer;
-        this.stockLuaService = stockLuaService;
-        this.deadLetterMessageService = deadLetterMessageService;
-        this.mqConsumerProperties = mqConsumerProperties;
-        this.observabilityMetricsService = observabilityMetricsService;
+                                    StockLuaService stockLuaService,
+                                    DeadLetterMessageService deadLetterMessageService,
+                                    MqConsumerProperties mqConsumerProperties,
+                                    ObservabilityMetricsService observabilityMetricsService) {
+        this(orderRequestMapper,
+                orderMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                null,
+                orderTimeoutProducer,
+                stockLuaService,
+                deadLetterMessageService,
+                mqConsumerProperties,
+                observabilityMetricsService,
+                disabledBucketProperties());
     }
 
-    @RabbitListener(queues = RabbitMqConstant.ORDER_ASYNC_QUEUE, containerFactory = "asyncOrderRabbitListenerContainerFactory")
+    private static StockBucketProperties disabledBucketProperties() {
+        StockBucketProperties properties = new StockBucketProperties();
+        properties.setEnabled(false);
+        return properties;
+    }
+
+    @RabbitListener(queues = "#{orderAsyncQueueNames}", containerFactory = "asyncOrderRabbitListenerContainerFactory")
     @Transactional
     public void consume(AsyncCreateOrderMessage message) {
         LOGGER.info("Received async create order message, requestId={}", message.getRequestId());
@@ -157,19 +199,49 @@ public class AsyncCreateOrderConsumer {
              * 即使 Redis 已经扣成功，这里也必须用 available_stock >= quantity 的条件更新再扣一次 MySQL，
              * 防止 Redis 重建、预热覆盖、人工修复等场景把缓存和数据库库存搞到不一致后造成超卖。
              */
-            int decreaseRows = ticketStockMapper.decreaseStock(
-                    orderRequest.getTicketCategoryId(),
-                    orderRequest.getQuantity()
-            );
-            //减失败就标记状态
-            if (decreaseRows != 1) {
-                LOGGER.warn("Async create order failed, requestId={}, ticketCategoryId={}, quantity={}, reason={}",
-                        orderRequest.getRequestId(),
+            boolean bucketStockDecreased = false;
+            if (stockBucketProperties.isEnabled() && orderRequest.getStockBucketNo() != null) {
+                int bucketRows = orderRequest.getStockBucketVersion() == null
+                        ? ticketStockBucketMapper.decreaseStock(
+                                orderRequest.getTicketCategoryId(),
+                                orderRequest.getStockBucketNo(),
+                                orderRequest.getQuantity()
+                        )
+                        : ticketStockBucketMapper.decreaseStockByVersion(
+                                orderRequest.getTicketCategoryId(),
+                                orderRequest.getStockBucketVersion(),
+                                orderRequest.getStockBucketNo(),
+                                orderRequest.getQuantity()
+                        );
+                if (bucketRows != 1) {
+                    LOGGER.warn("Async create order failed on bucket stock, requestId={}, ticketCategoryId={}, bucketVersion={}, bucketNo={}, quantity={}, reason={}",
+                            orderRequest.getRequestId(),
+                            orderRequest.getTicketCategoryId(),
+                            orderRequest.getStockBucketVersion(),
+                            orderRequest.getStockBucketNo(),
+                            orderRequest.getQuantity(),
+                            STOCK_NOT_ENOUGH);
+                    markBusinessRejected(message, orderRequest, STOCK_NOT_ENOUGH);
+                    return;
+                }
+                bucketStockDecreased = true;
+            }
+
+            if (!bucketStockDecreased) {
+                int decreaseRows = ticketStockMapper.decreaseStock(
                         orderRequest.getTicketCategoryId(),
-                        orderRequest.getQuantity(),
-                        STOCK_NOT_ENOUGH);
-                markBusinessRejected(message, orderRequest, STOCK_NOT_ENOUGH);
-                return;
+                        orderRequest.getQuantity()
+                );
+                //减失败就标记状态
+                if (decreaseRows != 1) {
+                    LOGGER.warn("Async create order failed, requestId={}, ticketCategoryId={}, quantity={}, reason={}",
+                            orderRequest.getRequestId(),
+                            orderRequest.getTicketCategoryId(),
+                            orderRequest.getQuantity(),
+                            STOCK_NOT_ENOUGH);
+                    markBusinessRejected(message, orderRequest, STOCK_NOT_ENOUGH);
+                    return;
+                }
             }
 
             LocalDateTime now = LocalDateTime.now();
@@ -231,7 +303,11 @@ public class AsyncCreateOrderConsumer {
         message.setOrderNo(order.getOrderNo());
         message.setUserId(order.getUserId());
         message.setExpireTime(order.getExpireTime());
-        message.setTraceId(null);
+        /*
+         * 异步创单线程和后续超时关闭消费者不是同一个调用栈。
+         * 当前项目没有完整 TraceContext，先用订单维度的稳定 traceId 把 local_message、RabbitMQ 投递和超时关闭日志串起来。
+         */
+        message.setTraceId("order-timeout-" + order.getId());
         message.setMessageId(null);
         return message;
     }
@@ -334,6 +410,8 @@ public class AsyncCreateOrderConsumer {
             RedisStockReleaseResult releaseResult = stockLuaService.releasePreDeductedStock(
                     orderRequest.getRequestId(),
                     orderRequest.getTicketCategoryId(),
+                    orderRequest.getStockBucketVersion(),
+                    orderRequest.getStockBucketNo(),
                     orderRequest.getDeductedQuantity()
             );
             if (releaseResult.isSuccess() || releaseResult == RedisStockReleaseResult.ALREADY_COMPENSATED) {

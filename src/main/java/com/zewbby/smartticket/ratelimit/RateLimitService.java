@@ -2,7 +2,10 @@ package com.zewbby.smartticket.ratelimit;
 
 import com.zewbby.smartticket.config.RateLimitProperties;
 import com.zewbby.smartticket.constant.RedisKeyConstant;
+import com.zewbby.smartticket.enums.LocalMessageStatusEnum;
+import com.zewbby.smartticket.service.LocalMessageService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -28,13 +31,30 @@ public class RateLimitService {
 
     private final ObservabilityMetricsService observabilityMetricsService;
 
+    private final LocalMessageService localMessageService;
+
+    private volatile long lastBackpressureCheckAt;
+
+    private volatile boolean lastBackpressureRejected;
+
+    private volatile long lastLocalMessageBacklog;
+
+    @Autowired
     public RateLimitService(StringRedisTemplate stringRedisTemplate,
 	                            RateLimitProperties rateLimitProperties,
-	                            ObservabilityMetricsService observabilityMetricsService) {
+	                            ObservabilityMetricsService observabilityMetricsService,
+                                LocalMessageService localMessageService) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.rateLimitProperties = rateLimitProperties;
         this.observabilityMetricsService = observabilityMetricsService;
+        this.localMessageService = localMessageService;
         this.tokenBucketScript = buildScript("lua/rate_limit_token_bucket.lua");
+    }
+
+    public RateLimitService(StringRedisTemplate stringRedisTemplate,
+                            RateLimitProperties rateLimitProperties,
+                            ObservabilityMetricsService observabilityMetricsService) {
+        this(stringRedisTemplate, rateLimitProperties, observabilityMetricsService, null);
     }
 
     /**
@@ -111,6 +131,11 @@ public class RateLimitService {
                                          String apiName,
                                          Long ticketCategoryId,
                                          boolean includeTicketDimension) {
+        if (isBackpressureRejected()) {
+            observabilityMetricsService.recordRateLimitRejected();
+            return false;
+        }
+
         boolean userAllowed = tryAcquireTokenBucket(
                 RedisKeyConstant.orderRateLimitUserKey(userId),
                 rateLimitProperties.getOrderUserCapacity(),
@@ -122,6 +147,7 @@ public class RateLimitService {
             return false;
         }
 
+        // IP限流
         boolean ipAllowed = tryAcquireTokenBucket(
                 RedisKeyConstant.orderRateLimitIpKey(clientIp),
                 rateLimitProperties.getOrderIpCapacity(),
@@ -133,6 +159,7 @@ public class RateLimitService {
             return false;
         }
 
+        //API限流
         boolean apiAllowed = tryAcquireTokenBucket(
                 RedisKeyConstant.orderRateLimitApiKey(apiName),
                 rateLimitProperties.getOrderApiCapacity(),
@@ -153,6 +180,7 @@ public class RateLimitService {
         );
     }
 
+    //对票的key限流
     public boolean tryAcquireOrderTicket(Long ticketCategoryId) {
         return tryAcquireTokenBucket(
                 RedisKeyConstant.orderRateLimitTicketKey(ticketCategoryId),
@@ -167,6 +195,42 @@ public class RateLimitService {
         return rateLimitProperties.getSoldoutTtlSeconds();
     }
 
+    private boolean isBackpressureRejected() {
+        if (!rateLimitProperties.isBackpressureEnabled() || localMessageService == null) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastBackpressureCheckAt < rateLimitProperties.getBackpressureSampleIntervalMillis()) {
+            return lastBackpressureRejected;
+        }
+        synchronized (this) {
+            now = System.currentTimeMillis();
+            if (now - lastBackpressureCheckAt < rateLimitProperties.getBackpressureSampleIntervalMillis()) {
+                return lastBackpressureRejected;
+            }
+            try {
+                long backlog = localMessageService.countByStatus(LocalMessageStatusEnum.INIT.getCode())
+                        + localMessageService.countByStatus(LocalMessageStatusEnum.FAILED.getCode())
+                        + localMessageService.countByStatus(LocalMessageStatusEnum.SENDING.getCode())
+                        + localMessageService.countByStatus(LocalMessageStatusEnum.SENT.getCode());
+                lastLocalMessageBacklog = backlog;
+                lastBackpressureRejected = backlog >= rateLimitProperties.getLocalMessageBacklogRejectThreshold();
+                if (lastBackpressureRejected) {
+                    LOGGER.warn("Order submit backpressure rejected by local message backlog, backlog={}, threshold={}",
+                            backlog, rateLimitProperties.getLocalMessageBacklogRejectThreshold());
+                }
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Failed to sample local message backlog for backpressure, lastBacklog={}",
+                        lastLocalMessageBacklog, exception);
+                lastBackpressureRejected = false;
+            } finally {
+                lastBackpressureCheckAt = now;
+            }
+            return lastBackpressureRejected;
+        }
+    }
+
+    //创建script脚本文件
     private DefaultRedisScript<Long> buildScript(String path) {
         DefaultRedisScript<Long> script = new DefaultRedisScript<>();
         script.setScriptSource(new ResourceScriptSource(new ClassPathResource(path)));

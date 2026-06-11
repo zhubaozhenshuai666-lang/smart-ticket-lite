@@ -23,6 +23,10 @@ public class OrderRequestVO {
 
     private Integer deductedQuantity;
 
+    private Integer stockBucketVersion;
+
+    private Integer stockBucketNo;
+
     private LocalDateTime deductedAt;
 
     private Boolean compensated;

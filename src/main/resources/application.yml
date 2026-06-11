@@ -43,11 +43,32 @@ smart-ticket:
     max-retry-count: ${SMART_TICKET_MQ_CONSUMER_MAX_RETRY_COUNT:3}
     retry-interval-seconds: ${SMART_TICKET_MQ_CONSUMER_RETRY_INTERVAL_SECONDS:10}
     processing-timeout-seconds: ${SMART_TICKET_MQ_CONSUMER_PROCESSING_TIMEOUT_SECONDS:120}
+    concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_CONCURRENT_CONSUMERS:4}
+    max-concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_MAX_CONCURRENT_CONSUMERS:16}
+    prefetch-count: ${SMART_TICKET_MQ_CONSUMER_PREFETCH_COUNT:20}
+    async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_ASYNC_QUEUE_SHARD_COUNT:1}
+  order-timeout:
+    delay-message-enabled: ${SMART_TICKET_ORDER_TIMEOUT_DELAY_MESSAGE_ENABLED:true}
+    scan-batch-size: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_BATCH_SIZE:1000}
+    scan-fixed-delay-millis: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_FIXED_DELAY_MILLIS:1000}
   stock-consistency:
     enabled: ${SMART_TICKET_STOCK_CONSISTENCY_ENABLED:false}
     fixed-delay-seconds: ${SMART_TICKET_STOCK_CONSISTENCY_FIXED_DELAY_SECONDS:300}
     batch-size: ${SMART_TICKET_STOCK_CONSISTENCY_BATCH_SIZE:100}
     auto-repair-enabled: ${SMART_TICKET_STOCK_CONSISTENCY_AUTO_REPAIR_ENABLED:false}
+  stock-bucket:
+    enabled: ${SMART_TICKET_STOCK_BUCKET_ENABLED:true}
+    default-bucket-count: ${SMART_TICKET_STOCK_BUCKET_DEFAULT_COUNT:10}
+    active-version: ${SMART_TICKET_STOCK_BUCKET_ACTIVE_VERSION:1}
+    active-probe-count: ${SMART_TICKET_STOCK_BUCKET_ACTIVE_PROBE_COUNT:3}
+    tail-bucket-count: ${SMART_TICKET_STOCK_BUCKET_TAIL_BUCKET_COUNT:4}
+    porter-enabled: ${SMART_TICKET_STOCK_BUCKET_PORTER_ENABLED:false}
+    porter-source-version: ${SMART_TICKET_STOCK_BUCKET_PORTER_SOURCE_VERSION:1}
+    porter-max-move-quantity-per-run: ${SMART_TICKET_STOCK_BUCKET_PORTER_MAX_MOVE_QUANTITY_PER_RUN:1000}
+    porter-batch-size: ${SMART_TICKET_STOCK_BUCKET_PORTER_BATCH_SIZE:100}
+    porter-lock-ttl-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_LOCK_TTL_SECONDS:30}
+    porter-move-record-ttl-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_MOVE_RECORD_TTL_SECONDS:86400}
+    porter-fixed-delay-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_FIXED_DELAY_SECONDS:300}
   rate-limit:
     enabled: ${SMART_TICKET_RATE_LIMIT_ENABLED:true}
     algorithm: ${SMART_TICKET_RATE_LIMIT_ALGORITHM:token-bucket}
@@ -61,6 +82,9 @@ smart-ticket:
     order-ticket-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_REFILL_RATE_PER_SECOND:20}
     key-ttl-seconds: ${SMART_TICKET_RATE_LIMIT_KEY_TTL_SECONDS:120}
     soldout-ttl-seconds: ${SMART_TICKET_SOLDOUT_TTL_SECONDS:600}
+    backpressure-enabled: ${SMART_TICKET_RATE_LIMIT_BACKPRESSURE_ENABLED:false}
+    local-message-backlog-reject-threshold: ${SMART_TICKET_RATE_LIMIT_LOCAL_MESSAGE_BACKLOG_REJECT_THRESHOLD:10000}
+    backpressure-sample-interval-millis: ${SMART_TICKET_RATE_LIMIT_BACKPRESSURE_SAMPLE_INTERVAL_MILLIS:1000}
   payment:
     mock-callback-secret: ${SMART_TICKET_PAYMENT_MOCK_CALLBACK_SECRET:smart-ticket-mock-payment-secret-at-least-32-bytes}
     callback-timestamp-tolerance-seconds: ${SMART_TICKET_PAYMENT_CALLBACK_TIMESTAMP_TOLERANCE_SECONDS:300}

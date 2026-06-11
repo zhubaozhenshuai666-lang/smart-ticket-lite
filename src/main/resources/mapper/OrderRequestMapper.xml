@@ -14,6 +14,8 @@
         <result property="quantity" column="quantity"/>
         <result property="status" column="status"/>
         <result property="orderId" column="order_id"/>
+        <result property="stockBucketVersion" column="stock_bucket_version"/>
+        <result property="stockBucketNo" column="stock_bucket_no"/>
         <result property="processingAt" column="processing_at"/>
         <result property="redisDeducted" column="redis_deducted"/>
         <result property="deductedQuantity" column="deducted_quantity"/>
@@ -37,6 +39,8 @@
         quantity,
         status,
         order_id,
+        stock_bucket_version,
+        stock_bucket_no,
         processing_at,
         redis_deducted,
         deducted_quantity,
@@ -63,6 +67,8 @@
             quantity,
             status,
             order_id,
+            stock_bucket_version,
+            stock_bucket_no,
             processing_at,
             redis_deducted,
             deducted_quantity,
@@ -83,6 +89,8 @@
             #{quantity},
             #{status},
             #{orderId},
+            COALESCE(#{stockBucketVersion}, 1),
+            #{stockBucketNo},
             #{processingAt},
             #{redisDeducted},
             #{deductedQuantity},
@@ -142,6 +150,7 @@
             status = 'PRE_DEDUCTED',
             redis_deducted = TRUE,
             deducted_quantity = #{deductedQuantity},
+            stock_bucket_no = #{stockBucketNo},
             deducted_at = #{deductedAt},
             compensation_status = 'NONE',
             fail_reason = NULL,

@@ -30,11 +30,17 @@ public final class RedisKeyConstant {
 
     private static final String STOCK_TICKET_CATEGORY_PREFIX = "ticket:stock:";
 
+    private static final String STOCK_BUCKET_COUNT_SUFFIX = ":bucket-count";
+
     private static final String STOCK_DEDUCTED_REQUEST_PREFIX = "ticket:stock:deducted:";
 
     private static final String STOCK_COMPENSATED_REQUEST_PREFIX = "ticket:stock:compensated:";
 
     private static final String STOCK_SOLDOUT_PREFIX = "ticket:soldout:";
+
+    private static final String STOCK_BUCKET_PORTER_LOCK_PREFIX = "ticket:stock:porter:lock:";
+
+    private static final String STOCK_BUCKET_PORTER_MOVE_PREFIX = "ticket:stock:porter:move:";
 
     private static final String AUTH_TOKEN_BLACKLIST_PREFIX = "auth:token:blacklist:";
 
@@ -101,6 +107,22 @@ public final class RedisKeyConstant {
         return STOCK_TICKET_CATEGORY_PREFIX + ticketCategoryId;
     }
 
+    public static String stockBucketAvailableKey(Long ticketCategoryId, Integer bucketNo) {
+        return STOCK_TICKET_CATEGORY_PREFIX + ticketCategoryId + ":bucket:" + bucketNo;
+    }
+
+    public static String stockBucketAvailableKey(Long ticketCategoryId, Integer bucketVersion, Integer bucketNo) {
+        return STOCK_TICKET_CATEGORY_PREFIX + ticketCategoryId + ":v" + bucketVersion + ":bucket:" + bucketNo;
+    }
+
+    public static String stockBucketCountKey(Long ticketCategoryId) {
+        return STOCK_TICKET_CATEGORY_PREFIX + ticketCategoryId + STOCK_BUCKET_COUNT_SUFFIX;
+    }
+
+    public static String stockBucketCountKey(Long ticketCategoryId, Integer bucketVersion) {
+        return STOCK_TICKET_CATEGORY_PREFIX + ticketCategoryId + ":v" + bucketVersion + STOCK_BUCKET_COUNT_SUFFIX;
+    }
+
     public static String stockRollbackRequestKey(String requestId) {
         return stockCompensatedRequestKey(requestId);
     }
@@ -113,8 +135,50 @@ public final class RedisKeyConstant {
         return STOCK_COMPENSATED_REQUEST_PREFIX + normalize(requestId);
     }
 
+    public static String stockDeductedRecordValue(Long ticketCategoryId,
+                                                  Integer bucketVersion,
+                                                  Integer bucketNo,
+                                                  Integer quantity) {
+        return ticketCategoryId + ":v" + bucketVersion + ":" + bucketNo + ":" + quantity;
+    }
+
     public static String stockSoldoutKey(Long ticketCategoryId) {
         return STOCK_SOLDOUT_PREFIX + ticketCategoryId;
+    }
+
+    public static String stockVersionSoldoutKey(Long ticketCategoryId, Integer bucketVersion) {
+        return STOCK_SOLDOUT_PREFIX + ticketCategoryId + ":v" + bucketVersion;
+    }
+
+    public static String stockGlobalSoldoutKey(Long ticketCategoryId) {
+        return STOCK_SOLDOUT_PREFIX + ticketCategoryId + ":global";
+    }
+
+    public static String stockBucketSoldoutKey(Long ticketCategoryId, Integer bucketNo) {
+        return STOCK_SOLDOUT_PREFIX + ticketCategoryId + ":bucket:" + bucketNo;
+    }
+
+    public static String stockBucketSoldoutKey(Long ticketCategoryId, Integer bucketVersion, Integer bucketNo) {
+        return STOCK_SOLDOUT_PREFIX + ticketCategoryId + ":v" + bucketVersion + ":bucket:" + bucketNo;
+    }
+
+    public static String stockBucketPorterLockKey(Long ticketCategoryId, Integer fromVersion, Integer toVersion) {
+        return STOCK_BUCKET_PORTER_LOCK_PREFIX + ticketCategoryId + ":v" + fromVersion + ":to:v" + toVersion;
+    }
+
+    public static String stockBucketPorterMoveKey(Long ticketCategoryId,
+                                                  Integer fromVersion,
+                                                  Integer fromBucketNo,
+                                                  Integer toVersion,
+                                                  Integer toBucketNo,
+                                                  String moveId) {
+        return STOCK_BUCKET_PORTER_MOVE_PREFIX
+                + ticketCategoryId
+                + ":v" + fromVersion
+                + ":bucket:" + fromBucketNo
+                + ":to:v" + toVersion
+                + ":bucket:" + toBucketNo
+                + ":move:" + normalize(moveId);
     }
 
     public static String authTokenBlacklistKey(String jti) {

@@ -26,6 +26,14 @@ public final class RabbitMqConstant {
 
     public static final String ORDER_ASYNC_DLQ_ROUTING_KEY = "order.async.failed";
 
+    public static String orderAsyncQueueName(int shardNo) {
+        return ORDER_ASYNC_QUEUE + "." + shardNo;
+    }
+
+    public static String orderAsyncRoutingKey(int shardNo) {
+        return ORDER_ASYNC_ROUTING_KEY + "." + shardNo;
+    }
+
     private RabbitMqConstant() {
     }
 }

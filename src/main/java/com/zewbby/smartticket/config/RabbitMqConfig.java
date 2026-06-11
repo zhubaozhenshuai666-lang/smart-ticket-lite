@@ -7,6 +7,8 @@ import com.zewbby.smartticket.mq.DeadLetterMessageRecoverer;
 import com.zewbby.smartticket.mq.RabbitPublisherCallbackHandler;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Declarable;
+import org.springframework.amqp.core.Declarables;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
@@ -20,6 +22,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
 import org.springframework.retry.interceptor.RetryOperationsInterceptor;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Configuration
 public class RabbitMqConfig {
@@ -89,6 +94,40 @@ public class RabbitMqConfig {
     }
 
     @Bean
+    public Declarables orderAsyncShardDeclarables(
+            @Qualifier("orderAsyncExchange") DirectExchange orderAsyncExchange,
+            MqConsumerProperties mqConsumerProperties) {
+        if (mqConsumerProperties.getAsyncQueueShardCount() <= 1) {
+            return new Declarables();
+        }
+        List<Declarable> declarables = new ArrayList<>();
+        for (int shardNo = 0; shardNo < mqConsumerProperties.getAsyncQueueShardCount(); shardNo++) {
+            Queue queue = QueueBuilder.durable(RabbitMqConstant.orderAsyncQueueName(shardNo))
+                    .deadLetterExchange(RabbitMqConstant.ORDER_ASYNC_DLX_EXCHANGE)
+                    .deadLetterRoutingKey(RabbitMqConstant.ORDER_ASYNC_DLQ_ROUTING_KEY)
+                    .build();
+            Binding binding = BindingBuilder.bind(queue)
+                    .to(orderAsyncExchange)
+                    .with(RabbitMqConstant.orderAsyncRoutingKey(shardNo));
+            declarables.add(queue);
+            declarables.add(binding);
+        }
+        return new Declarables(declarables);
+    }
+
+    @Bean
+    public String[] orderAsyncQueueNames(MqConsumerProperties mqConsumerProperties) {
+        if (mqConsumerProperties.getAsyncQueueShardCount() <= 1) {
+            return new String[] {RabbitMqConstant.ORDER_ASYNC_QUEUE};
+        }
+        String[] queueNames = new String[mqConsumerProperties.getAsyncQueueShardCount()];
+        for (int shardNo = 0; shardNo < mqConsumerProperties.getAsyncQueueShardCount(); shardNo++) {
+            queueNames[shardNo] = RabbitMqConstant.orderAsyncQueueName(shardNo);
+        }
+        return queueNames;
+    }
+
+    @Bean
     public DirectExchange orderAsyncDlxExchange() {
         return new DirectExchange(RabbitMqConstant.ORDER_ASYNC_DLX_EXCHANGE, true, false);
     }
@@ -144,12 +183,16 @@ public class RabbitMqConfig {
     public SimpleRabbitListenerContainerFactory asyncOrderRabbitListenerContainerFactory(
             ConnectionFactory connectionFactory,
             MessageConverter rabbitMessageConverter,
-            RetryOperationsInterceptor asyncOrderRetryInterceptor) {
+            RetryOperationsInterceptor asyncOrderRetryInterceptor,
+            MqConsumerProperties mqConsumerProperties) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(rabbitMessageConverter);
         factory.setDefaultRequeueRejected(false);
         factory.setAdviceChain(asyncOrderRetryInterceptor);
+        factory.setConcurrentConsumers(mqConsumerProperties.getConcurrentConsumers());
+        factory.setMaxConcurrentConsumers(mqConsumerProperties.getMaxConcurrentConsumers());
+        factory.setPrefetchCount(mqConsumerProperties.getPrefetchCount());
         return factory;
     }
 }

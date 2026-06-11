@@ -20,6 +20,7 @@ public interface OrderRequestMapper {
 
     int markPreDeducted(@Param("id") Long id,
                         @Param("deductedQuantity") Integer deductedQuantity,
+                        @Param("stockBucketNo") Integer stockBucketNo,
                         @Param("deductedAt") java.time.LocalDateTime deductedAt);
 
     int markQueued(@Param("id") Long id, @Param("messageId") String messageId);

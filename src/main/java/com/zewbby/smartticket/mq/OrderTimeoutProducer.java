@@ -1,15 +1,27 @@
 package com.zewbby.smartticket.mq;
 
+import com.zewbby.smartticket.config.OrderTimeoutProperties;
 import com.zewbby.smartticket.service.LocalMessageService;
+import com.zewbby.smartticket.task.LocalMessagePublishTask;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Component
 public class OrderTimeoutProducer {
 
     private final LocalMessageService localMessageService;
 
-    public OrderTimeoutProducer(LocalMessageService localMessageService) {
+    private final LocalMessagePublishTask localMessagePublishTask;
+
+    private final OrderTimeoutProperties orderTimeoutProperties;
+
+    public OrderTimeoutProducer(LocalMessageService localMessageService,
+                                LocalMessagePublishTask localMessagePublishTask,
+                                OrderTimeoutProperties orderTimeoutProperties) {
         this.localMessageService = localMessageService;
+        this.localMessagePublishTask = localMessagePublishTask;
+        this.orderTimeoutProperties = orderTimeoutProperties;
     }
 
     /**
@@ -20,10 +32,28 @@ public class OrderTimeoutProducer {
      * Outbox 让“需要发送超时关闭消息”先落库，再由统一发送器投递并等待 Publisher Confirm。
      */
     public String sendOrderTimeoutMessage(OrderTimeoutMessage message) {
-        return localMessageService.createOrderTimeoutCloseMessage(message);
+        if (!orderTimeoutProperties.isDelayMessageEnabled()) {
+            return null;
+        }
+        String messageId = localMessageService.createOrderTimeoutCloseMessage(message);
+        publishAfterCommit(messageId);
+        return messageId;
     }
 
     public String sendOrderTimeoutMessage(Long orderId, String orderNo) {
         return sendOrderTimeoutMessage(new OrderTimeoutMessage(orderId, orderNo));
+    }
+
+    private void publishAfterCommit(String messageId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            localMessagePublishTask.publishByMessageId(messageId);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                localMessagePublishTask.publishByMessageId(messageId);
+            }
+        });
     }
 }

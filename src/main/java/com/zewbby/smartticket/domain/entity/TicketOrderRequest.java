@@ -34,6 +34,10 @@ public class TicketOrderRequest {
 
     private Long orderId;
 
+    private Integer stockBucketVersion;
+
+    private Integer stockBucketNo;
+
     private LocalDateTime processingAt;
 
     private Boolean redisDeducted;

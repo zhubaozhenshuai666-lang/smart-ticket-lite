@@ -56,6 +56,8 @@ public final class ErrorMessageConstant {
 
     public static final String ORDER_REPEAT_CANCEL = "订单已取消，请勿重复取消";
 
+    public static final String ORDER_QUEUE_BUSY = "抢票人数过多，请稍后再试";
+
     public static final String ORDER_EXPIRED = "订单已过期，无法支付";
 
     public static final String ORDER_REQUEST_NOT_FOUND = "异步下单请求不存在";

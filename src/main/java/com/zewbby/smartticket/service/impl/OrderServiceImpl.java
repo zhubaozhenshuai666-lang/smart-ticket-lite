@@ -2,12 +2,14 @@ package com.zewbby.smartticket.service.impl;
 
 import com.zewbby.smartticket.auth.UserContext;
 import com.zewbby.smartticket.cache.OrderSubmitGuard;
+import com.zewbby.smartticket.config.StockBucketProperties;
 import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.domain.dto.CreateOrderRequest;
 import com.zewbby.smartticket.domain.dto.OrderSnapshot;
+import com.zewbby.smartticket.domain.dto.RedisStockDeductResponse;
 import com.zewbby.smartticket.domain.entity.PaymentFlowLog;
 import com.zewbby.smartticket.domain.entity.PaymentOrder;
 import com.zewbby.smartticket.domain.entity.TicketOrder;
@@ -29,6 +31,7 @@ import com.zewbby.smartticket.mapper.OrderMapper;
 import com.zewbby.smartticket.mapper.OrderRequestMapper;
 import com.zewbby.smartticket.mapper.PaymentMapper;
 import com.zewbby.smartticket.mapper.TicketCategoryMapper;
+import com.zewbby.smartticket.mapper.TicketStockBucketMapper;
 import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
@@ -36,10 +39,12 @@ import com.zewbby.smartticket.mq.OrderTimeoutMessage;
 import com.zewbby.smartticket.mq.OrderTimeoutProducer;
 import com.zewbby.smartticket.ratelimit.RateLimitService;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
+import com.zewbby.smartticket.service.BucketRouteService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.OrderService;
 import com.zewbby.smartticket.service.PaymentAuditService;
 import com.zewbby.smartticket.service.StockCacheService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeanUtils;
@@ -48,8 +53,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
@@ -80,6 +87,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final TicketStockMapper ticketStockMapper;
 
+    private final TicketStockBucketMapper ticketStockBucketMapper;
+
     private final OrderSubmitGuard orderSubmitGuard;
 
     private final OrderTimeoutProducer orderTimeoutProducer;
@@ -92,11 +101,54 @@ public class OrderServiceImpl implements OrderService {
 
     private final StockCacheService stockCacheService;
 
+    private final BucketRouteService bucketRouteService;
+
     private final AsyncOrderMessagePublisher asyncOrderMessagePublisher;
 
     private final PaymentAuditService paymentAuditService;
 
     private final ObservabilityMetricsService observabilityMetricsService;
+
+    private final StockBucketProperties stockBucketProperties;
+
+    @Autowired
+    public OrderServiceImpl(OrderMapper orderMapper,
+                            OrderRequestMapper orderRequestMapper,
+                            PaymentMapper paymentMapper,
+                            UserMapper userMapper,
+                            TicketCategoryMapper ticketCategoryMapper,
+                            TicketStockMapper ticketStockMapper,
+                            TicketStockBucketMapper ticketStockBucketMapper,
+                            OrderSubmitGuard orderSubmitGuard,
+                            OrderTimeoutProducer orderTimeoutProducer,
+                            RateLimitService rateLimitService,
+                            IdempotencyTokenService idempotencyTokenService,
+                            StockLuaService stockLuaService,
+	                            StockCacheService stockCacheService,
+	                            BucketRouteService bucketRouteService,
+	                            AsyncOrderMessagePublisher asyncOrderMessagePublisher,
+	                            PaymentAuditService paymentAuditService,
+	                            ObservabilityMetricsService observabilityMetricsService,
+	                            StockBucketProperties stockBucketProperties) {
+        this.orderMapper = orderMapper;
+        this.orderRequestMapper = orderRequestMapper;
+        this.paymentMapper = paymentMapper;
+        this.userMapper = userMapper;
+        this.ticketCategoryMapper = ticketCategoryMapper;
+        this.ticketStockMapper = ticketStockMapper;
+        this.ticketStockBucketMapper = ticketStockBucketMapper;
+        this.orderSubmitGuard = orderSubmitGuard;
+        this.orderTimeoutProducer = orderTimeoutProducer;
+        this.rateLimitService = rateLimitService;
+        this.idempotencyTokenService = idempotencyTokenService;
+        this.stockLuaService = stockLuaService;
+        this.stockCacheService = stockCacheService;
+        this.bucketRouteService = bucketRouteService;
+        this.asyncOrderMessagePublisher = asyncOrderMessagePublisher;
+        this.paymentAuditService = paymentAuditService;
+        this.observabilityMetricsService = observabilityMetricsService;
+        this.stockBucketProperties = stockBucketProperties;
+    }
 
     public OrderServiceImpl(OrderMapper orderMapper,
                             OrderRequestMapper orderRequestMapper,
@@ -109,25 +161,34 @@ public class OrderServiceImpl implements OrderService {
                             RateLimitService rateLimitService,
                             IdempotencyTokenService idempotencyTokenService,
                             StockLuaService stockLuaService,
-	                            StockCacheService stockCacheService,
-	                            AsyncOrderMessagePublisher asyncOrderMessagePublisher,
-	                            PaymentAuditService paymentAuditService,
-	                            ObservabilityMetricsService observabilityMetricsService) {
-        this.orderMapper = orderMapper;
-        this.orderRequestMapper = orderRequestMapper;
-        this.paymentMapper = paymentMapper;
-        this.userMapper = userMapper;
-        this.ticketCategoryMapper = ticketCategoryMapper;
-        this.ticketStockMapper = ticketStockMapper;
-        this.orderSubmitGuard = orderSubmitGuard;
-        this.orderTimeoutProducer = orderTimeoutProducer;
-        this.rateLimitService = rateLimitService;
-        this.idempotencyTokenService = idempotencyTokenService;
-        this.stockLuaService = stockLuaService;
-        this.stockCacheService = stockCacheService;
-        this.asyncOrderMessagePublisher = asyncOrderMessagePublisher;
-        this.paymentAuditService = paymentAuditService;
-        this.observabilityMetricsService = observabilityMetricsService;
+                            StockCacheService stockCacheService,
+                            AsyncOrderMessagePublisher asyncOrderMessagePublisher,
+                            PaymentAuditService paymentAuditService,
+                            ObservabilityMetricsService observabilityMetricsService) {
+        this(orderMapper,
+                orderRequestMapper,
+                paymentMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                null,
+                orderSubmitGuard,
+                orderTimeoutProducer,
+                rateLimitService,
+                idempotencyTokenService,
+                stockLuaService,
+                stockCacheService,
+                new BucketRouteService(),
+                asyncOrderMessagePublisher,
+                paymentAuditService,
+                observabilityMetricsService,
+                disabledBucketProperties());
+    }
+
+    private static StockBucketProperties disabledBucketProperties() {
+        StockBucketProperties properties = new StockBucketProperties();
+        properties.setEnabled(false);
+        return properties;
     }
 
     /**
@@ -176,8 +237,22 @@ public class OrderServiceImpl implements OrderService {
             //用lua消耗token
             idempotencyTokenService.consumeOrderToken(currentUserId, request.getIdempotencyToken());
 
+            String requestId = generateRequestId(currentUserId, request.getTicketCategoryId(), request.getIdempotencyToken());
+            Integer stockBucketVersion = stockBucketProperties.getActiveVersion();
+
+            RedisStockDeductResponse deductResponse = preDeductRedisStock(
+                    requestId,
+                    request,
+                    stockBucketVersion
+            );
+            RedisStockDeductResult deductResult = deductResponse.getResult();
+            if (!deductResult.isSuccess()) {
+                observabilityMetricsService.recordAsyncOrderRequestFailed();
+                throw new BusinessException(toPreDeductFailMessage(deductResult));
+            }
+            redisPreDeducted = true;
+
             LocalDateTime now = LocalDateTime.now();
-            String requestId = generateRequestId();
 
             orderRequest = new TicketOrderRequest();
             orderRequest.setRequestId(requestId);
@@ -186,12 +261,14 @@ public class OrderServiceImpl implements OrderService {
             orderRequest.setSessionId(request.getSessionId());
             orderRequest.setTicketCategoryId(request.getTicketCategoryId());
             orderRequest.setQuantity(request.getQuantity());
-            orderRequest.setStatus(OrderRequestStatusEnum.INIT.getCode());
+            orderRequest.setStatus(OrderRequestStatusEnum.PRE_DEDUCTED.getCode());
             orderRequest.setOrderId(null);
+            orderRequest.setStockBucketVersion(stockBucketVersion);
+            orderRequest.setStockBucketNo(deductResponse.getBucketNo());
             orderRequest.setProcessingAt(null);
-            orderRequest.setRedisDeducted(false);
-            orderRequest.setDeductedQuantity(0);
-            orderRequest.setDeductedAt(null);
+            orderRequest.setRedisDeducted(true);
+            orderRequest.setDeductedQuantity(request.getQuantity());
+            orderRequest.setDeductedAt(now);
             orderRequest.setCompensated(false);
             orderRequest.setCompensationStatus(CompensationStatusEnum.NONE.getCode());
             orderRequest.setCompensatedAt(null);
@@ -200,36 +277,11 @@ public class OrderServiceImpl implements OrderService {
             orderRequest.setCreatedAt(now);
             orderRequest.setUpdatedAt(now);
 
-            // INIT 记录先落库，后续 Redis 预扣失败也能留下明确失败状态，便于排查和后续补偿巡检。
+            // Redis 预扣成功后才落库，避免库存不足等高频失败请求把 MySQL 请求表打成入口瓶颈。
             int insertRows = orderRequestMapper.insert(orderRequest);
             if (insertRows != 1) {
                 throw new BusinessException("异步下单请求创建失败");
             }
-
-            RedisStockDeductResult deductResult = stockLuaService.preDeductStock(
-                    requestId,
-                    request.getTicketCategoryId(),
-                    request.getQuantity()
-            );
-            if (!deductResult.isSuccess()) {
-                orderRequestMapper.markFailed(orderRequest.getId(), toPreDeductFailMessage(deductResult));
-                observabilityMetricsService.recordAsyncOrderRequestFailed();
-                throw new BusinessException(toPreDeductFailMessage(deductResult));
-            }
-            redisPreDeducted = true;
-
-            int preDeductedRows = orderRequestMapper.markPreDeducted(
-                    orderRequest.getId(),
-                    request.getQuantity(),
-                    now
-            );
-            if (preDeductedRows != 1) {
-                throw new BusinessException("异步下单请求预扣状态更新失败");
-            }
-            orderRequest.setStatus(OrderRequestStatusEnum.PRE_DEDUCTED.getCode());
-            orderRequest.setRedisDeducted(true);
-            orderRequest.setDeductedQuantity(request.getQuantity());
-            orderRequest.setDeductedAt(now);
 
             //整个message
             AsyncCreateOrderMessage message = new AsyncCreateOrderMessage(
@@ -415,15 +467,12 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorMessageConstant.ORDER_STATUS_NOT_ALLOWED);
         }
 
-        //取消订单的时候要回滚库存
-        int rollbackRows = ticketStockMapper.rollbackStock(order.getTicketCategoryId(), order.getQuantity());
-        if (rollbackRows != 1) {
-            throw new BusinessException("库存回滚失败");
-        }
+        TicketOrderRequest asyncOrderRequest = orderRequestMapper.selectByOrderId(order.getId());
+        rollbackPersistentStock(order, asyncOrderRequest);
         observabilityMetricsService.recordOrderCancelled();
 
         closeUnpaidPaymentWithFlow(orderId);
-        rollbackRedisStockIfAsyncOrder(order);
+        releaseRedisStockIfAsyncOrder(order, asyncOrderRequest);
 
         return toOrderVO(orderMapper.selectByIdAndUserId(orderId, currentUserId));
     }
@@ -473,15 +522,12 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(ErrorMessageConstant.ORDER_STATUS_NOT_ALLOWED);
         }
 
-        // 订单超时关闭后必须释放 locked_stock 回 available_stock，否则用户未支付也会长期占用库存。
-        int rollbackRows = ticketStockMapper.rollbackStock(order.getTicketCategoryId(), order.getQuantity());
-        if (rollbackRows != 1) {
-            throw new BusinessException("库存回滚失败");
-        }
+        TicketOrderRequest asyncOrderRequest = orderRequestMapper.selectByOrderId(order.getId());
+        rollbackPersistentStock(order, asyncOrderRequest);
 
         // 未支付支付单要一起关闭；已经 SUCCESS 的支付单不会被这个 SQL 覆盖。
         closeUnpaidPaymentWithFlow(orderId);
-        rollbackRedisStockIfAsyncOrder(order);
+        releaseRedisStockIfAsyncOrder(order, asyncOrderRequest);
     }
 
     private OrderTimeoutMessage buildOrderTimeoutMessage(TicketOrder order) {
@@ -490,7 +536,11 @@ public class OrderServiceImpl implements OrderService {
         message.setOrderNo(order.getOrderNo());
         message.setUserId(order.getUserId());
         message.setExpireTime(order.getExpireTime());
-        message.setTraceId(null);
+        /*
+         * 当前项目还没有完整的跨线程 TraceContext，这里先使用订单维度的稳定 traceId。
+         * 它不是链路追踪平台里的全局 trace，但足够把 local_message、RabbitMQ 日志和超时关闭日志串到同一笔订单上。
+         */
+        message.setTraceId("order-timeout-" + order.getId());
         message.setMessageId(null);
         return message;
     }
@@ -520,26 +570,73 @@ public class OrderServiceImpl implements OrderService {
         return "REQ" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(100000, 1000000);
     }
 
-    private void rollbackRedisStockIfAsyncOrder(TicketOrder order) {
-        TicketOrderRequest orderRequest = orderRequestMapper.selectByOrderId(order.getId());
+    private String generateRequestId(Long userId, Long ticketCategoryId, String idempotencyToken) {
+        String source = userId + ":" + ticketCategoryId + ":" + idempotencyToken;
+        return "REQ" + UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8))
+                .toString()
+                .replace("-", "");
+    }
+
+    private void rollbackPersistentStock(TicketOrder order, TicketOrderRequest orderRequest) {
+        if (isBucketAsyncOrder(orderRequest)) {
+            int bucketRows = orderRequest.getStockBucketVersion() == null
+                    ? ticketStockBucketMapper.rollbackStock(
+                            order.getTicketCategoryId(),
+                            orderRequest.getStockBucketNo(),
+                            order.getQuantity()
+                    )
+                    : ticketStockBucketMapper.rollbackStockByVersion(
+                            order.getTicketCategoryId(),
+                            orderRequest.getStockBucketVersion(),
+                            orderRequest.getStockBucketNo(),
+                            order.getQuantity()
+                    );
+            if (bucketRows != 1) {
+                throw new BusinessException("库存bucket回滚失败");
+            }
+            return;
+        }
+
+        int rollbackRows = ticketStockMapper.rollbackStock(order.getTicketCategoryId(), order.getQuantity());
+        if (rollbackRows != 1) {
+            throw new BusinessException("库存回滚失败");
+        }
+    }
+
+    private boolean isBucketAsyncOrder(TicketOrderRequest orderRequest) {
+        return orderRequest != null
+                && orderRequest.getStockBucketNo() != null
+                && ticketStockBucketMapper != null;
+    }
+
+    private void releaseRedisStockIfAsyncOrder(TicketOrder order, TicketOrderRequest orderRequest) {
         if (orderRequest == null) {
             return;
         }
-        try {
-            stockLuaService.rollbackStock(order.getTicketCategoryId(), order.getQuantity());
-            LOGGER.info("Rolled back Redis stock for async order, orderId={}, requestId={}, ticketCategoryId={}, quantity={}",
-                    order.getId(),
-                    orderRequest.getRequestId(),
-                    order.getTicketCategoryId(),
-                    order.getQuantity());
-        } catch (RuntimeException exception) {
-            LOGGER.warn("Skipped Redis stock rollback for async order, orderId={}, requestId={}, ticketCategoryId={}, quantity={}, reason={}",
-                    order.getId(),
-                    orderRequest.getRequestId(),
-                    order.getTicketCategoryId(),
-                    order.getQuantity(),
-                    exception.getMessage());
+        if (!Boolean.TRUE.equals(orderRequest.getRedisDeducted())) {
+            return;
         }
+        if (orderRequest.getDeductedQuantity() == null || orderRequest.getDeductedQuantity() <= 0) {
+            throw new BusinessException("Redis预扣数量缺失，无法释放库存");
+        }
+        RedisStockReleaseResult releaseResult = stockLuaService.releasePreDeductedStock(
+                orderRequest.getRequestId(),
+                order.getTicketCategoryId(),
+                orderRequest.getStockBucketVersion(),
+                orderRequest.getStockBucketNo(),
+                orderRequest.getDeductedQuantity()
+        );
+        if (!releaseResult.isSuccess() && releaseResult != RedisStockReleaseResult.ALREADY_COMPENSATED) {
+            throw new BusinessException("Redis预扣库存释放失败: " + releaseResult.getMessage());
+        }
+        LOGGER.info("Released Redis pre-deducted stock for closed async order, orderId={}, requestId={}, ticketCategoryId={}, bucketVersion={}, bucketNo={}, quantity={}, result={}",
+                order.getId(),
+                orderRequest.getRequestId(),
+                order.getTicketCategoryId(),
+                orderRequest.getStockBucketVersion(),
+                orderRequest.getStockBucketNo(),
+                orderRequest.getDeductedQuantity(),
+                releaseResult);
     }
 
     private void releaseRedisPreDeductedStockAfterSubmitFailure(TicketOrderRequest orderRequest,
@@ -565,15 +662,21 @@ public class OrderServiceImpl implements OrderService {
      * @param reason 失败原因，用于日志和 request 状态记录。
      */
     private void releaseRedisPreDeductedStock(TicketOrderRequest orderRequest, String reason) {
-        orderRequestMapper.markFailed(orderRequest.getId(), reason);
+        if (orderRequest.getId() != null) {
+            orderRequestMapper.markFailed(orderRequest.getId(), reason);
+        }
         try {
             RedisStockReleaseResult releaseResult = stockLuaService.releasePreDeductedStock(
                     orderRequest.getRequestId(),
                     orderRequest.getTicketCategoryId(),
+                    orderRequest.getStockBucketVersion(),
+                    orderRequest.getStockBucketNo(),
                     orderRequest.getQuantity()
             );
             if (releaseResult.isSuccess() || releaseResult == RedisStockReleaseResult.ALREADY_COMPENSATED) {
-                orderRequestMapper.markCompensated(orderRequest.getId(), LocalDateTime.now());
+                if (orderRequest.getId() != null) {
+                    orderRequestMapper.markCompensated(orderRequest.getId(), LocalDateTime.now());
+                }
             }
             observabilityMetricsService.recordAsyncOrderRequestFailed();
             LOGGER.info("Released Redis pre-deducted stock after async submit failure, requestId={}, result={}, reason={}",
@@ -594,7 +697,57 @@ public class OrderServiceImpl implements OrderService {
         if (deductResult == RedisStockDeductResult.DUPLICATE) {
             return ErrorMessageConstant.ORDER_REPEAT_SUBMIT;
         }
+        if (deductResult == RedisStockDeductResult.BUCKET_NOT_FOUND) {
+            return ErrorMessageConstant.STOCK_NOT_PREHEATED;
+        }
+        if (deductResult == RedisStockDeductResult.PROBE_MISS) {
+            return ErrorMessageConstant.ORDER_QUEUE_BUSY;
+        }
         return deductResult.getMessage();
+    }
+
+    /**
+     * 预扣减 Redis 中的库存
+     * * 【业务背景】
+     * 在高并发票务/秒杀场景下，单一 Redis Key 会面临极高的分布式锁竞争和热点 Key 读写压力。
+     * 本方法通过“库存分桶（Stock Bucketing）”机制，将单一库存拆分为多个子桶，以分散并发压力，提升系统吞吐量。
+     *
+     * @param requestId 幂等请求ID（防重入）
+     * @param request   下单请求参数（包含票档ID、购买数量等）
+     * @param bucketVersion 当前请求进入队列时绑定的库存桶版本。
+     * @return Redis库存扣减响应结果（包含扣减状态、命中桶号等信息）
+     */
+    private RedisStockDeductResponse preDeductRedisStock(String requestId,
+                                                        CreateOrderRequest request,
+                                                        Integer bucketVersion) {
+
+        // 1. 降级开关校验：若未开启库存分桶机制，则走传统单 Key 扣减逻辑
+        if (!stockBucketProperties.isEnabled()) {
+            RedisStockDeductResult legacyResult = stockLuaService.preDeductStock(
+                    requestId,
+                    request.getTicketCategoryId(),
+                    request.getQuantity()
+            );
+            return new RedisStockDeductResponse(legacyResult, null);
+        }
+
+        // 2. 获取当前票档配置的总分桶数（如拆分为 10 个独立库存桶）
+        int bucketCount = stockBucketProperties.getDefaultBucketCount();
+
+        // 3. 分桶路由算法：基于请求ID（或其他分流因子）计算出该订单应该优先尝试扣减的“初始桶号”
+        int initialBucketNo = bucketRouteService.route(requestId, bucketCount);
+
+        // 4. 执行分桶 Lua 脚本：从 initialBucketNo 开始只探测 activeProbeCount 个 bucket。
+        //    小窗口没命中返回 PROBE_MISS，入口快速失败，不在 Java 层二次重试。
+        return stockLuaService.preDeductBucketStock(
+                requestId,
+                request.getTicketCategoryId(),
+                request.getQuantity(),
+                bucketVersion,
+                initialBucketNo,
+                bucketCount,
+                stockBucketProperties.getActiveProbeCount()
+        );
     }
 
     /**
@@ -632,7 +785,10 @@ public class OrderServiceImpl implements OrderService {
      * 库存预热、库存补偿和人工调整库存后必须清理该标记，否则会误杀恢复后的库存。
      */
     private void checkSoldoutFastFail(Long ticketCategoryId) {
-        if (stockCacheService.isSoldOut(ticketCategoryId)) {
+        boolean soldOut = stockBucketProperties.isEnabled()
+                ? stockCacheService.isSoldOut(ticketCategoryId, stockBucketProperties.getActiveVersion())
+                : stockCacheService.isSoldOut(ticketCategoryId);
+        if (soldOut) {
             observabilityMetricsService.recordSoldoutFastFail();
             throw new BusinessException(ErrorMessageConstant.TICKET_SOLD_OUT);
         }
