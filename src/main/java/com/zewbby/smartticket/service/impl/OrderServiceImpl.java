@@ -27,6 +27,7 @@ import com.zewbby.smartticket.enums.PaymentFlowEventTypeEnum;
 import com.zewbby.smartticket.enums.PaymentStatusEnum;
 import com.zewbby.smartticket.enums.RedisStockDeductResult;
 import com.zewbby.smartticket.enums.RedisStockReleaseResult;
+import com.zewbby.smartticket.enums.UserStatusEnum;
 import com.zewbby.smartticket.idempotency.IdempotencyTokenService;
 import com.zewbby.smartticket.mapper.OrderMapper;
 import com.zewbby.smartticket.mapper.OrderRequestMapper;
@@ -47,6 +48,7 @@ import com.zewbby.smartticket.service.PaymentAuditService;
 import com.zewbby.smartticket.service.ShowRelationCacheService;
 import com.zewbby.smartticket.service.StockCacheService;
 import com.zewbby.smartticket.service.WaitingRoomService;
+import com.zewbby.smartticket.service.UserStatusCacheService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -120,6 +122,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final AsyncOrderSubmitProperties asyncOrderSubmitProperties;
 
+    private final UserStatusCacheService userStatusCacheService;
+
     @Autowired
     public OrderServiceImpl(OrderMapper orderMapper,
                             OrderRequestMapper orderRequestMapper,
@@ -138,10 +142,11 @@ public class OrderServiceImpl implements OrderService {
 	                            AsyncOrderMessagePublisher asyncOrderMessagePublisher,
 	                            PaymentAuditService paymentAuditService,
                                 ObservabilityMetricsService observabilityMetricsService,
-	                            StockBucketProperties stockBucketProperties,
+                                StockBucketProperties stockBucketProperties,
                                 WaitingRoomService waitingRoomService,
                                 ShowRelationCacheService showRelationCacheService,
-                                AsyncOrderSubmitProperties asyncOrderSubmitProperties) {
+                                AsyncOrderSubmitProperties asyncOrderSubmitProperties,
+                                UserStatusCacheService userStatusCacheService) {
         this.orderMapper = orderMapper;
         this.orderRequestMapper = orderRequestMapper;
         this.paymentMapper = paymentMapper;
@@ -163,6 +168,7 @@ public class OrderServiceImpl implements OrderService {
         this.waitingRoomService = waitingRoomService;
         this.showRelationCacheService = showRelationCacheService;
         this.asyncOrderSubmitProperties = asyncOrderSubmitProperties;
+        this.userStatusCacheService = userStatusCacheService;
     }
 
     public OrderServiceImpl(OrderMapper orderMapper,
@@ -205,7 +211,53 @@ public class OrderServiceImpl implements OrderService {
                 stockBucketProperties,
                 waitingRoomService,
                 showRelationCacheService,
-                defaultAsyncOrderSubmitProperties());
+                defaultAsyncOrderSubmitProperties(),
+                null);
+    }
+
+    public OrderServiceImpl(OrderMapper orderMapper,
+                            OrderRequestMapper orderRequestMapper,
+                            PaymentMapper paymentMapper,
+                            UserMapper userMapper,
+                            TicketCategoryMapper ticketCategoryMapper,
+                            TicketStockMapper ticketStockMapper,
+                            TicketStockBucketMapper ticketStockBucketMapper,
+                            OrderSubmitGuard orderSubmitGuard,
+                            OrderTimeoutProducer orderTimeoutProducer,
+                            RateLimitService rateLimitService,
+                            IdempotencyTokenService idempotencyTokenService,
+                            StockLuaService stockLuaService,
+                            StockCacheService stockCacheService,
+                            BucketRouteService bucketRouteService,
+                            AsyncOrderMessagePublisher asyncOrderMessagePublisher,
+                            PaymentAuditService paymentAuditService,
+                            ObservabilityMetricsService observabilityMetricsService,
+                            StockBucketProperties stockBucketProperties,
+                            WaitingRoomService waitingRoomService,
+                            ShowRelationCacheService showRelationCacheService,
+                            AsyncOrderSubmitProperties asyncOrderSubmitProperties) {
+        this(orderMapper,
+                orderRequestMapper,
+                paymentMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                ticketStockBucketMapper,
+                orderSubmitGuard,
+                orderTimeoutProducer,
+                rateLimitService,
+                idempotencyTokenService,
+                stockLuaService,
+                stockCacheService,
+                bucketRouteService,
+                asyncOrderMessagePublisher,
+                paymentAuditService,
+                observabilityMetricsService,
+                stockBucketProperties,
+                waitingRoomService,
+                showRelationCacheService,
+                asyncOrderSubmitProperties,
+                null);
     }
 
     public OrderServiceImpl(OrderMapper orderMapper,
@@ -243,7 +295,8 @@ public class OrderServiceImpl implements OrderService {
                 disabledBucketProperties(),
                 null,
                 null,
-                defaultAsyncOrderSubmitProperties());
+                defaultAsyncOrderSubmitProperties(),
+                null);
     }
 
     private static StockBucketProperties disabledBucketProperties() {
@@ -291,10 +344,7 @@ public class OrderServiceImpl implements OrderService {
         TicketOrderRequest orderRequest = null;
         boolean redisPreDeducted = false;
         try {
-            UserAccount user = userMapper.selectById(currentUserId);
-            if (user == null) {
-                throw new BusinessException("用户不存在");
-            }
+            ensureUserCanSubmit(currentUserId);
 
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
@@ -438,10 +488,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         try {
-            UserAccount user = userMapper.selectById(currentUserId);
-            if (user == null) {
-                throw new BusinessException("用户不存在");
-            }
+            ensureUserCanSubmit(currentUserId);
 
             OrderSnapshot snapshot = getOrderSnapshot(request);
             checkTicketOrderSubmitRateLimit(request);
@@ -521,6 +568,22 @@ public class OrderServiceImpl implements OrderService {
         );
         if (!relationExists) {
             throw new BusinessException(ErrorMessageConstant.SHOW_SESSION_TICKET_CATEGORY_NOT_MATCH);
+        }
+    }
+
+    private void ensureUserCanSubmit(Long userId) {
+        if (userStatusCacheService != null) {
+            if (!userStatusCacheService.isNormalUser(userId)) {
+                throw new BusinessException(ErrorMessageConstant.USER_DISABLED);
+            }
+            return;
+        }
+        UserAccount user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+        if (!UserStatusEnum.isNormal(user.getStatus())) {
+            throw new BusinessException(ErrorMessageConstant.USER_DISABLED);
         }
     }
 

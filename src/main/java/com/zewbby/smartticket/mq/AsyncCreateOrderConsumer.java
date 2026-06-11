@@ -14,6 +14,7 @@ import com.zewbby.smartticket.enums.ConsumerExceptionTypeEnum;
 import com.zewbby.smartticket.enums.OrderRequestStatusEnum;
 import com.zewbby.smartticket.enums.OrderStatusEnum;
 import com.zewbby.smartticket.enums.RedisStockReleaseResult;
+import com.zewbby.smartticket.enums.UserStatusEnum;
 import com.zewbby.smartticket.mapper.OrderMapper;
 import com.zewbby.smartticket.mapper.OrderRequestMapper;
 import com.zewbby.smartticket.mapper.TicketCategoryMapper;
@@ -22,6 +23,7 @@ import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.service.DeadLetterMessageService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
+import com.zewbby.smartticket.service.UserStatusCacheService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,6 +69,8 @@ public class AsyncCreateOrderConsumer {
 
     private final StockBucketProperties stockBucketProperties;
 
+    private final UserStatusCacheService userStatusCacheService;
+
     @Autowired
     public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
                                     OrderMapper orderMapper,
@@ -79,7 +83,8 @@ public class AsyncCreateOrderConsumer {
 	                                    DeadLetterMessageService deadLetterMessageService,
 	                                    MqConsumerProperties mqConsumerProperties,
 	                                    ObservabilityMetricsService observabilityMetricsService,
-	                                    StockBucketProperties stockBucketProperties) {
+	                                    StockBucketProperties stockBucketProperties,
+                                        UserStatusCacheService userStatusCacheService) {
         this.orderRequestMapper = orderRequestMapper;
         this.orderMapper = orderMapper;
         this.userMapper = userMapper;
@@ -92,6 +97,7 @@ public class AsyncCreateOrderConsumer {
         this.mqConsumerProperties = mqConsumerProperties;
         this.observabilityMetricsService = observabilityMetricsService;
         this.stockBucketProperties = stockBucketProperties;
+        this.userStatusCacheService = userStatusCacheService;
     }
 
     public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
@@ -115,7 +121,35 @@ public class AsyncCreateOrderConsumer {
                 deadLetterMessageService,
                 mqConsumerProperties,
                 observabilityMetricsService,
-                disabledBucketProperties());
+                disabledBucketProperties(),
+                null);
+    }
+
+    public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
+                                    OrderMapper orderMapper,
+                                    UserMapper userMapper,
+                                    TicketCategoryMapper ticketCategoryMapper,
+                                    TicketStockMapper ticketStockMapper,
+                                    TicketStockBucketMapper ticketStockBucketMapper,
+                                    OrderTimeoutProducer orderTimeoutProducer,
+                                    StockLuaService stockLuaService,
+                                    DeadLetterMessageService deadLetterMessageService,
+                                    MqConsumerProperties mqConsumerProperties,
+                                    ObservabilityMetricsService observabilityMetricsService,
+                                    StockBucketProperties stockBucketProperties) {
+        this(orderRequestMapper,
+                orderMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                ticketStockBucketMapper,
+                orderTimeoutProducer,
+                stockLuaService,
+                deadLetterMessageService,
+                mqConsumerProperties,
+                observabilityMetricsService,
+                stockBucketProperties,
+                null);
     }
 
     private static StockBucketProperties disabledBucketProperties() {
@@ -141,8 +175,7 @@ public class AsyncCreateOrderConsumer {
         }
 
         try {
-            UserAccount user = userMapper.selectById(orderRequest.getUserId());
-            if (user == null) {
+            if (!isNormalUser(orderRequest.getUserId())) {
                 LOGGER.warn("Async create order failed, requestId={}, reason={}",
                         orderRequest.getRequestId(), USER_NOT_FOUND);
                 markBusinessRejected(message, orderRequest, USER_NOT_FOUND);
@@ -344,6 +377,14 @@ public class AsyncCreateOrderConsumer {
         orderRequest.setCreatedAt(now);
         orderRequest.setUpdatedAt(now);
         return orderRequest;
+    }
+
+    private boolean isNormalUser(Long userId) {
+        if (userStatusCacheService != null) {
+            return userStatusCacheService.isNormalUser(userId);
+        }
+        UserAccount user = userMapper.selectById(userId);
+        return user != null && UserStatusEnum.isNormal(user.getStatus());
     }
 
     private OrderTimeoutMessage buildOrderTimeoutMessage(TicketOrder order) {
