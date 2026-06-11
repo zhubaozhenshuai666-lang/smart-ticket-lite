@@ -2,6 +2,7 @@ package com.zewbby.smartticket.service.impl;
 
 import com.zewbby.smartticket.auth.UserContext;
 import com.zewbby.smartticket.cache.OrderSubmitGuard;
+import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.config.StockBucketProperties;
 import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.common.BusinessException;
@@ -117,6 +118,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final ShowRelationCacheService showRelationCacheService;
 
+    private final AsyncOrderSubmitProperties asyncOrderSubmitProperties;
+
     @Autowired
     public OrderServiceImpl(OrderMapper orderMapper,
                             OrderRequestMapper orderRequestMapper,
@@ -134,10 +137,11 @@ public class OrderServiceImpl implements OrderService {
 	                            BucketRouteService bucketRouteService,
 	                            AsyncOrderMessagePublisher asyncOrderMessagePublisher,
 	                            PaymentAuditService paymentAuditService,
-	                            ObservabilityMetricsService observabilityMetricsService,
+                                ObservabilityMetricsService observabilityMetricsService,
 	                            StockBucketProperties stockBucketProperties,
                                 WaitingRoomService waitingRoomService,
-                                ShowRelationCacheService showRelationCacheService) {
+                                ShowRelationCacheService showRelationCacheService,
+                                AsyncOrderSubmitProperties asyncOrderSubmitProperties) {
         this.orderMapper = orderMapper;
         this.orderRequestMapper = orderRequestMapper;
         this.paymentMapper = paymentMapper;
@@ -158,6 +162,50 @@ public class OrderServiceImpl implements OrderService {
         this.stockBucketProperties = stockBucketProperties;
         this.waitingRoomService = waitingRoomService;
         this.showRelationCacheService = showRelationCacheService;
+        this.asyncOrderSubmitProperties = asyncOrderSubmitProperties;
+    }
+
+    public OrderServiceImpl(OrderMapper orderMapper,
+                            OrderRequestMapper orderRequestMapper,
+                            PaymentMapper paymentMapper,
+                            UserMapper userMapper,
+                            TicketCategoryMapper ticketCategoryMapper,
+                            TicketStockMapper ticketStockMapper,
+                            TicketStockBucketMapper ticketStockBucketMapper,
+                            OrderSubmitGuard orderSubmitGuard,
+                            OrderTimeoutProducer orderTimeoutProducer,
+                            RateLimitService rateLimitService,
+                            IdempotencyTokenService idempotencyTokenService,
+                            StockLuaService stockLuaService,
+                            StockCacheService stockCacheService,
+                            BucketRouteService bucketRouteService,
+                            AsyncOrderMessagePublisher asyncOrderMessagePublisher,
+                            PaymentAuditService paymentAuditService,
+                            ObservabilityMetricsService observabilityMetricsService,
+                            StockBucketProperties stockBucketProperties,
+                            WaitingRoomService waitingRoomService,
+                            ShowRelationCacheService showRelationCacheService) {
+        this(orderMapper,
+                orderRequestMapper,
+                paymentMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                ticketStockBucketMapper,
+                orderSubmitGuard,
+                orderTimeoutProducer,
+                rateLimitService,
+                idempotencyTokenService,
+                stockLuaService,
+                stockCacheService,
+                bucketRouteService,
+                asyncOrderMessagePublisher,
+                paymentAuditService,
+                observabilityMetricsService,
+                stockBucketProperties,
+                waitingRoomService,
+                showRelationCacheService,
+                defaultAsyncOrderSubmitProperties());
     }
 
     public OrderServiceImpl(OrderMapper orderMapper,
@@ -194,13 +242,18 @@ public class OrderServiceImpl implements OrderService {
                 observabilityMetricsService,
                 disabledBucketProperties(),
                 null,
-                null);
+                null,
+                defaultAsyncOrderSubmitProperties());
     }
 
     private static StockBucketProperties disabledBucketProperties() {
         StockBucketProperties properties = new StockBucketProperties();
         properties.setEnabled(false);
         return properties;
+    }
+
+    private static AsyncOrderSubmitProperties defaultAsyncOrderSubmitProperties() {
+        return new AsyncOrderSubmitProperties();
     }
 
     /**
@@ -268,53 +321,84 @@ public class OrderServiceImpl implements OrderService {
             LocalDateTime now = LocalDateTime.now();
             String messageId = generateAsyncCreateOrderMessageId(requestId);
 
-            orderRequest = new TicketOrderRequest();
-            orderRequest.setRequestId(requestId);
-            orderRequest.setUserId(currentUserId);
-            orderRequest.setShowId(request.getShowId());
-            orderRequest.setSessionId(request.getSessionId());
-            orderRequest.setTicketCategoryId(request.getTicketCategoryId());
-            orderRequest.setQuantity(request.getQuantity());
-            orderRequest.setStatus(OrderRequestStatusEnum.QUEUED.getCode());
-            orderRequest.setOrderId(null);
-            orderRequest.setStockBucketVersion(stockBucketVersion);
-            orderRequest.setStockBucketNo(deductResponse.getBucketNo());
-            orderRequest.setProcessingAt(null);
-            orderRequest.setRedisDeducted(true);
-            orderRequest.setDeductedQuantity(request.getQuantity());
-            orderRequest.setDeductedAt(now);
-            orderRequest.setCompensated(false);
-            orderRequest.setCompensationStatus(CompensationStatusEnum.NONE.getCode());
-            orderRequest.setCompensatedAt(null);
-            orderRequest.setFailReason(null);
-            orderRequest.setMessageId(messageId);
-            orderRequest.setCreatedAt(now);
-            orderRequest.setUpdatedAt(now);
-
-            // Redis 预扣成功后才落库，请求首次插入即进入 QUEUED，避免额外一次状态更新放大写压力。
-            int insertRows = orderRequestMapper.insert(orderRequest);
-            if (insertRows != 1) {
-                throw new BusinessException("异步下单请求创建失败");
-            }
-
-            //整个message
-            AsyncCreateOrderMessage message = new AsyncCreateOrderMessage(
+            orderRequest = buildQueuedOrderRequest(
                     requestId,
                     currentUserId,
-                    request.getShowId(),
-                    request.getSessionId(),
-                    request.getTicketCategoryId(),
-                    request.getQuantity()
+                    request,
+                    stockBucketVersion,
+                    deductResponse.getBucketNo(),
+                    messageId,
+                    now
             );
+            AsyncCreateOrderMessage message = buildAsyncCreateOrderMessage(orderRequest);
+
+            if (asyncOrderSubmitProperties.isPersistRequestBeforePublish()) {
+                // Redis 预扣成功后才落库，请求首次插入即进入 QUEUED，避免额外一次状态更新放大写压力。
+                int insertRows = orderRequestMapper.insert(orderRequest);
+                if (insertRows != 1) {
+                    throw new BusinessException("异步下单请求创建失败");
+                }
+            }
             asyncOrderMessagePublisher.publish(messageId, message);
 
             return toOrderRequestVO(orderRequest);
         } catch (RuntimeException exception) {
+            //回滚redis预扣
             releaseRedisPreDeductedStockAfterSubmitFailure(orderRequest, redisPreDeducted, "异步下单提交失败");
             //发生其他意外就释放锁
             orderSubmitGuard.release(currentUserId, request.getTicketCategoryId());
             throw exception;
         }
+    }
+
+    private TicketOrderRequest buildQueuedOrderRequest(String requestId,
+                                                       Long currentUserId,
+                                                       CreateOrderRequest request,
+                                                       Integer stockBucketVersion,
+                                                       Integer stockBucketNo,
+                                                       String messageId,
+                                                       LocalDateTime now) {
+        TicketOrderRequest orderRequest = new TicketOrderRequest();
+        orderRequest.setRequestId(requestId);
+        orderRequest.setUserId(currentUserId);
+        orderRequest.setShowId(request.getShowId());
+        orderRequest.setSessionId(request.getSessionId());
+        orderRequest.setTicketCategoryId(request.getTicketCategoryId());
+        orderRequest.setQuantity(request.getQuantity());
+        orderRequest.setStatus(OrderRequestStatusEnum.QUEUED.getCode());
+        orderRequest.setOrderId(null);
+        orderRequest.setStockBucketVersion(stockBucketVersion);
+        orderRequest.setStockBucketNo(stockBucketNo);
+        orderRequest.setProcessingAt(null);
+        orderRequest.setRedisDeducted(true);
+        orderRequest.setDeductedQuantity(request.getQuantity());
+        orderRequest.setDeductedAt(now);
+        orderRequest.setCompensated(false);
+        orderRequest.setCompensationStatus(CompensationStatusEnum.NONE.getCode());
+        orderRequest.setCompensatedAt(null);
+        orderRequest.setFailReason(null);
+        orderRequest.setMessageId(messageId);
+        orderRequest.setCreatedAt(now);
+        orderRequest.setUpdatedAt(now);
+        return orderRequest;
+    }
+
+    private AsyncCreateOrderMessage buildAsyncCreateOrderMessage(TicketOrderRequest orderRequest) {
+        AsyncCreateOrderMessage message = new AsyncCreateOrderMessage(
+                orderRequest.getRequestId(),
+                orderRequest.getUserId(),
+                orderRequest.getShowId(),
+                orderRequest.getSessionId(),
+                orderRequest.getTicketCategoryId(),
+                orderRequest.getQuantity()
+        );
+        message.setStockBucketVersion(orderRequest.getStockBucketVersion());
+        message.setStockBucketNo(orderRequest.getStockBucketNo());
+        message.setRedisDeducted(orderRequest.getRedisDeducted());
+        message.setDeductedQuantity(orderRequest.getDeductedQuantity());
+        message.setDeductedAt(orderRequest.getDeductedAt());
+        message.setMessageId(orderRequest.getMessageId());
+        return message;
     }
 
     @Override
@@ -422,6 +506,7 @@ public class OrderServiceImpl implements OrderService {
 
     private void validateShowSessionTicketCategoryRelation(CreateOrderRequest request) {
         if (showRelationCacheService != null) {
+            //找cache
             showRelationCacheService.validatePublishedRelation(
                     request.getShowId(),
                     request.getSessionId(),

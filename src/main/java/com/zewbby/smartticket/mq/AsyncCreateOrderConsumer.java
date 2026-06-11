@@ -135,48 +135,8 @@ public class AsyncCreateOrderConsumer {
          * 所以这里不能相信“我只会消费一次”，也不能只靠内存锁；真正的幂等开关必须落在数据库状态机上。
          * 只有 PRE_DEDUCTED/QUEUED 能通过条件更新进入 PROCESSING，重复消息、成功消息、失败消息都会被挡住。
          */
-        TicketOrderRequest existingRequest = orderRequestMapper.selectByRequestId(message.getRequestId());
-        if (existingRequest == null) {
-            recordDeadLetter(message, ConsumerExceptionTypeEnum.DATA_INCONSISTENCY, "异步下单请求不存在");
-            LOGGER.warn("Recorded dead letter because async order request does not exist, requestId={}",
-                    message.getRequestId());
-            return;
-        }
-        if (OrderRequestStatusEnum.SUCCESS.getCode().equals(existingRequest.getStatus())) {
-            LOGGER.info("Skipped duplicated async order message because request already SUCCESS, requestId={}",
-                    existingRequest.getRequestId());
-            return;
-        }
-        if (OrderRequestStatusEnum.FAILED.getCode().equals(existingRequest.getStatus())
-                || OrderRequestStatusEnum.COMPENSATED.getCode().equals(existingRequest.getStatus())
-                || OrderRequestStatusEnum.CANCELLED.getCode().equals(existingRequest.getStatus())) {
-            LOGGER.info("Skipped async order request with terminal or in-flight status, requestId={}, status={}",
-                    existingRequest.getRequestId(), existingRequest.getStatus());
-            return;
-        }
-        if (OrderRequestStatusEnum.PROCESSING.getCode().equals(existingRequest.getStatus())) {
-            handleProcessingRequest(message, existingRequest);
-            return;
-        }
-        if (!OrderRequestStatusEnum.canEnterProcessing(existingRequest.getStatus())) {
-            recordDeadLetter(message, ConsumerExceptionTypeEnum.DATA_INCONSISTENCY,
-                    "异步下单请求状态不允许消费: " + existingRequest.getStatus());
-            LOGGER.info("Skipped async order request that is not ready for consuming, requestId={}, status={}",
-                    existingRequest.getRequestId(), existingRequest.getStatus());
-            return;
-        }
-
-        int claimedRows = orderRequestMapper.tryMarkProcessing(message.getRequestId());
-        if (claimedRows != 1) {
-            LOGGER.info("Skipped async order request because another consumer has claimed it, requestId={}",
-                    message.getRequestId());
-            return;
-        }
-
-        TicketOrderRequest orderRequest = orderRequestMapper.selectProcessingByRequestId(message.getRequestId());
+        TicketOrderRequest orderRequest = claimOrCreateProcessingRequest(message);
         if (orderRequest == null) {
-            LOGGER.info("Skipped async order request after lock, requestId={} is no longer PROCESSING",
-                    message.getRequestId());
             return;
         }
 
@@ -295,6 +255,95 @@ public class AsyncCreateOrderConsumer {
                     exception
             );
         }
+    }
+
+    private TicketOrderRequest claimOrCreateProcessingRequest(AsyncCreateOrderMessage message) {
+        TicketOrderRequest existingRequest = orderRequestMapper.selectByRequestId(message.getRequestId());
+        if (existingRequest == null) {
+            return insertProcessingRequestFromMessage(message);
+        }
+        if (OrderRequestStatusEnum.SUCCESS.getCode().equals(existingRequest.getStatus())) {
+            LOGGER.info("Skipped duplicated async order message because request already SUCCESS, requestId={}",
+                    existingRequest.getRequestId());
+            return null;
+        }
+        if (OrderRequestStatusEnum.FAILED.getCode().equals(existingRequest.getStatus())
+                || OrderRequestStatusEnum.COMPENSATED.getCode().equals(existingRequest.getStatus())
+                || OrderRequestStatusEnum.CANCELLED.getCode().equals(existingRequest.getStatus())) {
+            LOGGER.info("Skipped async order request with terminal or in-flight status, requestId={}, status={}",
+                    existingRequest.getRequestId(), existingRequest.getStatus());
+            return null;
+        }
+        if (OrderRequestStatusEnum.PROCESSING.getCode().equals(existingRequest.getStatus())) {
+            handleProcessingRequest(message, existingRequest);
+            return null;
+        }
+        if (!OrderRequestStatusEnum.canEnterProcessing(existingRequest.getStatus())) {
+            recordDeadLetter(message, ConsumerExceptionTypeEnum.DATA_INCONSISTENCY,
+                    "异步下单请求状态不允许消费: " + existingRequest.getStatus());
+            LOGGER.info("Skipped async order request that is not ready for consuming, requestId={}, status={}",
+                    existingRequest.getRequestId(), existingRequest.getStatus());
+            return null;
+        }
+
+        int claimedRows = orderRequestMapper.tryMarkProcessing(message.getRequestId());
+        if (claimedRows != 1) {
+            LOGGER.info("Skipped async order request because another consumer has claimed it, requestId={}",
+                    message.getRequestId());
+            return null;
+        }
+
+        TicketOrderRequest orderRequest = orderRequestMapper.selectProcessingByRequestId(message.getRequestId());
+        if (orderRequest == null) {
+            LOGGER.info("Skipped async order request after lock, requestId={} is no longer PROCESSING",
+                    message.getRequestId());
+        }
+        return orderRequest;
+    }
+
+    private TicketOrderRequest insertProcessingRequestFromMessage(AsyncCreateOrderMessage message) {
+        TicketOrderRequest orderRequest = buildProcessingOrderRequest(message);
+        int insertedRows = orderRequestMapper.insertIgnore(orderRequest);
+        if (insertedRows == 1) {
+            LOGGER.info("Created async order request from message, requestId={}", message.getRequestId());
+            return orderRequest;
+        }
+
+        TicketOrderRequest existingRequest = orderRequestMapper.selectByRequestId(message.getRequestId());
+        if (existingRequest == null) {
+            recordDeadLetter(message, ConsumerExceptionTypeEnum.DATA_INCONSISTENCY, "异步下单请求补建失败");
+            LOGGER.warn("Recorded dead letter because async order request cannot be created, requestId={}",
+                    message.getRequestId());
+            return null;
+        }
+        return claimOrCreateProcessingRequest(message);
+    }
+
+    private TicketOrderRequest buildProcessingOrderRequest(AsyncCreateOrderMessage message) {
+        LocalDateTime now = LocalDateTime.now();
+        TicketOrderRequest orderRequest = new TicketOrderRequest();
+        orderRequest.setRequestId(message.getRequestId());
+        orderRequest.setUserId(message.getUserId());
+        orderRequest.setShowId(message.getShowId());
+        orderRequest.setSessionId(message.getSessionId());
+        orderRequest.setTicketCategoryId(message.getTicketCategoryId());
+        orderRequest.setQuantity(message.getQuantity());
+        orderRequest.setStatus(OrderRequestStatusEnum.PROCESSING.getCode());
+        orderRequest.setOrderId(null);
+        orderRequest.setStockBucketVersion(message.getStockBucketVersion());
+        orderRequest.setStockBucketNo(message.getStockBucketNo());
+        orderRequest.setProcessingAt(now);
+        orderRequest.setRedisDeducted(message.getRedisDeducted() == null || message.getRedisDeducted());
+        orderRequest.setDeductedQuantity(message.getDeductedQuantity() == null ? message.getQuantity() : message.getDeductedQuantity());
+        orderRequest.setDeductedAt(message.getDeductedAt() == null ? now : message.getDeductedAt());
+        orderRequest.setCompensated(false);
+        orderRequest.setCompensationStatus("NONE");
+        orderRequest.setCompensatedAt(null);
+        orderRequest.setFailReason(null);
+        orderRequest.setMessageId(message.getMessageId());
+        orderRequest.setCreatedAt(now);
+        orderRequest.setUpdatedAt(now);
+        return orderRequest;
     }
 
     private OrderTimeoutMessage buildOrderTimeoutMessage(TicketOrder order) {

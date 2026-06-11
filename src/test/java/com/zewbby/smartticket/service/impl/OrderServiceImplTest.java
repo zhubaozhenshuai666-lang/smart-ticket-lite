@@ -3,6 +3,7 @@ package com.zewbby.smartticket.service.impl;
 import com.zewbby.smartticket.auth.UserContext;
 import com.zewbby.smartticket.cache.OrderSubmitGuard;
 import com.zewbby.smartticket.common.BusinessException;
+import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.config.StockBucketProperties;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
@@ -271,6 +272,28 @@ class OrderServiceImplTest {
         verify(stockLuaService).preDeductStock(anyString(), anyLong(), anyInt());
         verify(orderRequestMapper, never()).markQueued(anyLong(), anyString());
         verify(userMapper, never()).selectById(999L);
+    }
+
+    @Test
+    void submitAsyncOrderCanSkipRequestInsertWhenFastPipelineIsEnabled() {
+        orderService = fastSubmitOrderService();
+        mockCommonCreateOrderChecks(true);
+        when(stockLuaService.preDeductStock(anyString(), anyLong(), anyInt()))
+                .thenReturn(RedisStockDeductResult.SUCCESS);
+        when(asyncOrderMessagePublisher.publish(anyString(), any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var response = orderService.submitAsyncOrder(validRequest());
+
+        ArgumentCaptor<AsyncCreateOrderMessage> messageCaptor = ArgumentCaptor.forClass(AsyncCreateOrderMessage.class);
+        verify(orderRequestMapper, never()).insert(any());
+        verify(asyncOrderMessagePublisher).publish(anyString(), messageCaptor.capture());
+        assertThat(response.getStatus()).isEqualTo(OrderRequestStatusEnum.QUEUED.getCode());
+        assertThat(response.getRedisDeducted()).isTrue();
+        assertThat(messageCaptor.getValue().getRequestId()).isEqualTo(response.getRequestId());
+        assertThat(messageCaptor.getValue().getRedisDeducted()).isTrue();
+        assertThat(messageCaptor.getValue().getDeductedQuantity()).isEqualTo(1);
+        assertThat(messageCaptor.getValue().getDeductedAt()).isNotNull();
+        assertThat(messageCaptor.getValue().getMessageId()).startsWith("MSGREQ");
     }
 
     @Test
@@ -656,6 +679,40 @@ class OrderServiceImplTest {
                 null,
                 null
         );
+    }
+
+    private OrderServiceImpl fastSubmitOrderService() {
+        AsyncOrderSubmitProperties asyncOrderSubmitProperties = new AsyncOrderSubmitProperties();
+        asyncOrderSubmitProperties.setPersistRequestBeforePublish(false);
+        return new OrderServiceImpl(
+                orderMapper,
+                orderRequestMapper,
+                paymentMapper,
+                userMapper,
+                ticketCategoryMapper,
+                ticketStockMapper,
+                null,
+                orderSubmitGuard,
+                orderTimeoutProducer,
+                rateLimitService,
+                idempotencyTokenService,
+                stockLuaService,
+                stockCacheService,
+                new BucketRouteService(),
+                asyncOrderMessagePublisher,
+                paymentAuditService,
+                observabilityMetricsService,
+                disabledBucketPropertiesForTest(),
+                null,
+                null,
+                asyncOrderSubmitProperties
+        );
+    }
+
+    private StockBucketProperties disabledBucketPropertiesForTest() {
+        StockBucketProperties properties = new StockBucketProperties();
+        properties.setEnabled(false);
+        return properties;
     }
 
     private TicketOrder order(Long id, String status) {

@@ -105,6 +105,57 @@
         )
     </insert>
 
+    <insert id="insertIgnore"
+            parameterType="com.zewbby.smartticket.domain.entity.TicketOrderRequest"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT IGNORE INTO ticket_order_request (
+            request_id,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            status,
+            order_id,
+            stock_bucket_version,
+            stock_bucket_no,
+            processing_at,
+            redis_deducted,
+            deducted_quantity,
+            deducted_at,
+            compensated,
+            compensation_status,
+            compensated_at,
+            fail_reason,
+            message_id,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{requestId},
+            #{userId},
+            #{showId},
+            #{sessionId},
+            #{ticketCategoryId},
+            #{quantity},
+            #{status},
+            #{orderId},
+            COALESCE(#{stockBucketVersion}, 1),
+            #{stockBucketNo},
+            #{processingAt},
+            #{redisDeducted},
+            #{deductedQuantity},
+            #{deductedAt},
+            #{compensated},
+            #{compensationStatus},
+            #{compensatedAt},
+            #{failReason},
+            #{messageId},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
     <select id="selectByRequestId" resultMap="TicketOrderRequestResultMap">
         SELECT
             <include refid="BaseColumns"/>

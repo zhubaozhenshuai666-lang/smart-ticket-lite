@@ -9,6 +9,8 @@ public interface OrderRequestMapper {
 
     int insert(TicketOrderRequest request);
 
+    int insertIgnore(TicketOrderRequest request);
+
     TicketOrderRequest selectByRequestId(@Param("requestId") String requestId);
 
     TicketOrderRequest selectByRequestIdAndUserId(@Param("requestId") String requestId,
