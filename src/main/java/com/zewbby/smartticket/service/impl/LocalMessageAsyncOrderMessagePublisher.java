@@ -4,11 +4,13 @@ import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import com.zewbby.smartticket.service.LocalMessageService;
 import com.zewbby.smartticket.task.LocalMessagePublishTask;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Component
+@ConditionalOnProperty(prefix = "smart-ticket.async-order-submit", name = "publisher-mode", havingValue = "outbox", matchIfMissing = true)
 public class LocalMessageAsyncOrderMessagePublisher implements AsyncOrderMessagePublisher {
 
     private final LocalMessageService localMessageService;
