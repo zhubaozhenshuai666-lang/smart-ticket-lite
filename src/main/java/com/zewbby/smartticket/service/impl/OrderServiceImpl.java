@@ -253,6 +253,7 @@ public class OrderServiceImpl implements OrderService {
             redisPreDeducted = true;
 
             LocalDateTime now = LocalDateTime.now();
+            String messageId = generateAsyncCreateOrderMessageId(requestId);
 
             orderRequest = new TicketOrderRequest();
             orderRequest.setRequestId(requestId);
@@ -261,7 +262,7 @@ public class OrderServiceImpl implements OrderService {
             orderRequest.setSessionId(request.getSessionId());
             orderRequest.setTicketCategoryId(request.getTicketCategoryId());
             orderRequest.setQuantity(request.getQuantity());
-            orderRequest.setStatus(OrderRequestStatusEnum.PRE_DEDUCTED.getCode());
+            orderRequest.setStatus(OrderRequestStatusEnum.QUEUED.getCode());
             orderRequest.setOrderId(null);
             orderRequest.setStockBucketVersion(stockBucketVersion);
             orderRequest.setStockBucketNo(deductResponse.getBucketNo());
@@ -273,11 +274,11 @@ public class OrderServiceImpl implements OrderService {
             orderRequest.setCompensationStatus(CompensationStatusEnum.NONE.getCode());
             orderRequest.setCompensatedAt(null);
             orderRequest.setFailReason(null);
-            orderRequest.setMessageId(null);
+            orderRequest.setMessageId(messageId);
             orderRequest.setCreatedAt(now);
             orderRequest.setUpdatedAt(now);
 
-            // Redis 预扣成功后才落库，避免库存不足等高频失败请求把 MySQL 请求表打成入口瓶颈。
+            // Redis 预扣成功后才落库，请求首次插入即进入 QUEUED，避免额外一次状态更新放大写压力。
             int insertRows = orderRequestMapper.insert(orderRequest);
             if (insertRows != 1) {
                 throw new BusinessException("异步下单请求创建失败");
@@ -292,13 +293,7 @@ public class OrderServiceImpl implements OrderService {
                     request.getTicketCategoryId(),
                     request.getQuantity()
             );
-            String messageId = asyncOrderMessagePublisher.publish(message);
-            int queuedRows = orderRequestMapper.markQueued(orderRequest.getId(), messageId);
-            if (queuedRows != 1) {
-                throw new BusinessException("异步下单请求排队状态更新失败");
-            }
-            orderRequest.setStatus(OrderRequestStatusEnum.QUEUED.getCode());
-            orderRequest.setMessageId(messageId);
+            asyncOrderMessagePublisher.publish(messageId, message);
 
             return toOrderRequestVO(orderRequest);
         } catch (RuntimeException exception) {
@@ -575,6 +570,10 @@ public class OrderServiceImpl implements OrderService {
         return "REQ" + UUID.nameUUIDFromBytes(source.getBytes(StandardCharsets.UTF_8))
                 .toString()
                 .replace("-", "");
+    }
+
+    private String generateAsyncCreateOrderMessageId(String requestId) {
+        return "MSG" + requestId;
     }
 
     private void rollbackPersistentStock(TicketOrder order, TicketOrderRequest orderRequest) {
