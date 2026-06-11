@@ -72,6 +72,11 @@ smart-ticket:
   waiting-room:
     enabled: ${SMART_TICKET_WAITING_ROOM_ENABLED:false}
     admission-token-expire-seconds: ${SMART_TICKET_WAITING_ROOM_ADMISSION_TOKEN_EXPIRE_SECONDS:120}
+  show-relation-cache:
+    enabled: ${SMART_TICKET_SHOW_RELATION_CACHE_ENABLED:true}
+    fail-closed: ${SMART_TICKET_SHOW_RELATION_CACHE_FAIL_CLOSED:true}
+    refresh-fixed-delay-millis: ${SMART_TICKET_SHOW_RELATION_CACHE_REFRESH_FIXED_DELAY_MILLIS:30000}
+    lookup-cache-maximum-size: ${SMART_TICKET_SHOW_RELATION_CACHE_LOOKUP_MAXIMUM_SIZE:200000}
   rate-limit:
     enabled: ${SMART_TICKET_RATE_LIMIT_ENABLED:true}
     algorithm: ${SMART_TICKET_RATE_LIMIT_ALGORITHM:token-bucket}

@@ -43,6 +43,7 @@ import com.zewbby.smartticket.service.BucketRouteService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.OrderService;
 import com.zewbby.smartticket.service.PaymentAuditService;
+import com.zewbby.smartticket.service.ShowRelationCacheService;
 import com.zewbby.smartticket.service.StockCacheService;
 import com.zewbby.smartticket.service.WaitingRoomService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -114,6 +115,8 @@ public class OrderServiceImpl implements OrderService {
 
     private final WaitingRoomService waitingRoomService;
 
+    private final ShowRelationCacheService showRelationCacheService;
+
     @Autowired
     public OrderServiceImpl(OrderMapper orderMapper,
                             OrderRequestMapper orderRequestMapper,
@@ -133,7 +136,8 @@ public class OrderServiceImpl implements OrderService {
 	                            PaymentAuditService paymentAuditService,
 	                            ObservabilityMetricsService observabilityMetricsService,
 	                            StockBucketProperties stockBucketProperties,
-                                WaitingRoomService waitingRoomService) {
+                                WaitingRoomService waitingRoomService,
+                                ShowRelationCacheService showRelationCacheService) {
         this.orderMapper = orderMapper;
         this.orderRequestMapper = orderRequestMapper;
         this.paymentMapper = paymentMapper;
@@ -153,6 +157,7 @@ public class OrderServiceImpl implements OrderService {
         this.observabilityMetricsService = observabilityMetricsService;
         this.stockBucketProperties = stockBucketProperties;
         this.waitingRoomService = waitingRoomService;
+        this.showRelationCacheService = showRelationCacheService;
     }
 
     public OrderServiceImpl(OrderMapper orderMapper,
@@ -188,6 +193,7 @@ public class OrderServiceImpl implements OrderService {
                 paymentAuditService,
                 observabilityMetricsService,
                 disabledBucketProperties(),
+                null,
                 null);
     }
 
@@ -415,6 +421,14 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private void validateShowSessionTicketCategoryRelation(CreateOrderRequest request) {
+        if (showRelationCacheService != null) {
+            showRelationCacheService.validatePublishedRelation(
+                    request.getShowId(),
+                    request.getSessionId(),
+                    request.getTicketCategoryId()
+            );
+            return;
+        }
         boolean relationExists = ticketCategoryMapper.existsShowSessionTicketCategoryRelation(
                 request.getShowId(),
                 request.getSessionId(),

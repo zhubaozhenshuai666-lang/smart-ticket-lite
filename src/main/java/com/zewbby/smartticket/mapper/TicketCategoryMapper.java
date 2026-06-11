@@ -2,6 +2,7 @@ package com.zewbby.smartticket.mapper;
 
 import com.zewbby.smartticket.domain.entity.TicketCategory;
 import com.zewbby.smartticket.domain.dto.OrderSnapshot;
+import com.zewbby.smartticket.domain.dto.ShowRelationRecord;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
@@ -17,6 +18,8 @@ public interface TicketCategoryMapper {
     int update(TicketCategory ticketCategory);
 
     int updateStatus(@Param("id") Long id, @Param("status") String status);
+
+    List<ShowRelationRecord> selectPublishedShowRelations();
 
     boolean existsShowSessionTicketCategoryRelation(@Param("showId") Long showId,
                                                     @Param("sessionId") Long sessionId,

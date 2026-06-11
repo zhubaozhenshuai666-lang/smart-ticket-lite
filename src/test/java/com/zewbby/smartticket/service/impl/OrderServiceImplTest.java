@@ -653,6 +653,7 @@ class OrderServiceImplTest {
                 paymentAuditService,
                 observabilityMetricsService,
                 properties,
+                null,
                 null
         );
     }

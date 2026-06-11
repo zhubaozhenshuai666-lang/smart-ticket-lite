@@ -49,6 +49,12 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <!-- 本地高性能缓存：用于抢票入口演出/场次/票档关系 O(1) 校验 -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
         <!-- RabbitMQ：第二阶段用于订单超时、异步消息等能力 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

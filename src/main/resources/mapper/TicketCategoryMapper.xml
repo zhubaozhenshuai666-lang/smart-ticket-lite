@@ -79,6 +79,19 @@
         WHERE id = #{id}
     </update>
 
+    <select id="selectPublishedShowRelations" resultType="com.zewbby.smartticket.domain.dto.ShowRelationRecord">
+        SELECT
+            s.id AS show_id,
+            ps.id AS session_id,
+            tc.id AS ticket_category_id
+        FROM show_info s
+        JOIN performance_session ps ON ps.show_id = s.id
+        JOIN ticket_category tc ON tc.session_id = ps.id
+        WHERE s.status = 'PUBLISHED'
+          AND ps.status = 'PUBLISHED'
+          AND tc.status = 'PUBLISHED'
+    </select>
+
     <select id="existsShowSessionTicketCategoryRelation" resultType="java.lang.Boolean">
         SELECT COUNT(1) > 0
         FROM show_info s
