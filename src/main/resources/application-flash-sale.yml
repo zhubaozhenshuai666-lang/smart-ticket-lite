@@ -1,0 +1,64 @@
+spring:
+  datasource:
+    hikari:
+      minimum-idle: ${SMART_TICKET_FLASH_SALE_DB_MIN_IDLE:20}
+      maximum-pool-size: ${SMART_TICKET_FLASH_SALE_DB_MAX_POOL_SIZE:50}
+      connection-timeout: ${SMART_TICKET_FLASH_SALE_DB_CONNECTION_TIMEOUT:3000}
+
+  rabbitmq:
+    publisher-confirm-type: ${SMART_TICKET_FLASH_SALE_RABBIT_PUBLISHER_CONFIRM_TYPE:none}
+    listener:
+      simple:
+        default-requeue-rejected: false
+
+smart-ticket:
+  async-order-submit:
+    persist-request-before-publish: ${SMART_TICKET_ASYNC_ORDER_PERSIST_REQUEST_BEFORE_PUBLISH:false}
+    publisher-mode: ${SMART_TICKET_ASYNC_ORDER_PUBLISHER_MODE:direct-rabbit}
+    direct-rabbit-wait-for-confirm: ${SMART_TICKET_ASYNC_ORDER_DIRECT_RABBIT_WAIT_FOR_CONFIRM:false}
+    direct-rabbit-confirm-timeout-millis: ${SMART_TICKET_ASYNC_ORDER_DIRECT_RABBIT_CONFIRM_TIMEOUT_MILLIS:100}
+    in-flight-control-enabled: ${SMART_TICKET_ASYNC_ORDER_IN_FLIGHT_CONTROL_ENABLED:true}
+    max-in-flight-per-ticket-category: ${SMART_TICKET_ASYNC_ORDER_MAX_IN_FLIGHT_PER_TICKET_CATEGORY:100000}
+    in-flight-counter-ttl-seconds: ${SMART_TICKET_ASYNC_ORDER_IN_FLIGHT_COUNTER_TTL_SECONDS:900}
+
+  mq-consumer:
+    concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_CONCURRENT_CONSUMERS:32}
+    max-concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_MAX_CONCURRENT_CONSUMERS:128}
+    prefetch-count: ${SMART_TICKET_MQ_CONSUMER_PREFETCH_COUNT:20}
+    async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_ASYNC_QUEUE_SHARD_COUNT:32}
+    max-concurrent-consumer-cap: ${SMART_TICKET_MQ_CONSUMER_MAX_CONCURRENT_CONSUMER_CAP:256}
+    max-prefetch-count: ${SMART_TICKET_MQ_CONSUMER_MAX_PREFETCH_COUNT:100}
+    max-unacked-messages: ${SMART_TICKET_MQ_CONSUMER_MAX_UNACKED_MESSAGES:4096}
+    max-async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_MAX_ASYNC_QUEUE_SHARD_COUNT:128}
+
+  stock-bucket:
+    default-bucket-count: ${SMART_TICKET_STOCK_BUCKET_DEFAULT_COUNT:64}
+    active-probe-count: ${SMART_TICKET_STOCK_BUCKET_ACTIVE_PROBE_COUNT:8}
+    tail-bucket-count: ${SMART_TICKET_STOCK_BUCKET_TAIL_BUCKET_COUNT:16}
+
+  waiting-room:
+    enabled: ${SMART_TICKET_WAITING_ROOM_ENABLED:true}
+    default-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_DEFAULT_ADMISSION_TOKEN_BATCH_SIZE:100}
+    max-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_MAX_ADMISSION_TOKEN_BATCH_SIZE:1000}
+
+  show-relation-cache:
+    refresh-fixed-delay-millis: ${SMART_TICKET_SHOW_RELATION_CACHE_REFRESH_FIXED_DELAY_MILLIS:10000}
+    lookup-cache-maximum-size: ${SMART_TICKET_SHOW_RELATION_CACHE_LOOKUP_MAXIMUM_SIZE:1000000}
+
+  order-snapshot-cache:
+    refresh-fixed-delay-millis: ${SMART_TICKET_ORDER_SNAPSHOT_CACHE_REFRESH_FIXED_DELAY_MILLIS:10000}
+
+  user-status-cache:
+    expire-after-write-seconds: ${SMART_TICKET_USER_STATUS_CACHE_EXPIRE_AFTER_WRITE_SECONDS:60}
+    maximum-size: ${SMART_TICKET_USER_STATUS_CACHE_MAXIMUM_SIZE:1000000}
+
+  rate-limit:
+    order-user-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_USER_CAPACITY:3}
+    order-user-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_USER_REFILL_RATE_PER_SECOND:0.5}
+    order-ip-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_IP_CAPACITY:300}
+    order-ip-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_IP_REFILL_RATE_PER_SECOND:80}
+    order-api-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_API_CAPACITY:20000}
+    order-api-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_API_REFILL_RATE_PER_SECOND:8000}
+    order-ticket-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_CAPACITY:12000}
+    order-ticket-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_REFILL_RATE_PER_SECOND:3000}
+    key-ttl-seconds: ${SMART_TICKET_RATE_LIMIT_KEY_TTL_SECONDS:300}

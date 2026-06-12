@@ -7,6 +7,10 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "smart-ticket.async-order-submit")
 public class AsyncOrderSubmitProperties {
 
+    public static final String PUBLISHER_MODE_OUTBOX = "outbox";
+
+    public static final String PUBLISHER_MODE_DIRECT_RABBIT = "direct-rabbit";
+
     /**
      * 是否在入口发布消息前先写 ticket_order_request。
      *
@@ -21,7 +25,7 @@ public class AsyncOrderSubmitProperties {
      * outbox: 写 local_message 后可靠投递，可靠性强但 DB 写放大明显。
      * direct-rabbit: 入口直接发布到 RabbitMQ 分片队列，减少 local_message 写入，适合压测和高峰资格事件链路。
      */
-    private String publisherMode = "outbox";
+    private String publisherMode = PUBLISHER_MODE_OUTBOX;
 
     /**
      * direct-rabbit 模式下是否等待 Broker Confirm。
@@ -53,11 +57,15 @@ public class AsyncOrderSubmitProperties {
     }
 
     public String getPublisherMode() {
-        return publisherMode;
+        return publisherMode == null ? PUBLISHER_MODE_OUTBOX : publisherMode.trim();
     }
 
     public void setPublisherMode(String publisherMode) {
         this.publisherMode = publisherMode;
+    }
+
+    public boolean isDirectRabbitPublisherMode() {
+        return PUBLISHER_MODE_DIRECT_RABBIT.equalsIgnoreCase(getPublisherMode());
     }
 
     public boolean isDirectRabbitWaitForConfirm() {
