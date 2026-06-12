@@ -611,6 +611,16 @@ public class AsyncCreateOrderConsumer {
     }
 
     private OrderSnapshot getOrderSnapshot(AsyncCreateOrderMessage message, TicketOrderRequest orderRequest) {
+        OrderSnapshot snapshot = selectOrderSnapshot(orderRequest);
+        if (snapshot != null) {
+            return snapshot;
+        }
+
+        /*
+         * selectOrderSnapshot 使用的 published 三表关联条件已经覆盖 show/session/ticketCategory 的合法关系。
+         * 成功路径直接使用快照结果，避免消费者每单都先查关系再查快照。只有快照缺失时才补一次关系判断，
+         * 用来区分“关系非法”和“关系存在但快照数据异常”的失败原因。
+         */
         boolean relationExists = existsPublishedRelation(orderRequest);
         if (!relationExists) {
             LOGGER.warn("Async create order failed, requestId={}, reason={}",
@@ -619,13 +629,10 @@ public class AsyncCreateOrderConsumer {
             return null;
         }
 
-        OrderSnapshot snapshot = selectOrderSnapshot(orderRequest);
-        if (snapshot == null) {
-            LOGGER.warn("Async create order failed, requestId={}, reason={}",
-                    orderRequest.getRequestId(), ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
-            markBusinessRejected(message, orderRequest, ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
-        }
-        return snapshot;
+        LOGGER.warn("Async create order failed, requestId={}, reason={}",
+                orderRequest.getRequestId(), ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
+        markBusinessRejected(message, orderRequest, ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND);
+        return null;
     }
 
     private OrderSnapshot selectOrderSnapshot(TicketOrderRequest orderRequest) {

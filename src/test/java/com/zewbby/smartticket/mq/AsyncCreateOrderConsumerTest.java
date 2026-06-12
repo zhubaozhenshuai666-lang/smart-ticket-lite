@@ -115,7 +115,6 @@ class AsyncCreateOrderConsumerTest {
         when(orderRequestMapper.tryMarkProcessing("REQ1")).thenReturn(1);
         when(orderRequestMapper.selectProcessingByRequestId("REQ1")).thenReturn(processing);
         when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
-        when(ticketCategoryMapper.existsShowSessionTicketCategoryRelation(1L, 1L, 2L)).thenReturn(true);
         when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
         when(ticketStockMapper.decreaseStock(2L, 1)).thenReturn(1);
         when(orderMapper.insert(any(TicketOrder.class))).thenAnswer(invocation -> {
@@ -147,7 +146,7 @@ class AsyncCreateOrderConsumerTest {
     }
 
     @Test
-    void consumerUsesShowRelationCacheWhenAvailable() {
+    void consumerSkipsRelationCheckWhenSnapshotExists() {
         consumer = consumerWithShowRelationCache();
         TicketOrderRequest queued = queuedRequest();
         TicketOrderRequest processing = processingRequest();
@@ -155,7 +154,6 @@ class AsyncCreateOrderConsumerTest {
         when(orderRequestMapper.tryMarkProcessing("REQ1")).thenReturn(1);
         when(orderRequestMapper.selectProcessingByRequestId("REQ1")).thenReturn(processing);
         when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
-        when(showRelationCacheService.existsPublishedRelation(1L, 1L, 2L)).thenReturn(true);
         when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
         when(ticketStockMapper.decreaseStock(2L, 1)).thenReturn(1);
         when(orderMapper.insert(any(TicketOrder.class))).thenAnswer(invocation -> {
@@ -167,7 +165,7 @@ class AsyncCreateOrderConsumerTest {
 
         consumer.consume(new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1));
 
-        verify(showRelationCacheService).existsPublishedRelation(1L, 1L, 2L);
+        verify(showRelationCacheService, never()).existsPublishedRelation(anyLong(), anyLong(), anyLong());
         verify(ticketCategoryMapper, never()).existsShowSessionTicketCategoryRelation(anyLong(), anyLong(), anyLong());
         verify(orderMapper).insert(any(TicketOrder.class));
     }
@@ -181,7 +179,6 @@ class AsyncCreateOrderConsumerTest {
         when(orderRequestMapper.tryMarkProcessing("REQ1")).thenReturn(1);
         when(orderRequestMapper.selectProcessingByRequestId("REQ1")).thenReturn(processing);
         when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
-        when(ticketCategoryMapper.existsShowSessionTicketCategoryRelation(1L, 1L, 2L)).thenReturn(true);
         when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
         when(ticketStockMapper.decreaseStock(2L, 1)).thenReturn(1);
         when(orderMapper.insert(any(TicketOrder.class))).thenAnswer(invocation -> {
@@ -205,7 +202,6 @@ class AsyncCreateOrderConsumerTest {
         when(orderRequestMapper.tryMarkProcessing("REQ1")).thenReturn(1);
         when(orderRequestMapper.selectProcessingByRequestId("REQ1")).thenReturn(processing);
         when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
-        when(ticketCategoryMapper.existsShowSessionTicketCategoryRelation(1L, 1L, 2L)).thenReturn(true);
         when(orderSnapshotCacheService.getPublishedSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
         when(ticketStockMapper.decreaseStock(2L, 1)).thenReturn(1);
         when(orderMapper.insert(any(TicketOrder.class))).thenAnswer(invocation -> {
@@ -255,6 +251,37 @@ class AsyncCreateOrderConsumerTest {
     }
 
     @Test
+    void consumerRejectsMissingSnapshotAfterRelationFallback() {
+        TicketOrderRequest queued = queuedRequest();
+        TicketOrderRequest processing = processingRequest();
+        when(orderRequestMapper.selectByRequestId("REQ1")).thenReturn(queued);
+        when(orderRequestMapper.tryMarkProcessing("REQ1")).thenReturn(1);
+        when(orderRequestMapper.selectProcessingByRequestId("REQ1")).thenReturn(processing);
+        when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
+        when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(null);
+        when(ticketCategoryMapper.existsShowSessionTicketCategoryRelation(1L, 1L, 2L)).thenReturn(true);
+        when(orderRequestMapper.markFailed(10L, ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND))
+                .thenReturn(1);
+        when(orderRequestMapper.tryMarkCompensating(10L)).thenReturn(1);
+        when(stockLuaService.releasePreDeductedStock("REQ1", 2L, null, null, 1))
+                .thenReturn(RedisStockReleaseResult.SUCCESS);
+
+        consumer.consume(new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1));
+
+        verify(ticketStockMapper, never()).decreaseStock(anyLong(), anyInt());
+        verify(orderMapper, never()).insert(any(TicketOrder.class));
+        verify(deadLetterMessageService).recordAsyncCreateOrderDeadLetter(
+                any(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(),
+                org.mockito.ArgumentMatchers.eq(ConsumerExceptionTypeEnum.BUSINESS_REJECT),
+                org.mockito.ArgumentMatchers.eq(ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND)
+        );
+    }
+
+    @Test
     void consumerSkipsSuccessRequestAndDoesNotCreateDuplicateOrder() {
         TicketOrderRequest success = queuedRequest();
         success.setStatus(OrderRequestStatusEnum.SUCCESS.getCode());
@@ -286,7 +313,6 @@ class AsyncCreateOrderConsumerTest {
         when(orderRequestMapper.tryMarkProcessing("REQ1")).thenReturn(1);
         when(orderRequestMapper.selectProcessingByRequestId("REQ1")).thenReturn(processing);
         when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
-        when(ticketCategoryMapper.existsShowSessionTicketCategoryRelation(1L, 1L, 2L)).thenReturn(true);
         when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
         when(ticketStockMapper.decreaseStock(2L, 1)).thenReturn(0);
         when(orderRequestMapper.markFailed(10L, "库存不足")).thenReturn(1);
@@ -313,7 +339,6 @@ class AsyncCreateOrderConsumerTest {
         when(orderRequestMapper.tryMarkProcessing("REQ1")).thenReturn(1);
         when(orderRequestMapper.selectProcessingByRequestId("REQ1")).thenReturn(processing);
         when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
-        when(ticketCategoryMapper.existsShowSessionTicketCategoryRelation(1L, 1L, 2L)).thenReturn(true);
         when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
         when(ticketStockBucketMapper.decreaseStockByVersion(2L, 1, 4, 1)).thenReturn(0);
         when(orderRequestMapper.markFailed(10L, "库存不足")).thenReturn(1);
@@ -337,7 +362,6 @@ class AsyncCreateOrderConsumerTest {
             return 1;
         });
         when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
-        when(ticketCategoryMapper.existsShowSessionTicketCategoryRelation(1L, 1L, 2L)).thenReturn(true);
         when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
         when(ticketStockMapper.decreaseStock(2L, 1)).thenReturn(1);
         when(orderMapper.insert(any(TicketOrder.class))).thenAnswer(invocation -> {
