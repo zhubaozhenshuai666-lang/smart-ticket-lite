@@ -10,9 +10,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.ZSetOperations;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,6 +34,9 @@ class WaitingRoomServiceTest {
 
     @Mock
     private ValueOperations<String, String> valueOperations;
+
+    @Mock
+    private ZSetOperations<String, String> zSetOperations;
 
     private WaitingRoomProperties properties;
 
@@ -118,5 +123,40 @@ class WaitingRoomServiceTest {
         assertThatThrownBy(() -> waitingRoomService.consumeAdmissionToken(1L, 2L, "admit_used"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("等待室入场资格无效或已使用");
+    }
+
+    @Test
+    void enterQueueAddsUserAndReturnsPosition() {
+        properties.setEnabled(true);
+        when(stringRedisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(zSetOperations.score(anyString(), eq("1"))).thenReturn(null);
+        when(valueOperations.increment(anyString())).thenReturn(7L);
+        when(zSetOperations.rank(anyString(), eq("1"))).thenReturn(0L);
+        when(zSetOperations.zCard(anyString())).thenReturn(3L);
+
+        var status = waitingRoomService.enterQueue(1L, 2L);
+
+        assertThat(status.isQueued()).isTrue();
+        assertThat(status.getPosition()).isEqualTo(1L);
+        assertThat(status.getQueueSize()).isEqualTo(3L);
+        verify(zSetOperations).add(anyString(), eq("1"), eq(7D));
+    }
+
+    @Test
+    void releaseAdmissionBatchIssuesTokensAndRemovesQueuedUsers() {
+        properties.setEnabled(true);
+        properties.setAdmissionTokenExpireSeconds(90);
+        when(stringRedisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(zSetOperations.range(anyString(), eq(0L), eq(1L))).thenReturn(Set.of("1", "2"));
+
+        var grants = waitingRoomService.releaseAdmissionBatch(2L, 2);
+
+        assertThat(grants).hasSize(2);
+        assertThat(grants).extracting("userId").containsExactlyInAnyOrder(1L, 2L);
+        verify(zSetOperations).remove(anyString(), eq("1"));
+        verify(zSetOperations).remove(anyString(), eq("2"));
+        verify(valueOperations, times(2)).set(anyString(), eq("1"), eq(Duration.ofSeconds(90)));
     }
 }

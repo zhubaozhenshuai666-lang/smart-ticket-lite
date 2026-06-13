@@ -14,6 +14,10 @@ public final class RedisKeyConstant {
 
     private static final String WAITING_ROOM_ADMISSION_PREFIX = "waiting-room:admission:";
 
+    private static final String WAITING_ROOM_QUEUE_PREFIX = "waiting-room:queue:";
+
+    private static final String WAITING_ROOM_SEQUENCE_PREFIX = "waiting-room:sequence:";
+
     private static final String ASYNC_ORDER_IN_FLIGHT_PREFIX = "order:async:inflight:";
 
     private static final String ASYNC_ORDER_RESULT_PREFIX = "order:async:result:";
@@ -56,6 +60,12 @@ public final class RedisKeyConstant {
 
     private static final String AUTH_LOGIN_LOCK_PREFIX = "auth:login:lock:";
 
+    private static final String RISK_ORDER_IP_PREFIX = "risk:order:ip:";
+
+    private static final String RISK_ORDER_USER_PREFIX = "risk:order:user:";
+
+    private static final String ACTIVITY_DEGRADE_CLOSED_PREFIX = "activity:degrade:closed:";
+
     private RedisKeyConstant() {
     }
 
@@ -84,6 +94,14 @@ public final class RedisKeyConstant {
                 + "ticket:" + ticketCategoryId
                 + ":user:" + userId
                 + ":token:" + normalize(token);
+    }
+
+    public static String waitingRoomQueueKey(Long ticketCategoryId) {
+        return WAITING_ROOM_QUEUE_PREFIX + "ticket:" + ticketCategoryId;
+    }
+
+    public static String waitingRoomSequenceKey(Long ticketCategoryId) {
+        return WAITING_ROOM_SEQUENCE_PREFIX + "ticket:" + ticketCategoryId;
     }
 
     public static String asyncOrderInFlightKey(Long ticketCategoryId) {
@@ -220,6 +238,18 @@ public final class RedisKeyConstant {
 
     public static String authLoginLockKey(String loginName) {
         return AUTH_LOGIN_LOCK_PREFIX + normalize(loginName);
+    }
+
+    public static String riskOrderIpKey(String clientIp) {
+        return RISK_ORDER_IP_PREFIX + normalize(clientIp);
+    }
+
+    public static String riskOrderUserKey(Long userId) {
+        return RISK_ORDER_USER_PREFIX + userId;
+    }
+
+    public static String activityDegradeClosedKey(String activityScopeKey) {
+        return ACTIVITY_DEGRADE_CLOSED_PREFIX + normalize(activityScopeKey);
     }
 
     private static String normalize(String value) {

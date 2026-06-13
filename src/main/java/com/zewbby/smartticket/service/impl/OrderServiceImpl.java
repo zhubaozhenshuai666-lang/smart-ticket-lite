@@ -44,6 +44,7 @@ import com.zewbby.smartticket.ratelimit.RateLimitService;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.AsyncOrderRequestResultCacheService;
+import com.zewbby.smartticket.service.ActivityDegradeService;
 import com.zewbby.smartticket.service.BucketRouteService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.OrderService;
@@ -52,6 +53,7 @@ import com.zewbby.smartticket.service.PaymentAuditService;
 import com.zewbby.smartticket.service.ShowRelationCacheService;
 import com.zewbby.smartticket.service.StockCacheService;
 import com.zewbby.smartticket.service.StockBucketSizingService;
+import com.zewbby.smartticket.service.RiskControlService;
 import com.zewbby.smartticket.service.WaitingRoomService;
 import com.zewbby.smartticket.service.UserStatusCacheService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -138,6 +140,12 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired(required = false)
     private StockBucketSizingService stockBucketSizingService;
+
+    @Autowired(required = false)
+    private RiskControlService riskControlService;
+
+    @Autowired(required = false)
+    private ActivityDegradeService activityDegradeService;
 
     @Autowired
     public OrderServiceImpl(OrderMapper orderMapper,
@@ -411,6 +419,7 @@ public class OrderServiceImpl implements OrderService {
         //限流，库存不足快速失败，防重复
         Long currentUserId = UserContext.requireUserId();
         checkCoarseOrderSubmitRateLimit(currentUserId, clientIp, ASYNC_ORDER_API_NAME);
+        checkRiskControl(currentUserId, clientIp);
         checkSoldoutFastFail(request.getTicketCategoryId());
         if (!orderSubmitGuard.tryAcquire(currentUserId, request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_SUBMIT);
@@ -428,6 +437,7 @@ public class OrderServiceImpl implements OrderService {
                     request.getSessionId(),
                     request.getTicketCategoryId()
             );
+            checkActivityDegrade(activityScope);
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
             checkActivityOrderSubmitRateLimit(activityScope);
@@ -1043,6 +1053,26 @@ public class OrderServiceImpl implements OrderService {
         boolean allowed = rateLimitService.tryAcquireOrderSubmit(userId, clientIp, apiName, null, false);
         if (!allowed) {
             throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
+        }
+    }
+
+    private void checkRiskControl(Long userId, String clientIp) {
+        if (riskControlService == null) {
+            return;
+        }
+        if (!riskControlService.allowOrderSubmit(userId, clientIp)) {
+            observabilityMetricsService.recordRateLimitRejected();
+            throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
+        }
+    }
+
+    private void checkActivityDegrade(ActivityScope activityScope) {
+        if (activityDegradeService == null) {
+            return;
+        }
+        if (activityDegradeService.isOrderSubmitClosed(activityScope.scopeKey())) {
+            observabilityMetricsService.recordRateLimitRejected();
+            throw new BusinessException(ErrorMessageConstant.ORDER_QUEUE_BUSY);
         }
     }
 

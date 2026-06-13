@@ -34,9 +34,11 @@ import com.zewbby.smartticket.ratelimit.RateLimitService;
 import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import com.zewbby.smartticket.service.AsyncOrderRequestResultCacheService;
+import com.zewbby.smartticket.service.ActivityDegradeService;
 import com.zewbby.smartticket.service.BucketRouteService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.PaymentAuditService;
+import com.zewbby.smartticket.service.RiskControlService;
 import com.zewbby.smartticket.service.StockCacheService;
 import com.zewbby.smartticket.service.StockLuaService;
 import org.junit.jupiter.api.AfterEach;
@@ -124,6 +126,12 @@ class OrderServiceImplTest {
 
     @Mock
     private AsyncOrderRequestResultCacheService asyncOrderRequestResultCacheService;
+
+    @Mock
+    private RiskControlService riskControlService;
+
+    @Mock
+    private ActivityDegradeService activityDegradeService;
 
     private OrderServiceImpl orderService;
 
@@ -295,6 +303,42 @@ class OrderServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining(ErrorMessageConstant.RATE_LIMITED);
 
+        verify(idempotencyTokenService, never()).consumeOrderToken(anyLong(), anyString());
+        verify(stockLuaService, never()).preDeductStock(anyString(), anyLong(), anyInt());
+        verify(asyncOrderMessagePublisher, never()).publish(anyString(), any());
+    }
+
+    @Test
+    void submitAsyncOrderRejectsBeforeTokenAndStockWhenRiskControlBlocksRequest() {
+        ReflectionTestUtils.setField(orderService, "riskControlService", riskControlService);
+        when(rateLimitService.tryAcquireOrderSubmit(anyLong(), anyString(), anyString(), any(), anyBoolean()))
+                .thenReturn(true);
+        when(riskControlService.allowOrderSubmit(1L, "10.0.0.1")).thenReturn(false);
+
+        assertThatThrownBy(() -> orderService.submitAsyncOrder(validRequest(), "10.0.0.1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining(ErrorMessageConstant.RATE_LIMITED);
+
+        verify(idempotencyTokenService, never()).consumeOrderToken(anyLong(), anyString());
+        verify(stockLuaService, never()).preDeductStock(anyString(), anyLong(), anyInt());
+        verify(asyncOrderMessagePublisher, never()).publish(anyString(), any());
+    }
+
+    @Test
+    void submitAsyncOrderRejectsBeforeRelationAndTokenWhenActivityIsClosed() {
+        ReflectionTestUtils.setField(orderService, "activityDegradeService", activityDegradeService);
+        when(rateLimitService.tryAcquireOrderSubmit(anyLong(), anyString(), anyString(), any(), anyBoolean()))
+                .thenReturn(true);
+        when(stockCacheService.isSoldOut(2L)).thenReturn(false);
+        when(orderSubmitGuard.tryAcquire(1L, 2L)).thenReturn(true);
+        when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
+        when(activityDegradeService.isOrderSubmitClosed("show:1:session:1")).thenReturn(true);
+
+        assertThatThrownBy(() -> orderService.submitAsyncOrder(validRequest()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining(ErrorMessageConstant.ORDER_QUEUE_BUSY);
+
+        verify(ticketCategoryMapper, never()).existsShowSessionTicketCategoryRelation(anyLong(), anyLong(), anyLong());
         verify(idempotencyTokenService, never()).consumeOrderToken(anyLong(), anyString());
         verify(stockLuaService, never()).preDeductStock(anyString(), anyLong(), anyInt());
         verify(asyncOrderMessagePublisher, never()).publish(anyString(), any());

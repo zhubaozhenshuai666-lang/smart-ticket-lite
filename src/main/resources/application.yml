@@ -87,6 +87,11 @@ smart-ticket:
     admission-token-expire-seconds: ${SMART_TICKET_WAITING_ROOM_ADMISSION_TOKEN_EXPIRE_SECONDS:120}
     default-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_DEFAULT_ADMISSION_TOKEN_BATCH_SIZE:10}
     max-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_MAX_ADMISSION_TOKEN_BATCH_SIZE:100}
+  risk-control:
+    enabled: ${SMART_TICKET_RISK_CONTROL_ENABLED:true}
+    max-ip-attempts-per-minute: ${SMART_TICKET_RISK_CONTROL_MAX_IP_ATTEMPTS_PER_MINUTE:600}
+    max-user-attempts-per-minute: ${SMART_TICKET_RISK_CONTROL_MAX_USER_ATTEMPTS_PER_MINUTE:60}
+    counter-ttl-seconds: ${SMART_TICKET_RISK_CONTROL_COUNTER_TTL_SECONDS:120}
   show-relation-cache:
     enabled: ${SMART_TICKET_SHOW_RELATION_CACHE_ENABLED:true}
     fail-closed: ${SMART_TICKET_SHOW_RELATION_CACHE_FAIL_CLOSED:true}

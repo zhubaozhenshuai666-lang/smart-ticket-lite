@@ -6,6 +6,7 @@ import com.zewbby.smartticket.domain.dto.CreateOrderRequest;
 import com.zewbby.smartticket.domain.vo.IdempotencyTokenVO;
 import com.zewbby.smartticket.domain.vo.OrderRequestVO;
 import com.zewbby.smartticket.domain.vo.OrderVO;
+import com.zewbby.smartticket.domain.vo.WaitingRoomStatusVO;
 import com.zewbby.smartticket.idempotency.IdempotencyTokenService;
 import com.zewbby.smartticket.ratelimit.ClientIpResolver;
 import com.zewbby.smartticket.service.OrderService;
@@ -55,15 +56,14 @@ public class OrderController {
         return ApiResponse.successZero(idempotencyTokenService.generateOrderTokens(UserContext.requireUserId(), count));
     }
 
-    @GetMapping("/waiting-room/admission-token")
-    public ApiResponse<IdempotencyTokenVO> issueWaitingRoomAdmissionToken(@RequestParam Long ticketCategoryId) {
-        return ApiResponse.successZero(waitingRoomService.issueAdmissionToken(UserContext.requireUserId(), ticketCategoryId));
+    @PostMapping("/waiting-room/queue")
+    public ApiResponse<WaitingRoomStatusVO> enterWaitingRoomQueue(@RequestParam Long ticketCategoryId) {
+        return ApiResponse.successZero(waitingRoomService.enterQueue(UserContext.requireUserId(), ticketCategoryId));
     }
 
-    @GetMapping("/waiting-room/admission-tokens")
-    public ApiResponse<List<IdempotencyTokenVO>> issueWaitingRoomAdmissionTokens(@RequestParam Long ticketCategoryId,
-                                                                                 @RequestParam(value = "count", required = false) Integer count) {
-        return ApiResponse.successZero(waitingRoomService.issueAdmissionTokens(UserContext.requireUserId(), ticketCategoryId, count));
+    @GetMapping("/waiting-room/status")
+    public ApiResponse<WaitingRoomStatusVO> getWaitingRoomStatus(@RequestParam Long ticketCategoryId) {
+        return ApiResponse.successZero(waitingRoomService.getQueueStatus(UserContext.requireUserId(), ticketCategoryId));
     }
 
     /**

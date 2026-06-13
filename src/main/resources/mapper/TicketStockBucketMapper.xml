@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zewbby.smartticket.mapper.TicketStockBucketMapper">
+
+    <resultMap id="TicketStockBucketResultMap" type="com.zewbby.smartticket.domain.entity.TicketStockBucket">
+        <id property="id" column="id"/>
+        <result property="ticketCategoryId" column="ticket_category_id"/>
+        <result property="bucketVersion" column="bucket_version"/>
+        <result property="bucketNo" column="bucket_no"/>
+        <result property="totalStock" column="total_stock"/>
+        <result property="availableStock" column="available_stock"/>
+        <result property="lockedStock" column="locked_stock"/>
+        <result property="soldStock" column="sold_stock"/>
+        <result property="version" column="version"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id,
+        ticket_category_id,
+        bucket_version,
+        bucket_no,
+        total_stock,
+        available_stock,
+        locked_stock,
+        sold_stock,
+        version,
+        created_at,
+        updated_at
+    </sql>
+
+    <insert id="insert"
+            parameterType="com.zewbby.smartticket.domain.entity.TicketStockBucket"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO ticket_stock_bucket (
+            ticket_category_id,
+            bucket_version,
+            bucket_no,
+            total_stock,
+            available_stock,
+            locked_stock,
+            sold_stock,
+            version,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{ticketCategoryId},
+            COALESCE(#{bucketVersion}, 1),
+            #{bucketNo},
+            #{totalStock},
+            #{availableStock},
+            #{lockedStock},
+            #{soldStock},
+            COALESCE(#{version}, 0),
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <delete id="deleteByTicketCategoryId">
+        DELETE FROM ticket_stock_bucket
+        WHERE ticket_category_id = #{ticketCategoryId}
+    </delete>
+
+    <delete id="deleteByTicketCategoryIdAndVersion">
+        DELETE FROM ticket_stock_bucket
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_version = #{bucketVersion}
+    </delete>
+
+    <select id="selectByBucket" resultMap="TicketStockBucketResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM ticket_stock_bucket
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_no = #{bucketNo}
+    </select>
+
+    <select id="selectByVersionBucket" resultMap="TicketStockBucketResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM ticket_stock_bucket
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_version = #{bucketVersion}
+          AND bucket_no = #{bucketNo}
+    </select>
+
+    <select id="selectByTicketCategoryId" resultMap="TicketStockBucketResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM ticket_stock_bucket
+        WHERE ticket_category_id = #{ticketCategoryId}
+        ORDER BY bucket_no ASC
+    </select>
+
+    <select id="selectByTicketCategoryIdAndVersion" resultMap="TicketStockBucketResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM ticket_stock_bucket
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_version = #{bucketVersion}
+        ORDER BY bucket_no ASC
+    </select>
+
+    <select id="countByTicketCategoryId" resultType="int">
+        SELECT COUNT(1)
+        FROM ticket_stock_bucket
+        WHERE ticket_category_id = #{ticketCategoryId}
+    </select>
+
+    <select id="countByTicketCategoryIdAndVersion" resultType="int">
+        SELECT COUNT(1)
+        FROM ticket_stock_bucket
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_version = #{bucketVersion}
+    </select>
+
+    <select id="countLockedOrSoldByTicketCategoryId" resultType="int">
+        SELECT COUNT(1)
+        FROM ticket_stock_bucket
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND (locked_stock &gt; 0 OR sold_stock &gt; 0)
+    </select>
+
+    <select id="countLockedOrSoldByTicketCategoryIdAndVersion" resultType="int">
+        SELECT COUNT(1)
+        FROM ticket_stock_bucket
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_version = #{bucketVersion}
+          AND (locked_stock &gt; 0 OR sold_stock &gt; 0)
+    </select>
+
+    <update id="adjustAvailableStock">
+        UPDATE ticket_stock_bucket
+        SET
+            total_stock = total_stock + #{adjustQuantity},
+            available_stock = available_stock + #{adjustQuantity},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_no = #{bucketNo}
+          AND available_stock + #{adjustQuantity} &gt;= 0
+          AND total_stock + #{adjustQuantity} &gt;= locked_stock + sold_stock
+    </update>
+
+    <update id="adjustAvailableStockByVersion">
+        UPDATE ticket_stock_bucket
+        SET
+            total_stock = total_stock + #{adjustQuantity},
+            available_stock = available_stock + #{adjustQuantity},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_version = #{bucketVersion}
+          AND bucket_no = #{bucketNo}
+          AND available_stock + #{adjustQuantity} &gt;= 0
+          AND total_stock + #{adjustQuantity} &gt;= locked_stock + sold_stock
+    </update>
+
+    <update id="decreaseStock">
+        UPDATE ticket_stock_bucket
+        SET
+            available_stock = available_stock - #{quantity},
+            locked_stock = locked_stock + #{quantity},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_no = #{bucketNo}
+          AND available_stock &gt;= #{quantity}
+    </update>
+
+    <update id="decreaseStockByVersion">
+        UPDATE ticket_stock_bucket
+        SET
+            available_stock = available_stock - #{quantity},
+            locked_stock = locked_stock + #{quantity},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_version = #{bucketVersion}
+          AND bucket_no = #{bucketNo}
+          AND available_stock &gt;= #{quantity}
+    </update>
+
+    <update id="rollbackStock">
+        UPDATE ticket_stock_bucket
+        SET
+            available_stock = available_stock + #{quantity},
+            locked_stock = locked_stock - #{quantity},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_no = #{bucketNo}
+          AND locked_stock &gt;= #{quantity}
+    </update>
+
+    <update id="rollbackStockByVersion">
+        UPDATE ticket_stock_bucket
+        SET
+            available_stock = available_stock + #{quantity},
+            locked_stock = locked_stock - #{quantity},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_version = #{bucketVersion}
+          AND bucket_no = #{bucketNo}
+          AND locked_stock &gt;= #{quantity}
+    </update>
+
+    <update id="confirmStock">
+        UPDATE ticket_stock_bucket
+        SET
+            locked_stock = locked_stock - #{quantity},
+            sold_stock = sold_stock + #{quantity},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_no = #{bucketNo}
+          AND locked_stock &gt;= #{quantity}
+    </update>
+
+    <update id="confirmStockByVersion">
+        UPDATE ticket_stock_bucket
+        SET
+            locked_stock = locked_stock - #{quantity},
+            sold_stock = sold_stock + #{quantity},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id = #{ticketCategoryId}
+          AND bucket_version = #{bucketVersion}
+          AND bucket_no = #{bucketNo}
+          AND locked_stock &gt;= #{quantity}
+    </update>
+</mapper>
