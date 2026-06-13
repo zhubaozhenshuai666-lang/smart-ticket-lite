@@ -52,23 +52,33 @@ public class LocalMessagePublishTask {
      */
     @Scheduled(fixedDelay = 3000)
     public void publishPendingMessages() {
+        // 开关校验
         if (!localMessageProperties.isSenderEnabled()) {
             return;
         }
+        // 捞出那些到达了执行时间、状态为 INIT 或 FAILED 的消息
         List<LocalMessage> messages = localMessageService.selectPublishableMessages(
                 LocalDateTime.now(),
                 localMessageProperties.getBatchSize()
         );
         for (LocalMessage message : messages) {
+            // 查数据库取对应的message 用行锁实现去重
             if (!localMessageService.tryMarkSending(message)) {
                 LOGGER.debug("Skipped local message because another sender claimed it, messageId={}",
                         message.getMessageId());
                 continue;
             }
+            //发送消息
             publishOne(message);
         }
     }
 
+    /**
+     * 不依靠定时任务，而是由业务线程在事务提交后（afterCommit）立即强行触发的即时发送。
+     * 架构中的作用：降低消息延迟。如果全靠 3 秒一次的定时任务，用户下完单平均要等 1.5 秒消息才发出去。
+     * 通过这个方法，在事务成功后立刻投递，99.9% 的消息在毫秒级就进入了 MQ。定时任务只负责捞取那 0.1% 失败的残余。
+     * @param messageId
+     */
     public void publishByMessageId(String messageId) {
         if (!localMessageProperties.isSenderEnabled()) {
             return;
@@ -79,6 +89,7 @@ public class LocalMessagePublishTask {
                     messageId);
             return;
         }
+        //状态抢占，确保安全性
         if (!localMessageService.tryMarkSending(message)) {
             LOGGER.debug("Skipped immediate local message publish because message is not claimable, messageId={}",
                     messageId);
@@ -97,13 +108,21 @@ public class LocalMessagePublishTask {
      * 对订单超时关闭也是同一规则：CONFIRMED 只代表 Broker 收到延迟消息，不代表订单已经被关闭；
      * 真正关闭成功与否必须看超时消费者读取数据库订单状态后的幂等处理结果。
      */
+
+    /**
+     * 调用 Spring AMQP 组装网络包，向 RabbitMQ 管道喷数据
+     * 架构中的作用：将本地消息表的抽象数据，精准对接到 RabbitMQ 的交换机和路由键上。
+     * @param localMessage
+     */
     void publishOne(LocalMessage localMessage) {
         try {
             Object payload = toPayload(localMessage);
             MessagePostProcessor postProcessor = message -> {
+                //设置 Return 监听需要的 CorrelationId
                 message.getMessageProperties().setCorrelationId(localMessage.getMessageId());
                 return message;
             };
+            //设置 Confirm 监听需要的 CorrelationData
             CorrelationData correlationData = new CorrelationData(localMessage.getMessageId());
             rabbitTemplate.convertAndSend(
                     localMessage.getExchangeName(),
@@ -133,20 +152,31 @@ public class LocalMessagePublishTask {
      */
     @Scheduled(fixedDelay = 10000)
     public void scanConfirmTimeoutMessages() {
+        //开关校验
         if (!localMessageProperties.isSenderEnabled()) {
             return;
         }
+        //计算超时截止线
         LocalDateTime timeoutBefore = LocalDateTime.now()
                 .minusSeconds(localMessageProperties.getConfirmTimeoutSeconds());
+
+        //查找出batchSize规模的超时message
         List<LocalMessage> messages = localMessageService.selectConfirmTimeoutMessages(
                 timeoutBefore,
                 localMessageProperties.getBatchSize()
         );
+        //把这一批超时message全部标记失败
         for (LocalMessage message : messages) {
             localMessageService.markPublishFailed(message, "Publisher Confirm超时");
         }
     }
 
+    /**
+     * 反序列化工具：发送时，需要根据业务类型（businessType），用 Jackson 的 objectMapper 把它还原成真正的 Java 对象（秒杀创单对象 或 超时关单对象）。
+     * @param localMessage
+     * @return
+     * @throws Exception
+     */
     private Object toPayload(LocalMessage localMessage) throws Exception {
         if (LocalMessageBusinessTypeEnum.ASYNC_CREATE_ORDER.getCode().equals(localMessage.getBusinessType())) {
             return objectMapper.readValue(localMessage.getPayload(), AsyncCreateOrderMessage.class);

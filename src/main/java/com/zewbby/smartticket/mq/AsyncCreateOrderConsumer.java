@@ -236,23 +236,25 @@ public class AsyncCreateOrderConsumer {
         return properties;
     }
 
+    /**
+     * 主干链路！
+     * MQ消费的唯一入口。接收请求 -> 防重校验 -> 扣减MySQL库存 -> 生成订单 -> 发送延时关单消息 -> 释放流控。
+     * 将前端积压的异步流量，平滑且安全地转化为真实的数据库订单。
+     * @param message
+     */
     @RabbitListener(queues = "#{orderAsyncQueueNames}", containerFactory = "asyncOrderRabbitListenerContainerFactory")
     @Transactional
     public void consume(AsyncCreateOrderMessage message) {
         LOGGER.info("Received async create order message, requestId={}", message.getRequestId());
 
-        /*
-         * RabbitMQ 默认只能保证“至少一次投递”，网络抖动、消费者异常、ACK 丢失都可能导致同一条消息再次投递。
-         * Publisher Confirm 只证明 Broker 收到消息，不证明消费者成功处理；可靠投递不等于可靠消费。
-         * 所以这里不能相信“我只会消费一次”，也不能只靠内存锁；真正的幂等开关必须落在数据库状态机上。
-         * 只有 PRE_DEDUCTED/QUEUED 能通过条件更新进入 PROCESSING，重复消息、成功消息、失败消息都会被挡住。
-         */
+        //检验message的状态是否合法，抛弃重复消息。不重复加乐观锁后返回对应实体
         TicketOrderRequest orderRequest = claimOrCreateProcessingRequest(message);
         if (orderRequest == null) {
             return;
         }
 
         try {
+            //校验用户的合法性
             if (!isNormalUser(orderRequest.getUserId())) {
                 LOGGER.warn("Async create order failed, requestId={}, reason={}",
                         orderRequest.getRequestId(), USER_NOT_FOUND);
@@ -260,6 +262,7 @@ public class AsyncCreateOrderConsumer {
                 return;
             }
 
+            //取快照
             OrderSnapshot snapshot = getOrderSnapshot(message, orderRequest);
             if (snapshot == null) {
                 return;
@@ -271,7 +274,9 @@ public class AsyncCreateOrderConsumer {
              * 防止 Redis 重建、预热覆盖、人工修复等场景把缓存和数据库库存搞到不一致后造成超卖。
              */
             boolean bucketStockDecreased = false;
+            //：全局开分桶且上游传下来的请求明确指定了要扣减哪一个桶 进入逻辑
             if (stockBucketProperties.isEnabled() && orderRequest.getStockBucketNo() != null) {
+                // 根据有没有分桶version来走不同的扣减逻辑
                 int bucketRows = orderRequest.getStockBucketVersion() == null
                         ? ticketStockBucketMapper.decreaseStock(
                                 orderRequest.getTicketCategoryId(),
@@ -284,6 +289,7 @@ public class AsyncCreateOrderConsumer {
                                 orderRequest.getStockBucketNo(),
                                 orderRequest.getQuantity()
                         );
+                //如果如果库存不够扣失败的话返回扣除失败
                 if (bucketRows != 1) {
                     LOGGER.warn("Async create order failed on bucket stock, requestId={}, ticketCategoryId={}, bucketVersion={}, bucketNo={}, quantity={}, reason={}",
                             orderRequest.getRequestId(),
@@ -298,6 +304,7 @@ public class AsyncCreateOrderConsumer {
                 bucketStockDecreased = true;
             }
 
+            //桶预扣失败的话就走常规的非桶
             if (!bucketStockDecreased) {
                 int decreaseRows = ticketStockMapper.decreaseStock(
                         orderRequest.getTicketCategoryId(),
@@ -334,10 +341,13 @@ public class AsyncCreateOrderConsumer {
             order.setCreatedAt(now);
             order.setUpdatedAt(now);
 
+            //订单落库
             int insertRows = orderMapper.insert(order);
+            //防重复插入
             if (insertRows != 1) {
                 throw new IllegalStateException("订单创建失败");
             }
+            //非功能性需求（NFR）中的可观测性（Observability）建设，其直接作用对象并非普通用户或数据库，而是运维监控体系
             observabilityMetricsService.recordOrderCreated();
             LOGGER.info("Created order for async request, requestId={}, orderId={}, orderNo={}",
                     orderRequest.getRequestId(), order.getId(), order.getOrderNo());
@@ -349,12 +359,15 @@ public class AsyncCreateOrderConsumer {
              */
             orderTimeoutProducer.sendOrderTimeoutMessage(buildOrderTimeoutMessage(order));
 
-            //异步请求下单
+            //业务完成后将状态标记为成功
             int successRows = orderRequestMapper.markSuccess(orderRequest.getId(), order.getId());
+            //已标记过的话就直接弹错
             if (successRows != 1) {
                 throw new IllegalStateException("异步下单请求状态更新失败");
             }
+            //异步订单处理结束（无论成功还是失败）后，释放该票档占用的In-Flight并发名额，让前端正在排队的其他用户可以进入系统。
             releaseAsyncOrderInFlight(orderRequest);
+            //非业务需求
             observabilityMetricsService.recordAsyncOrderRequestSuccess();
             LOGGER.info("Marked async order request SUCCESS, requestId={}, orderId={}",
                     orderRequest.getRequestId(), order.getId());
@@ -369,13 +382,21 @@ public class AsyncCreateOrderConsumer {
         }
     }
 
+    /**
+     * 抢占当前消息的处理权，过滤掉无效、重复的消息。
+     * 在架构中的作用：实现消费端绝对幂等的核心防线。因为 MQ 会重复发消息，这里必须确保一笔订单请求只被处理一次。
+     * @param message
+     * @return
+     */
     private TicketOrderRequest claimOrCreateProcessingRequest(AsyncCreateOrderMessage message) {
+        //查数据库现在的状态。
         TicketOrderRequest existingRequest = orderRequestMapper.selectByRequestId(message.getRequestId());
         if (existingRequest == null) {
             return insertProcessingRequestFromMessage(message);
         }
+        //如果是 SUCCESS / FAILED / CANCELLED，说明已经处理过了，直接丢弃（return null）。
         if (OrderRequestStatusEnum.SUCCESS.getCode().equals(existingRequest.getStatus())) {
-            LOGGER.info("Skipped duplicated async order message because request already SUCCESS, requestId={}",
+             LOGGER.info("Skipped duplicated async order message because request already SUCCESS, requestId={}",
                     existingRequest.getRequestId());
             return null;
         }
@@ -386,10 +407,12 @@ public class AsyncCreateOrderConsumer {
                     existingRequest.getRequestId(), existingRequest.getStatus());
             return null;
         }
+        //如果是 PROCESSING，说明别人正在处理，或者别人处理一半死机了，转交给 handleProcessingRequest 判断是否超时。
         if (OrderRequestStatusEnum.PROCESSING.getCode().equals(existingRequest.getStatus())) {
             handleProcessingRequest(message, existingRequest);
             return null;
         }
+        // 状态合法性检查，防止因脏数据导致的逻辑错误，并将异常请求拦截在门外
         if (!OrderRequestStatusEnum.canEnterProcessing(existingRequest.getStatus())) {
             recordDeadLetter(message, ConsumerExceptionTypeEnum.DATA_INCONSISTENCY,
                     "异步下单请求状态不允许消费: " + existingRequest.getStatus());
@@ -398,6 +421,7 @@ public class AsyncCreateOrderConsumer {
             return null;
         }
 
+        //只有更新影响行数为 1 的线程，才真正拿到了处理权。
         int claimedRows = orderRequestMapper.tryMarkProcessing(message.getRequestId());
         if (claimedRows != 1) {
             LOGGER.info("Skipped async order request because another consumer has claimed it, requestId={}",
@@ -405,6 +429,7 @@ public class AsyncCreateOrderConsumer {
             return null;
         }
 
+        //创建对应的TickertOrderRequest
         TicketOrderRequest orderRequest = orderRequestMapper.selectProcessingByRequestId(message.getRequestId());
         if (orderRequest == null) {
             LOGGER.info("Skipped async order request after lock, requestId={} is no longer PROCESSING",
@@ -482,8 +507,15 @@ public class AsyncCreateOrderConsumer {
         return message;
     }
 
+    /**
+     * 清理这些死在半路、状态卡在 PROCESSING（处理中）的订单请求，并把被它们扣掉的库存和流控名额夺回来。
+     * 分布式事务防悬挂（Anti-Hanging）设计。
+     * @param message
+     * @param existingRequest
+     */
     private void handleProcessingRequest(AsyncCreateOrderMessage message, TicketOrderRequest existingRequest) {
         LocalDateTime timeoutBefore = LocalDateTime.now().minusSeconds(mqConsumerProperties.getProcessingTimeoutSeconds());
+        //没超时就放过
         if (existingRequest.getProcessingAt() != null && existingRequest.getProcessingAt().isAfter(timeoutBefore)) {
             LOGGER.info("Skipped duplicated async order message because request is still PROCESSING, requestId={}",
                     existingRequest.getRequestId());
@@ -520,6 +552,12 @@ public class AsyncCreateOrderConsumer {
         recordDeadLetter(message, ConsumerExceptionTypeEnum.BUSINESS_REJECT, failReason);
     }
 
+    /**
+     * 标记失败
+     * @param orderRequest
+     * @param failReason
+     * @return
+     */
     private boolean markFailed(TicketOrderRequest orderRequest, String failReason) {
         int failedRows = orderRequestMapper.markFailed(orderRequest.getId(), failReason);
         if (failedRows != 1) {
@@ -533,6 +571,12 @@ public class AsyncCreateOrderConsumer {
         return true;
     }
 
+    /**
+     * 失败后补偿
+     * @param orderRequest
+     * @param failReason
+     * @return
+     */
     private boolean markFailedAndCompensateRedis(TicketOrderRequest orderRequest, String failReason) {
         if (!markFailed(orderRequest, failReason)) {
             return false;
@@ -602,7 +646,6 @@ public class AsyncCreateOrderConsumer {
             /*
              * Redis 释放失败时不能假装成功，否则库存会被长期占住且排查不到。
              * 这里把 compensation_status 标记为 COMPENSATE_FAILED，既兼容旧的 compensated=false，
-             * 又能让后续 Task D+ 巡检知道这是“补偿失败待处理”，而不是“还没开始补偿”。
              */
             orderRequestMapper.markCompensateFailed(orderRequest.getId(), failReason + ", Redis补偿异常: " + exception.getMessage());
             LOGGER.error("Failed to release Redis pre-deducted stock for failed async request, requestId={}, keep FAILED for later compensation",
@@ -610,6 +653,13 @@ public class AsyncCreateOrderConsumer {
         }
     }
 
+    /**
+     * 获取票档的快照信息
+     * 交易防篡改
+     * @param message
+     * @param orderRequest
+     * @return
+     */
     private OrderSnapshot getOrderSnapshot(AsyncCreateOrderMessage message, TicketOrderRequest orderRequest) {
         OrderSnapshot snapshot = selectOrderSnapshot(orderRequest);
         if (snapshot != null) {
@@ -635,7 +685,13 @@ public class AsyncCreateOrderConsumer {
         return null;
     }
 
+    /**
+     * 查快照
+     * @param orderRequest
+     * @return
+     */
     private OrderSnapshot selectOrderSnapshot(TicketOrderRequest orderRequest) {
+        //快照cache里有的话就直接返回
         if (orderSnapshotCacheService != null) {
             return orderSnapshotCacheService.getPublishedSnapshot(
                     orderRequest.getShowId(),
@@ -643,6 +699,7 @@ public class AsyncCreateOrderConsumer {
                     orderRequest.getTicketCategoryId()
             );
         }
+        //否则就查数据库再返回
         return ticketCategoryMapper.selectOrderSnapshot(
                 orderRequest.getShowId(),
                 orderRequest.getSessionId(),

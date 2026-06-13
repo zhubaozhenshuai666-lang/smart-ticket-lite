@@ -18,7 +18,9 @@ public class OrderSubmitGuard {
     }
 
     public boolean tryAcquire(Long userId, Long ticketCategoryId) {
+        //设置出key
         String key = RedisKeyConstant.orderSubmitKey(userId, ticketCategoryId);
+        //set出key，如果存在的话就返回失败
         Boolean acquired = redisTemplate.opsForValue()
                 .setIfAbsent(key, "1", SUBMIT_GUARD_TTL);
         return Boolean.TRUE.equals(acquired);

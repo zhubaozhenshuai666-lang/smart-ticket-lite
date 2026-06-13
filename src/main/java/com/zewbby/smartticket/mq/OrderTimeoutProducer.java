@@ -25,16 +25,16 @@ public class OrderTimeoutProducer {
     }
 
     /**
-     * 提交订单超时关闭消息。
-     *
-     * 这里故意不直接调用 RabbitTemplate。订单超时关闭和异步创单一样，都是交易主链路的一部分：
-     * 如果订单创建成功但延迟消息丢了，locked_stock 会一直占住，未支付 payment_order 也无法关闭。
-     * Outbox 让“需要发送超时关闭消息”先落库，再由统一发送器投递并等待 Publisher Confirm。
+     * 接收一个超时消息对象，先把它安全地存到本地数据库的消息表里，然后准备发送。
+     * @param message
+     * @return
      */
     public String sendOrderTimeoutMessage(OrderTimeoutMessage message) {
+        //如果不开启延迟功能直接拦截
         if (!orderTimeoutProperties.isDelayMessageEnabled()) {
             return null;
         }
+        //在本地数据库插入一条消息记录，状态为 SENDING（发送中），并返回这笔消息的唯一身份证 messageId
         String messageId = localMessageService.createOrderTimeoutCloseMessage(message);
         publishAfterCommit(messageId);
         return messageId;
@@ -44,6 +44,10 @@ public class OrderTimeoutProducer {
         return sendOrderTimeoutMessage(new OrderTimeoutMessage(orderId, orderNo));
     }
 
+    /**
+     * 确保只有在当前的数据库事务成功提交（Commit）之后，才真正把消息通过网络送给 RabbitMQ。
+     * @param messageId
+     */
     private void publishAfterCommit(String messageId) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             localMessagePublishTask.publishByMessageId(messageId);
