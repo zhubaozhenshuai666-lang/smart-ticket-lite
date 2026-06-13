@@ -14,6 +14,7 @@ import com.zewbby.smartticket.domain.entity.TicketOrder;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
 import com.zewbby.smartticket.domain.entity.TicketStock;
 import com.zewbby.smartticket.domain.entity.UserAccount;
+import com.zewbby.smartticket.domain.vo.OrderRequestVO;
 import com.zewbby.smartticket.enums.OrderRequestStatusEnum;
 import com.zewbby.smartticket.enums.OrderStatusEnum;
 import com.zewbby.smartticket.enums.RedisStockDeductResult;
@@ -32,6 +33,7 @@ import com.zewbby.smartticket.mq.OrderTimeoutProducer;
 import com.zewbby.smartticket.ratelimit.RateLimitService;
 import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
+import com.zewbby.smartticket.service.AsyncOrderRequestResultCacheService;
 import com.zewbby.smartticket.service.BucketRouteService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.PaymentAuditService;
@@ -46,6 +48,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -118,6 +121,9 @@ class OrderServiceImplTest {
 
     @Mock
     private AsyncOrderInFlightService asyncOrderInFlightService;
+
+    @Mock
+    private AsyncOrderRequestResultCacheService asyncOrderRequestResultCacheService;
 
     private OrderServiceImpl orderService;
 
@@ -272,6 +278,8 @@ class OrderServiceImplTest {
         assertThat(response.getRedisDeducted()).isTrue();
         assertThat(response.getDeductedQuantity()).isEqualTo(1);
         assertThat(messageCaptor.getValue().getUserId()).isEqualTo(1L);
+        assertThat(messageCaptor.getValue().getActivityScopeKey()).isEqualTo("show:1:session:1");
+        assertThat(messageCaptor.getValue().getRoutingPartitionKey()).isEqualTo("show:1:session:1:ticket:2");
         verify(idempotencyTokenService).consumeOrderToken(1L, "idem_test");
         verify(stockLuaService).preDeductStock(anyString(), anyLong(), anyInt());
         verify(orderRequestMapper, never()).markQueued(anyLong(), anyString());
@@ -279,8 +287,23 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void submitAsyncOrderRejectsWhenActivityRateLimitIsExceeded() {
+        mockCommonCreateOrderChecks(true);
+        when(rateLimitService.tryAcquireOrderActivity("show:1:session:1")).thenReturn(false);
+
+        assertThatThrownBy(() -> orderService.submitAsyncOrder(validRequest()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining(ErrorMessageConstant.RATE_LIMITED);
+
+        verify(idempotencyTokenService, never()).consumeOrderToken(anyLong(), anyString());
+        verify(stockLuaService, never()).preDeductStock(anyString(), anyLong(), anyInt());
+        verify(asyncOrderMessagePublisher, never()).publish(anyString(), any());
+    }
+
+    @Test
     void submitAsyncOrderCanSkipRequestInsertWhenFastPipelineIsEnabled() {
         orderService = fastSubmitOrderService();
+        ReflectionTestUtils.setField(orderService, "asyncOrderRequestResultCacheService", asyncOrderRequestResultCacheService);
         mockCommonCreateOrderChecks(true);
         when(stockLuaService.preDeductStock(anyString(), anyLong(), anyInt()))
                 .thenReturn(RedisStockDeductResult.SUCCESS);
@@ -298,6 +321,7 @@ class OrderServiceImplTest {
         assertThat(messageCaptor.getValue().getDeductedQuantity()).isEqualTo(1);
         assertThat(messageCaptor.getValue().getDeductedAt()).isNotNull();
         assertThat(messageCaptor.getValue().getMessageId()).startsWith("MSGREQ");
+        verify(asyncOrderRequestResultCacheService).cacheQueuedResult(eq(1L), any(OrderRequestVO.class));
     }
 
     @Test
@@ -615,6 +639,21 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void currentUserCanQueryFastPipelineQueuedResultBeforeConsumerCreatesRequest() {
+        ReflectionTestUtils.setField(orderService, "asyncOrderRequestResultCacheService", asyncOrderRequestResultCacheService);
+        OrderRequestVO cached = new OrderRequestVO();
+        cached.setRequestId("REQ_FAST");
+        cached.setStatus(OrderRequestStatusEnum.QUEUED.getCode());
+        when(orderRequestMapper.selectByRequestIdAndUserId("REQ_FAST", 1L)).thenReturn(null);
+        when(asyncOrderRequestResultCacheService.getQueuedResult(1L, "REQ_FAST")).thenReturn(cached);
+
+        var response = orderService.getOrderRequestResult("REQ_FAST");
+
+        assertThat(response.getRequestId()).isEqualTo("REQ_FAST");
+        assertThat(response.getStatus()).isEqualTo(OrderRequestStatusEnum.QUEUED.getCode());
+    }
+
+    @Test
     void currentUserCannotCancelAnotherUsersOrder() {
         when(orderMapper.selectByIdAndUserId(99L, 1L)).thenReturn(null);
 
@@ -661,6 +700,7 @@ class OrderServiceImplTest {
     private void mockCommonCreateOrderChecks(boolean relationExists) {
         when(rateLimitService.tryAcquireOrderSubmit(anyLong(), anyString(), anyString(), any(), anyBoolean()))
                 .thenReturn(true);
+        lenient().when(rateLimitService.tryAcquireOrderActivity(anyString())).thenReturn(true);
         lenient().when(rateLimitService.tryAcquireOrderTicket(anyLong())).thenReturn(true);
         lenient().when(stockCacheService.isSoldOut(anyLong())).thenReturn(false);
         lenient().when(stockCacheService.isSoldOut(anyLong(), anyInt())).thenReturn(false);

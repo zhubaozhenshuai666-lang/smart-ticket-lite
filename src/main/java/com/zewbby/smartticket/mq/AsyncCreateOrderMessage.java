@@ -35,6 +35,10 @@ public class AsyncCreateOrderMessage {
 
     private String messageId;
 
+    private String activityScopeKey;
+
+    private String routingPartitionKey;
+
     public AsyncCreateOrderMessage(String requestId,
                                    Long userId,
                                    Long showId,

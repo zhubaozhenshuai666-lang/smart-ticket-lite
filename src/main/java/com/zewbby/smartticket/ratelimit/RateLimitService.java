@@ -191,6 +191,16 @@ public class RateLimitService {
         );
     }
 
+    public boolean tryAcquireOrderActivity(String activityScopeKey) {
+        return tryAcquireTokenBucket(
+                RedisKeyConstant.orderRateLimitActivityKey(activityScopeKey),
+                rateLimitProperties.getOrderApiCapacity(),
+                rateLimitProperties.getOrderApiRefillRatePerSecond(),
+                REQUESTED_TOKENS_PER_ORDER,
+                rateLimitProperties.getKeyTtlSeconds()
+        );
+    }
+
     public long getSoldoutTtlSeconds() {
         return rateLimitProperties.getSoldoutTtlSeconds();
     }

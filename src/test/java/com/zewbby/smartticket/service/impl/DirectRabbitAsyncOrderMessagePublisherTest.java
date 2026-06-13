@@ -44,9 +44,28 @@ class DirectRabbitAsyncOrderMessagePublisherTest {
 
         publisher.publish("MSGREQ1", message);
 
+        String expectedRoutingKey = "order.async.create." + Math.floorMod("ticket:2".hashCode(), 16);
         verify(rabbitTemplate).convertAndSend(
                 eq("order.async.exchange"),
-                eq("order.async.create.2"),
+                eq(expectedRoutingKey),
+                eq(message),
+                any(MessagePostProcessor.class),
+                any(CorrelationData.class)
+        );
+    }
+
+    @Test
+    void directPublisherRoutesByActivityPartitionKeyWhenPresent() {
+        AsyncCreateOrderMessage message = new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1);
+        message.setRoutingPartitionKey("show:1:session:1:ticket:2");
+
+        publisher.publish("MSGREQ1", message);
+
+        String expectedRoutingKey = "order.async.create."
+                + Math.floorMod("show:1:session:1:ticket:2".hashCode(), 16);
+        verify(rabbitTemplate).convertAndSend(
+                eq("order.async.exchange"),
+                eq(expectedRoutingKey),
                 eq(message),
                 any(MessagePostProcessor.class),
                 any(CorrelationData.class)

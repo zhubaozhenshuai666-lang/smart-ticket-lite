@@ -9,6 +9,7 @@ import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.domain.dto.CreateOrderRequest;
+import com.zewbby.smartticket.domain.dto.ActivityScope;
 import com.zewbby.smartticket.domain.dto.OrderSnapshot;
 import com.zewbby.smartticket.domain.dto.RedisStockDeductResponse;
 import com.zewbby.smartticket.domain.entity.PaymentFlowLog;
@@ -42,6 +43,7 @@ import com.zewbby.smartticket.mq.OrderTimeoutProducer;
 import com.zewbby.smartticket.ratelimit.RateLimitService;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import com.zewbby.smartticket.service.AsyncOrderInFlightService;
+import com.zewbby.smartticket.service.AsyncOrderRequestResultCacheService;
 import com.zewbby.smartticket.service.BucketRouteService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.OrderService;
@@ -49,6 +51,7 @@ import com.zewbby.smartticket.service.OrderSnapshotCacheService;
 import com.zewbby.smartticket.service.PaymentAuditService;
 import com.zewbby.smartticket.service.ShowRelationCacheService;
 import com.zewbby.smartticket.service.StockCacheService;
+import com.zewbby.smartticket.service.StockBucketSizingService;
 import com.zewbby.smartticket.service.WaitingRoomService;
 import com.zewbby.smartticket.service.UserStatusCacheService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -129,6 +132,12 @@ public class OrderServiceImpl implements OrderService {
     private final UserStatusCacheService userStatusCacheService;
 
     private final AsyncOrderInFlightService asyncOrderInFlightService;
+
+    @Autowired(required = false)
+    private AsyncOrderRequestResultCacheService asyncOrderRequestResultCacheService;
+
+    @Autowired(required = false)
+    private StockBucketSizingService stockBucketSizingService;
 
     @Autowired
     public OrderServiceImpl(OrderMapper orderMapper,
@@ -398,10 +407,11 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional(noRollbackFor = BusinessException.class)
     public OrderRequestVO submitAsyncOrder(CreateOrderRequest request, String clientIp) {
+
+        //限流，库存不足快速失败，防重复
         Long currentUserId = UserContext.requireUserId();
         checkCoarseOrderSubmitRateLimit(currentUserId, clientIp, ASYNC_ORDER_API_NAME);
         checkSoldoutFastFail(request.getTicketCategoryId());
-
         if (!orderSubmitGuard.tryAcquire(currentUserId, request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_SUBMIT);
         }
@@ -410,10 +420,18 @@ public class OrderServiceImpl implements OrderService {
         boolean redisPreDeducted = false;
         boolean inFlightAcquired = false;
         try {
+            //验证用户状态是否被允许
             ensureUserCanSubmit(currentUserId);
 
+            ActivityScope activityScope = ActivityScope.from(
+                    request.getShowId(),
+                    request.getSessionId(),
+                    request.getTicketCategoryId()
+            );
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
+            checkActivityOrderSubmitRateLimit(activityScope);
+            //票档限流
             checkTicketOrderSubmitRateLimit(request);
             acquireAsyncOrderInFlight(request.getTicketCategoryId());
             inFlightAcquired = true;
@@ -448,7 +466,7 @@ public class OrderServiceImpl implements OrderService {
                     messageId,
                     now
             );
-            AsyncCreateOrderMessage message = buildAsyncCreateOrderMessage(orderRequest);
+            AsyncCreateOrderMessage message = buildAsyncCreateOrderMessage(orderRequest, activityScope);
 
             if (asyncOrderSubmitProperties.isPersistRequestBeforePublish()) {
                 // Redis 预扣成功后才落库，请求首次插入即进入 QUEUED，避免额外一次状态更新放大写压力。
@@ -458,6 +476,7 @@ public class OrderServiceImpl implements OrderService {
                 }
             }
             asyncOrderMessagePublisher.publish(messageId, message);
+            cacheFastPipelineQueuedResult(currentUserId, orderRequest);
 
             return toOrderRequestVO(orderRequest);
         } catch (RuntimeException exception) {
@@ -502,7 +521,8 @@ public class OrderServiceImpl implements OrderService {
         return orderRequest;
     }
 
-    private AsyncCreateOrderMessage buildAsyncCreateOrderMessage(TicketOrderRequest orderRequest) {
+    private AsyncCreateOrderMessage buildAsyncCreateOrderMessage(TicketOrderRequest orderRequest,
+                                                                 ActivityScope activityScope) {
         AsyncCreateOrderMessage message = new AsyncCreateOrderMessage(
                 orderRequest.getRequestId(),
                 orderRequest.getUserId(),
@@ -517,6 +537,8 @@ public class OrderServiceImpl implements OrderService {
         message.setDeductedQuantity(orderRequest.getDeductedQuantity());
         message.setDeductedAt(orderRequest.getDeductedAt());
         message.setMessageId(orderRequest.getMessageId());
+        message.setActivityScopeKey(activityScope.scopeKey());
+        message.setRoutingPartitionKey(activityScope.routingPartitionKey());
         return message;
     }
 
@@ -525,6 +547,10 @@ public class OrderServiceImpl implements OrderService {
         Long currentUserId = UserContext.requireUserId();
         TicketOrderRequest orderRequest = orderRequestMapper.selectByRequestIdAndUserId(requestId, currentUserId);
         if (orderRequest == null) {
+            OrderRequestVO cachedQueuedResult = getCachedFastPipelineQueuedResult(currentUserId, requestId);
+            if (cachedQueuedResult != null) {
+                return cachedQueuedResult;
+            }
             throw new BusinessException(ErrorMessageConstant.ORDER_REQUEST_NOT_FOUND);
         }
         return toOrderRequestVO(orderRequest);
@@ -647,6 +673,11 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    /**
+     * 利用cache，如果userId在cache里的话直接走cache，检查userId是不是被允许，如果不在cache就走mysql查询
+     * 因为行锁的存在所以就算黄牛一个账号短时间几十万次请求，只有一个会去访问mysql(其他全部被限流挡住)
+     * @param userId
+     */
     private void ensureUserCanSubmit(Long userId) {
         if (userStatusCacheService != null) {
             if (!userStatusCacheService.isNormalUser(userId)) {
@@ -975,8 +1006,8 @@ public class OrderServiceImpl implements OrderService {
             return new RedisStockDeductResponse(legacyResult, null);
         }
 
-        // 2. 获取当前票档配置的总分桶数（如拆分为 10 个独立库存桶）
-        int bucketCount = stockBucketProperties.getDefaultBucketCount();
+        // 2. 获取当前票档配置的总分桶数。热门活动可在预热时写入 Redis 覆盖值，避免所有票档只能使用同一个静态桶数。
+        int bucketCount = resolveStockBucketCount(request.getTicketCategoryId(), bucketVersion);
 
         // 3. 分桶路由算法：基于请求ID（或其他分流因子）计算出该订单应该优先尝试扣减的“初始桶号”
         int initialBucketNo = bucketRouteService.route(requestId, bucketCount);
@@ -992,6 +1023,13 @@ public class OrderServiceImpl implements OrderService {
                 bucketCount,
                 stockBucketProperties.getActiveProbeCount()
         );
+    }
+
+    private int resolveStockBucketCount(Long ticketCategoryId, Integer bucketVersion) {
+        if (stockBucketSizingService == null) {
+            return Math.max(1, stockBucketProperties.getDefaultBucketCount());
+        }
+        return stockBucketSizingService.resolveBucketCount(ticketCategoryId, bucketVersion);
     }
 
     /**
@@ -1017,6 +1055,12 @@ public class OrderServiceImpl implements OrderService {
      */
     private void checkTicketOrderSubmitRateLimit(CreateOrderRequest request) {
         if (!rateLimitService.tryAcquireOrderTicket(request.getTicketCategoryId())) {
+            throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
+        }
+    }
+
+    private void checkActivityOrderSubmitRateLimit(ActivityScope activityScope) {
+        if (!rateLimitService.tryAcquireOrderActivity(activityScope.scopeKey())) {
             throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
         }
     }
@@ -1114,5 +1158,20 @@ public class OrderServiceImpl implements OrderService {
         OrderRequestVO orderRequestVO = new OrderRequestVO();
         BeanUtils.copyProperties(orderRequest, orderRequestVO);
         return orderRequestVO;
+    }
+
+    private void cacheFastPipelineQueuedResult(Long userId, TicketOrderRequest orderRequest) {
+        if (asyncOrderSubmitProperties.isPersistRequestBeforePublish()
+                || asyncOrderRequestResultCacheService == null) {
+            return;
+        }
+        asyncOrderRequestResultCacheService.cacheQueuedResult(userId, toOrderRequestVO(orderRequest));
+    }
+
+    private OrderRequestVO getCachedFastPipelineQueuedResult(Long userId, String requestId) {
+        if (asyncOrderRequestResultCacheService == null) {
+            return null;
+        }
+        return asyncOrderRequestResultCacheService.getQueuedResult(userId, requestId);
     }
 }

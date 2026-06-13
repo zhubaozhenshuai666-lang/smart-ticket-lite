@@ -16,6 +16,8 @@ public final class RedisKeyConstant {
 
     private static final String ASYNC_ORDER_IN_FLIGHT_PREFIX = "order:async:inflight:";
 
+    private static final String ASYNC_ORDER_RESULT_PREFIX = "order:async:result:";
+
     private static final String RATE_LIMIT_IP_PREFIX = "rate:ip:";
 
     private static final String RATE_LIMIT_USER_PREFIX = "rate:user:";
@@ -29,6 +31,8 @@ public final class RedisKeyConstant {
     private static final String ORDER_RATE_LIMIT_IP_PREFIX = "rate:limit:ip:";
 
     private static final String ORDER_RATE_LIMIT_API_PREFIX = "rate:limit:api:";
+
+    private static final String ORDER_RATE_LIMIT_ACTIVITY_PREFIX = "rate:limit:activity:";
 
     private static final String ORDER_RATE_LIMIT_TICKET_PREFIX = "rate:limit:ticket:";
 
@@ -86,6 +90,12 @@ public final class RedisKeyConstant {
         return ASYNC_ORDER_IN_FLIGHT_PREFIX + "ticket:" + ticketCategoryId;
     }
 
+    public static String asyncOrderResultKey(Long userId, String requestId) {
+        return ASYNC_ORDER_RESULT_PREFIX
+                + "user:" + userId
+                + ":request:" + normalize(requestId);
+    }
+
     public static String rateLimitIpKey(String ip, String uri) {
         return RATE_LIMIT_IP_PREFIX + normalize(ip) + ":" + normalize(uri);
     }
@@ -112,6 +122,10 @@ public final class RedisKeyConstant {
 
     public static String orderRateLimitApiKey(String apiName) {
         return ORDER_RATE_LIMIT_API_PREFIX + normalize(apiName);
+    }
+
+    public static String orderRateLimitActivityKey(String activityScopeKey) {
+        return ORDER_RATE_LIMIT_ACTIVITY_PREFIX + normalize(activityScopeKey);
     }
 
     public static String orderRateLimitTicketKey(Long ticketCategoryId) {

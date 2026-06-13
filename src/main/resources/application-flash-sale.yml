@@ -31,6 +31,11 @@ smart-ticket:
     max-unacked-messages: ${SMART_TICKET_MQ_CONSUMER_MAX_UNACKED_MESSAGES:4096}
     max-async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_MAX_ASYNC_QUEUE_SHARD_COUNT:128}
 
+  order-timeout:
+    delay-message-enabled: ${SMART_TICKET_ORDER_TIMEOUT_DELAY_MESSAGE_ENABLED:false}
+    scan-batch-size: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_BATCH_SIZE:5000}
+    scan-fixed-delay-millis: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_FIXED_DELAY_MILLIS:500}
+
   stock-bucket:
     default-bucket-count: ${SMART_TICKET_STOCK_BUCKET_DEFAULT_COUNT:64}
     active-probe-count: ${SMART_TICKET_STOCK_BUCKET_ACTIVE_PROBE_COUNT:8}

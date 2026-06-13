@@ -6,6 +6,7 @@ import com.zewbby.smartticket.config.MqConsumerProperties;
 import com.zewbby.smartticket.constant.RabbitMqConstant;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
+import com.zewbby.smartticket.service.AsyncOrderPartitionService;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -24,12 +25,22 @@ public class DirectRabbitAsyncOrderMessagePublisher implements AsyncOrderMessage
 
     private final AsyncOrderSubmitProperties asyncOrderSubmitProperties;
 
+    private final AsyncOrderPartitionService asyncOrderPartitionService;
+
     public DirectRabbitAsyncOrderMessagePublisher(RabbitTemplate rabbitTemplate,
                                                   MqConsumerProperties mqConsumerProperties,
                                                   AsyncOrderSubmitProperties asyncOrderSubmitProperties) {
+        this(rabbitTemplate, mqConsumerProperties, asyncOrderSubmitProperties, new AsyncOrderPartitionService());
+    }
+
+    public DirectRabbitAsyncOrderMessagePublisher(RabbitTemplate rabbitTemplate,
+                                                  MqConsumerProperties mqConsumerProperties,
+                                                  AsyncOrderSubmitProperties asyncOrderSubmitProperties,
+                                                  AsyncOrderPartitionService asyncOrderPartitionService) {
         this.rabbitTemplate = rabbitTemplate;
         this.mqConsumerProperties = mqConsumerProperties;
         this.asyncOrderSubmitProperties = asyncOrderSubmitProperties;
+        this.asyncOrderPartitionService = asyncOrderPartitionService;
     }
 
     @Override
@@ -51,7 +62,7 @@ public class DirectRabbitAsyncOrderMessagePublisher implements AsyncOrderMessage
         };
         rabbitTemplate.convertAndSend(
                 RabbitMqConstant.ORDER_ASYNC_EXCHANGE,
-                routingKey(message.getTicketCategoryId()),
+                routingKey(message),
                 message,
                 postProcessor,
                 correlationData
@@ -80,12 +91,12 @@ public class DirectRabbitAsyncOrderMessagePublisher implements AsyncOrderMessage
         }
     }
 
-    private String routingKey(Long ticketCategoryId) {
+    private String routingKey(AsyncCreateOrderMessage message) {
         int shardCount = mqConsumerProperties.getAsyncQueueShardCount();
         if (shardCount <= 1) {
             return RabbitMqConstant.ORDER_ASYNC_ROUTING_KEY;
         }
-        int shardNo = ticketCategoryId == null ? 0 : Math.floorMod(Long.hashCode(ticketCategoryId), shardCount);
+        int shardNo = asyncOrderPartitionService.partition(message, shardCount);
         return RabbitMqConstant.orderAsyncRoutingKey(shardNo);
     }
 }
