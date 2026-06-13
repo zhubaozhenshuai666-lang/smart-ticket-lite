@@ -24,7 +24,21 @@ public class RiskControlService {
     }
 
     public boolean allowOrderSubmit(Long userId, String clientIp) {
+        return allowOrderSubmit(userId, clientIp, null);
+    }
+
+    public boolean allowOrderSubmit(Long userId, String clientIp, String gatewayRiskDecision) {
         if (!properties.isEnabled()) {
+            return true;
+        }
+        GatewayRiskDecision decision = resolveGatewayRiskDecision(gatewayRiskDecision);
+        if (decision == GatewayRiskDecision.REJECT) {
+            return false;
+        }
+        if (decision == GatewayRiskDecision.MISSING_REQUIRED) {
+            return false;
+        }
+        if (decision == GatewayRiskDecision.PASS && properties.isSkipLocalCounterWhenGatewayPass()) {
             return true;
         }
         try {
@@ -47,5 +61,33 @@ public class RiskControlService {
             stringRedisTemplate.expire(key, Duration.ofSeconds(properties.getCounterTtlSeconds()));
         }
         return value == null ? 0L : value;
+    }
+
+    private GatewayRiskDecision resolveGatewayRiskDecision(String gatewayRiskDecision) {
+        if (!properties.isGatewayDecisionEnabled()) {
+            return GatewayRiskDecision.IGNORE;
+        }
+        if (gatewayRiskDecision == null || gatewayRiskDecision.isBlank()) {
+            return properties.isGatewayDecisionRequired()
+                    ? GatewayRiskDecision.MISSING_REQUIRED
+                    : GatewayRiskDecision.IGNORE;
+        }
+        String normalized = gatewayRiskDecision.trim();
+        if (properties.getGatewayRejectValue().equalsIgnoreCase(normalized)) {
+            return GatewayRiskDecision.REJECT;
+        }
+        if (properties.getGatewayPassValue().equalsIgnoreCase(normalized)) {
+            return GatewayRiskDecision.PASS;
+        }
+        return properties.isGatewayDecisionRequired()
+                ? GatewayRiskDecision.MISSING_REQUIRED
+                : GatewayRiskDecision.IGNORE;
+    }
+
+    private enum GatewayRiskDecision {
+        PASS,
+        REJECT,
+        MISSING_REQUIRED,
+        IGNORE
     }
 }

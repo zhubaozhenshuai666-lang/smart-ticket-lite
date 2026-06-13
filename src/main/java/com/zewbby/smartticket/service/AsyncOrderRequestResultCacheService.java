@@ -16,6 +16,8 @@ public class AsyncOrderRequestResultCacheService {
 
     private static final Duration QUEUED_RESULT_TTL = Duration.ofMinutes(5);
 
+    private static final Duration TERMINAL_RESULT_TTL = Duration.ofMinutes(30);
+
     private final RedisTemplate<String, Object> redisTemplate;
 
     public AsyncOrderRequestResultCacheService(RedisTemplate<String, Object> redisTemplate) {
@@ -27,18 +29,30 @@ public class AsyncOrderRequestResultCacheService {
             return;
         }
         try {
-            redisTemplate.opsForValue().set(
-                    RedisKeyConstant.asyncOrderResultKey(userId, orderRequestVO.getRequestId()),
-                    orderRequestVO,
-                    QUEUED_RESULT_TTL
-            );
+            cacheResult(userId, orderRequestVO, QUEUED_RESULT_TTL);
         } catch (RuntimeException exception) {
             LOGGER.warn("Failed to cache async order queued result, userId={}, requestId={}",
                     userId, orderRequestVO.getRequestId(), exception);
         }
     }
 
+    public void cacheTerminalResult(Long userId, OrderRequestVO orderRequestVO) {
+        if (userId == null || orderRequestVO == null || orderRequestVO.getRequestId() == null) {
+            return;
+        }
+        try {
+            cacheResult(userId, orderRequestVO, TERMINAL_RESULT_TTL);
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Failed to cache async order terminal result, userId={}, requestId={}",
+                    userId, orderRequestVO.getRequestId(), exception);
+        }
+    }
+
     public OrderRequestVO getQueuedResult(Long userId, String requestId) {
+        return getCachedResult(userId, requestId);
+    }
+
+    public OrderRequestVO getCachedResult(Long userId, String requestId) {
         if (userId == null || requestId == null || requestId.isBlank()) {
             return null;
         }
@@ -50,5 +64,13 @@ public class AsyncOrderRequestResultCacheService {
                     userId, requestId, exception);
             return null;
         }
+    }
+
+    private void cacheResult(Long userId, OrderRequestVO orderRequestVO, Duration ttl) {
+        redisTemplate.opsForValue().set(
+                RedisKeyConstant.asyncOrderResultKey(userId, orderRequestVO.getRequestId()),
+                orderRequestVO,
+                ttl
+        );
     }
 }

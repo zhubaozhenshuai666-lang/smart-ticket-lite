@@ -20,6 +20,9 @@ smart-ticket:
     in-flight-control-enabled: ${SMART_TICKET_ASYNC_ORDER_IN_FLIGHT_CONTROL_ENABLED:true}
     max-in-flight-per-ticket-category: ${SMART_TICKET_ASYNC_ORDER_MAX_IN_FLIGHT_PER_TICKET_CATEGORY:100000}
     in-flight-counter-ttl-seconds: ${SMART_TICKET_ASYNC_ORDER_IN_FLIGHT_COUNTER_TTL_SECONDS:900}
+    redis-stream-read-batch-size: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_READ_BATCH_SIZE:256}
+    redis-stream-poll-fixed-delay-millis: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_POLL_FIXED_DELAY_MILLIS:20}
+    redis-stream-block-millis: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_BLOCK_MILLIS:50}
 
   mq-consumer:
     concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_CONCURRENT_CONSUMERS:32}
@@ -46,11 +49,17 @@ smart-ticket:
     default-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_DEFAULT_ADMISSION_TOKEN_BATCH_SIZE:100}
     max-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_MAX_ADMISSION_TOKEN_BATCH_SIZE:1000}
 
+  activity-isolation:
+    enabled: ${SMART_TICKET_ACTIVITY_ISOLATION_ENABLED:true}
+    max-in-flight-per-activity-ticket-category: ${SMART_TICKET_ACTIVITY_ISOLATION_MAX_IN_FLIGHT_PER_ACTIVITY_TICKET_CATEGORY:200000}
+
   risk-control:
     enabled: ${SMART_TICKET_RISK_CONTROL_ENABLED:true}
     max-ip-attempts-per-minute: ${SMART_TICKET_RISK_CONTROL_MAX_IP_ATTEMPTS_PER_MINUTE:3000}
     max-user-attempts-per-minute: ${SMART_TICKET_RISK_CONTROL_MAX_USER_ATTEMPTS_PER_MINUTE:20}
     counter-ttl-seconds: ${SMART_TICKET_RISK_CONTROL_COUNTER_TTL_SECONDS:180}
+    gateway-decision-required: ${SMART_TICKET_RISK_CONTROL_GATEWAY_DECISION_REQUIRED:false}
+    skip-local-counter-when-gateway-pass: ${SMART_TICKET_RISK_CONTROL_SKIP_LOCAL_COUNTER_WHEN_GATEWAY_PASS:true}
 
   show-relation-cache:
     refresh-fixed-delay-millis: ${SMART_TICKET_SHOW_RELATION_CACHE_REFRESH_FIXED_DELAY_MILLIS:10000}

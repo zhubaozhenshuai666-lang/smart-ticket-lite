@@ -18,6 +18,8 @@ public interface OrderService {
 
     OrderRequestVO submitAsyncOrder(CreateOrderRequest request, String clientIp);
 
+    OrderRequestVO submitAsyncOrder(CreateOrderRequest request, String clientIp, String gatewayRiskDecision);
+
     OrderRequestVO getOrderRequestResult(String requestId);
 
     OrderVO getOrderById(Long orderId);

@@ -20,6 +20,8 @@ public final class RedisKeyConstant {
 
     private static final String ASYNC_ORDER_IN_FLIGHT_PREFIX = "order:async:inflight:";
 
+    private static final String ASYNC_ORDER_ACTIVITY_IN_FLIGHT_PREFIX = "order:async:inflight:activity:";
+
     private static final String ASYNC_ORDER_RESULT_PREFIX = "order:async:result:";
 
     private static final String RATE_LIMIT_IP_PREFIX = "rate:ip:";
@@ -106,6 +108,12 @@ public final class RedisKeyConstant {
 
     public static String asyncOrderInFlightKey(Long ticketCategoryId) {
         return ASYNC_ORDER_IN_FLIGHT_PREFIX + "ticket:" + ticketCategoryId;
+    }
+
+    public static String asyncOrderActivityInFlightKey(String activityScopeKey, Long ticketCategoryId) {
+        return ASYNC_ORDER_ACTIVITY_IN_FLIGHT_PREFIX
+                + normalize(activityScopeKey)
+                + ":ticket:" + ticketCategoryId;
     }
 
     public static String asyncOrderResultKey(Long userId, String requestId) {

@@ -51,4 +51,61 @@ class CapacityAssessmentServiceTest {
         assertThat(assessment.isDirectRabbitEnabled()).isTrue();
         assertThat(assessment.getHardBottleneck()).contains("消费者并发");
     }
+
+    @Test
+    void planForTargetSubmitQpsReturnsPressureTuningBaseline() {
+        RateLimitProperties rateLimitProperties = new RateLimitProperties();
+        MqConsumerProperties mqConsumerProperties = new MqConsumerProperties();
+        mqConsumerProperties.setConcurrentConsumers(8);
+        mqConsumerProperties.setMaxConcurrentConsumerCap(256);
+        mqConsumerProperties.setMaxAsyncQueueShardCount(128);
+        AsyncOrderSubmitProperties asyncOrderSubmitProperties = new AsyncOrderSubmitProperties();
+        asyncOrderSubmitProperties.setPersistRequestBeforePublish(false);
+        asyncOrderSubmitProperties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM);
+        asyncOrderSubmitProperties.setMaxInFlightPerTicketCategory(100000L);
+        StockBucketProperties stockBucketProperties = new StockBucketProperties();
+        stockBucketProperties.setDefaultBucketCount(64);
+
+        var service = new CapacityAssessmentService(
+                rateLimitProperties,
+                mqConsumerProperties,
+                asyncOrderSubmitProperties,
+                stockBucketProperties,
+                new WaitingRoomProperties(),
+                new OrderTimeoutProperties()
+        );
+
+        var plan = service.planForTargetSubmitQps(10000D);
+
+        assertThat(plan.getTargetSubmitQps()).isEqualTo(10000D);
+        assertThat(plan.getRecommendedAsyncQueueShardCount()).isGreaterThanOrEqualTo(20);
+        assertThat(plan.getRecommendedMaxConcurrentConsumers()).isGreaterThanOrEqualTo(56);
+        assertThat(plan.getRecommendedStockBucketCount()).isGreaterThanOrEqualTo(64);
+        assertThat(plan.getHardRequirements()).isNotEmpty();
+    }
+
+    @Test
+    void assessOrderPipelineCapacityTreatsRedisStreamAsEventPipeline() {
+        AsyncOrderSubmitProperties asyncOrderSubmitProperties = new AsyncOrderSubmitProperties();
+        asyncOrderSubmitProperties.setPersistRequestBeforePublish(false);
+        asyncOrderSubmitProperties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM);
+        asyncOrderSubmitProperties.setDirectRabbitWaitForConfirm(true);
+        WaitingRoomProperties waitingRoomProperties = new WaitingRoomProperties();
+        waitingRoomProperties.setEnabled(true);
+
+        var service = new CapacityAssessmentService(
+                new RateLimitProperties(),
+                new MqConsumerProperties(),
+                asyncOrderSubmitProperties,
+                new StockBucketProperties(),
+                waitingRoomProperties,
+                new OrderTimeoutProperties()
+        );
+
+        var assessment = service.assessOrderPipelineCapacity();
+
+        assertThat(assessment.getHardBottleneck()).doesNotContain("Outbox");
+        assertThat(assessment.getHardBottleneck()).doesNotContain("RabbitMQ");
+        assertThat(assessment.getHardBottleneck()).contains("消费者并发");
+    }
 }

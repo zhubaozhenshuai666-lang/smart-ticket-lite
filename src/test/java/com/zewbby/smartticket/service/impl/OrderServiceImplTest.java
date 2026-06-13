@@ -313,7 +313,7 @@ class OrderServiceImplTest {
         ReflectionTestUtils.setField(orderService, "riskControlService", riskControlService);
         when(rateLimitService.tryAcquireOrderSubmit(anyLong(), anyString(), anyString(), any(), anyBoolean()))
                 .thenReturn(true);
-        when(riskControlService.allowOrderSubmit(1L, "10.0.0.1")).thenReturn(false);
+        when(riskControlService.allowOrderSubmit(1L, "10.0.0.1", null)).thenReturn(false);
 
         assertThatThrownBy(() -> orderService.submitAsyncOrder(validRequest(), "10.0.0.1"))
                 .isInstanceOf(BusinessException.class)
@@ -366,6 +366,21 @@ class OrderServiceImplTest {
         assertThat(messageCaptor.getValue().getDeductedAt()).isNotNull();
         assertThat(messageCaptor.getValue().getMessageId()).startsWith("MSGREQ");
         verify(asyncOrderRequestResultCacheService).cacheQueuedResult(eq(1L), any(OrderRequestVO.class));
+    }
+
+    @Test
+    void getOrderRequestResultReturnsCachedResultBeforeQueryingDatabase() {
+        ReflectionTestUtils.setField(orderService, "asyncOrderRequestResultCacheService", asyncOrderRequestResultCacheService);
+        OrderRequestVO cached = new OrderRequestVO();
+        cached.setRequestId("REQ1");
+        cached.setStatus(OrderRequestStatusEnum.SUCCESS.getCode());
+        cached.setOrderId(100L);
+        when(asyncOrderRequestResultCacheService.getCachedResult(1L, "REQ1")).thenReturn(cached);
+
+        var response = orderService.getOrderRequestResult("REQ1");
+
+        assertThat(response.getOrderId()).isEqualTo(100L);
+        verify(orderRequestMapper, never()).selectByRequestIdAndUserId(anyString(), anyLong());
     }
 
     @Test
@@ -688,13 +703,13 @@ class OrderServiceImplTest {
         OrderRequestVO cached = new OrderRequestVO();
         cached.setRequestId("REQ_FAST");
         cached.setStatus(OrderRequestStatusEnum.QUEUED.getCode());
-        when(orderRequestMapper.selectByRequestIdAndUserId("REQ_FAST", 1L)).thenReturn(null);
-        when(asyncOrderRequestResultCacheService.getQueuedResult(1L, "REQ_FAST")).thenReturn(cached);
+        when(asyncOrderRequestResultCacheService.getCachedResult(1L, "REQ_FAST")).thenReturn(cached);
 
         var response = orderService.getOrderRequestResult("REQ_FAST");
 
         assertThat(response.getRequestId()).isEqualTo("REQ_FAST");
         assertThat(response.getStatus()).isEqualTo(OrderRequestStatusEnum.QUEUED.getCode());
+        verify(orderRequestMapper, never()).selectByRequestIdAndUserId(anyString(), anyLong());
     }
 
     @Test

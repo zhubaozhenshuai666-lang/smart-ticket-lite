@@ -13,6 +13,7 @@ import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,7 +35,7 @@ class RiskControlServiceTest {
     void setUp() {
         properties = new RiskControlProperties();
         riskControlService = new RiskControlService(stringRedisTemplate, properties);
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        lenient().when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
     }
 
     @Test
@@ -56,6 +57,22 @@ class RiskControlServiceTest {
         boolean allowed = riskControlService.allowOrderSubmit(1L, "10.0.0.1");
 
         assertThat(allowed).isFalse();
+    }
+
+    @Test
+    void allowOrderSubmitRejectsImmediatelyWhenGatewayDecisionRejects() {
+        boolean allowed = riskControlService.allowOrderSubmit(1L, "10.0.0.1", "reject");
+
+        assertThat(allowed).isFalse();
+    }
+
+    @Test
+    void allowOrderSubmitCanSkipLocalCounterWhenGatewayPasses() {
+        properties.setSkipLocalCounterWhenGatewayPass(true);
+
+        boolean allowed = riskControlService.allowOrderSubmit(1L, "10.0.0.1", "pass");
+
+        assertThat(allowed).isTrue();
     }
 
     @Test

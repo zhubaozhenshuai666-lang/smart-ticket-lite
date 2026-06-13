@@ -45,6 +45,7 @@ import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.AsyncOrderRequestResultCacheService;
 import com.zewbby.smartticket.service.ActivityDegradeService;
+import com.zewbby.smartticket.service.ActivityIsolationService;
 import com.zewbby.smartticket.service.BucketRouteService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.OrderService;
@@ -146,6 +147,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired(required = false)
     private ActivityDegradeService activityDegradeService;
+
+    @Autowired(required = false)
+    private ActivityIsolationService activityIsolationService;
 
     @Autowired
     public OrderServiceImpl(OrderMapper orderMapper,
@@ -415,11 +419,17 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional(noRollbackFor = BusinessException.class)
     public OrderRequestVO submitAsyncOrder(CreateOrderRequest request, String clientIp) {
+        return submitAsyncOrder(request, clientIp, null);
+    }
+
+    @Override
+    @Transactional(noRollbackFor = BusinessException.class)
+    public OrderRequestVO submitAsyncOrder(CreateOrderRequest request, String clientIp, String gatewayRiskDecision) {
 
         //限流，库存不足快速失败，防重复
         Long currentUserId = UserContext.requireUserId();
         checkCoarseOrderSubmitRateLimit(currentUserId, clientIp, ASYNC_ORDER_API_NAME);
-        checkRiskControl(currentUserId, clientIp);
+        checkRiskControl(currentUserId, clientIp, gatewayRiskDecision);
         checkSoldoutFastFail(request.getTicketCategoryId());
         if (!orderSubmitGuard.tryAcquire(currentUserId, request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_SUBMIT);
@@ -428,11 +438,12 @@ public class OrderServiceImpl implements OrderService {
         TicketOrderRequest orderRequest = null;
         boolean redisPreDeducted = false;
         boolean inFlightAcquired = false;
+        ActivityScope activityScope = null;
         try {
             //验证用户状态是否被允许
             ensureUserCanSubmit(currentUserId);
 
-            ActivityScope activityScope = ActivityScope.from(
+            activityScope = ActivityScope.from(
                     request.getShowId(),
                     request.getSessionId(),
                     request.getTicketCategoryId()
@@ -443,7 +454,7 @@ public class OrderServiceImpl implements OrderService {
             checkActivityOrderSubmitRateLimit(activityScope);
             //票档限流
             checkTicketOrderSubmitRateLimit(request);
-            acquireAsyncOrderInFlight(request.getTicketCategoryId());
+            acquireAsyncOrderInFlight(activityScope, request.getTicketCategoryId());
             inFlightAcquired = true;
             checkWaitingRoomAdmission(currentUserId, request);
             //用lua消耗token
@@ -492,7 +503,7 @@ public class OrderServiceImpl implements OrderService {
         } catch (RuntimeException exception) {
             //回滚redis预扣
             releaseRedisPreDeductedStockAfterSubmitFailure(orderRequest, redisPreDeducted, "异步下单提交失败");
-            releaseAsyncOrderInFlightAfterSubmitFailure(request.getTicketCategoryId(), inFlightAcquired);
+            releaseAsyncOrderInFlightAfterSubmitFailure(activityScope, request.getTicketCategoryId(), inFlightAcquired);
             //发生其他意外就释放锁
             orderSubmitGuard.release(currentUserId, request.getTicketCategoryId());
             throw exception;
@@ -555,12 +566,12 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderRequestVO getOrderRequestResult(String requestId) {
         Long currentUserId = UserContext.requireUserId();
+        OrderRequestVO cachedResult = getCachedAsyncOrderResult(currentUserId, requestId);
+        if (cachedResult != null) {
+            return cachedResult;
+        }
         TicketOrderRequest orderRequest = orderRequestMapper.selectByRequestIdAndUserId(requestId, currentUserId);
         if (orderRequest == null) {
-            OrderRequestVO cachedQueuedResult = getCachedFastPipelineQueuedResult(currentUserId, requestId);
-            if (cachedQueuedResult != null) {
-                return cachedQueuedResult;
-            }
             throw new BusinessException(ErrorMessageConstant.ORDER_REQUEST_NOT_FOUND);
         }
         return toOrderRequestVO(orderRequest);
@@ -1056,11 +1067,11 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private void checkRiskControl(Long userId, String clientIp) {
+    private void checkRiskControl(Long userId, String clientIp, String gatewayRiskDecision) {
         if (riskControlService == null) {
             return;
         }
-        if (!riskControlService.allowOrderSubmit(userId, clientIp)) {
+        if (!riskControlService.allowOrderSubmit(userId, clientIp, gatewayRiskDecision)) {
             observabilityMetricsService.recordRateLimitRejected();
             throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
         }
@@ -1095,18 +1106,31 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private void acquireAsyncOrderInFlight(Long ticketCategoryId) {
+    private void acquireAsyncOrderInFlight(ActivityScope activityScope, Long ticketCategoryId) {
         if (asyncOrderInFlightService == null) {
             return;
         }
-        if (!asyncOrderInFlightService.tryAcquire(ticketCategoryId)) {
+        boolean acquired = activityIsolationService != null && activityIsolationService.isEnabled()
+                ? asyncOrderInFlightService.tryAcquire(
+                        activityIsolationService.scopeKey(activityScope),
+                        ticketCategoryId,
+                        activityIsolationService.maxInFlight(activityScope, ticketCategoryId)
+                )
+                : asyncOrderInFlightService.tryAcquire(ticketCategoryId);
+        if (!acquired) {
             observabilityMetricsService.recordRateLimitRejected();
             throw new BusinessException(ErrorMessageConstant.ORDER_QUEUE_BUSY);
         }
     }
 
-    private void releaseAsyncOrderInFlightAfterSubmitFailure(Long ticketCategoryId, boolean inFlightAcquired) {
+    private void releaseAsyncOrderInFlightAfterSubmitFailure(ActivityScope activityScope,
+                                                            Long ticketCategoryId,
+                                                            boolean inFlightAcquired) {
         if (!inFlightAcquired || asyncOrderInFlightService == null) {
+            return;
+        }
+        if (activityIsolationService != null && activityIsolationService.isEnabled()) {
+            asyncOrderInFlightService.release(activityIsolationService.scopeKey(activityScope), ticketCategoryId);
             return;
         }
         asyncOrderInFlightService.release(ticketCategoryId);
@@ -1198,10 +1222,10 @@ public class OrderServiceImpl implements OrderService {
         asyncOrderRequestResultCacheService.cacheQueuedResult(userId, toOrderRequestVO(orderRequest));
     }
 
-    private OrderRequestVO getCachedFastPipelineQueuedResult(Long userId, String requestId) {
+    private OrderRequestVO getCachedAsyncOrderResult(Long userId, String requestId) {
         if (asyncOrderRequestResultCacheService == null) {
             return null;
         }
-        return asyncOrderRequestResultCacheService.getQueuedResult(userId, requestId);
+        return asyncOrderRequestResultCacheService.getCachedResult(userId, requestId);
     }
 }

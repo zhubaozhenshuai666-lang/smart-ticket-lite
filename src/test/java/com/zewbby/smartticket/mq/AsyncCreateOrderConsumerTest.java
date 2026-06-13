@@ -93,17 +93,25 @@ class AsyncCreateOrderConsumerTest {
     void setUp() {
         MqConsumerProperties mqConsumerProperties = new MqConsumerProperties();
         mqConsumerProperties.setProcessingTimeoutSeconds(120);
+        StockBucketProperties stockBucketProperties = new StockBucketProperties();
+        stockBucketProperties.setEnabled(false);
         consumer = new AsyncCreateOrderConsumer(
                 orderRequestMapper,
                 orderMapper,
                 userMapper,
                 ticketCategoryMapper,
                 ticketStockMapper,
+                ticketStockBucketMapper,
                 orderTimeoutProducer,
                 stockLuaService,
                 deadLetterMessageService,
                 mqConsumerProperties,
-                observabilityMetricsService
+                observabilityMetricsService,
+                stockBucketProperties,
+                null,
+                null,
+                null,
+                asyncOrderInFlightService
         );
     }
 
@@ -190,7 +198,7 @@ class AsyncCreateOrderConsumerTest {
 
         consumer.consume(new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1));
 
-        verify(asyncOrderInFlightService).release(2L);
+        verify(asyncOrderInFlightService).release("show:1:session:1", 2L);
     }
 
     @Test
@@ -356,8 +364,10 @@ class AsyncCreateOrderConsumerTest {
     @Test
     void consumerCreatesMissingRequestFromMessageAndCreatesOrder() {
         when(orderRequestMapper.selectByRequestId("REQ1")).thenReturn(null);
+        String[] insertedStatus = new String[1];
         when(orderRequestMapper.insertIgnore(any(TicketOrderRequest.class))).thenAnswer(invocation -> {
             TicketOrderRequest request = invocation.getArgument(0);
+            insertedStatus[0] = request.getStatus();
             request.setId(10L);
             return 1;
         });
@@ -382,7 +392,7 @@ class AsyncCreateOrderConsumerTest {
 
         ArgumentCaptor<TicketOrderRequest> requestCaptor = ArgumentCaptor.forClass(TicketOrderRequest.class);
         verify(orderRequestMapper).insertIgnore(requestCaptor.capture());
-        assertThat(requestCaptor.getValue().getStatus()).isEqualTo(OrderRequestStatusEnum.PROCESSING.getCode());
+        assertThat(insertedStatus[0]).isEqualTo(OrderRequestStatusEnum.PROCESSING.getCode());
         assertThat(requestCaptor.getValue().getStockBucketVersion()).isEqualTo(1);
         assertThat(requestCaptor.getValue().getStockBucketNo()).isEqualTo(4);
         assertThat(requestCaptor.getValue().getMessageId()).isEqualTo("MSGREQ1");
@@ -487,7 +497,11 @@ class AsyncCreateOrderConsumerTest {
                 deadLetterMessageService,
                 mqConsumerProperties,
                 observabilityMetricsService,
-                stockBucketProperties
+                stockBucketProperties,
+                null,
+                null,
+                null,
+                asyncOrderInFlightService
         );
     }
 
@@ -510,7 +524,9 @@ class AsyncCreateOrderConsumerTest {
                 observabilityMetricsService,
                 stockBucketProperties,
                 null,
-                showRelationCacheService
+                showRelationCacheService,
+                null,
+                asyncOrderInFlightService
         );
     }
 
@@ -560,7 +576,7 @@ class AsyncCreateOrderConsumerTest {
                 null,
                 null,
                 orderSnapshotCacheService,
-                null
+                asyncOrderInFlightService
         );
     }
 

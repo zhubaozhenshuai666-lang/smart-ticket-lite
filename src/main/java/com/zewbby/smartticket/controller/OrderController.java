@@ -2,6 +2,7 @@ package com.zewbby.smartticket.controller;
 
 import com.zewbby.smartticket.auth.UserContext;
 import com.zewbby.smartticket.common.ApiResponse;
+import com.zewbby.smartticket.config.RiskControlProperties;
 import com.zewbby.smartticket.domain.dto.CreateOrderRequest;
 import com.zewbby.smartticket.domain.vo.IdempotencyTokenVO;
 import com.zewbby.smartticket.domain.vo.OrderRequestVO;
@@ -35,14 +36,18 @@ public class OrderController {
 
     private final WaitingRoomService waitingRoomService;
 
+    private final RiskControlProperties riskControlProperties;
+
     public OrderController(OrderService orderService,
                            IdempotencyTokenService idempotencyTokenService,
                            ClientIpResolver clientIpResolver,
-                           WaitingRoomService waitingRoomService) {
+                           WaitingRoomService waitingRoomService,
+                           RiskControlProperties riskControlProperties) {
         this.orderService = orderService;
         this.idempotencyTokenService = idempotencyTokenService;
         this.clientIpResolver = clientIpResolver;
         this.waitingRoomService = waitingRoomService;
+        this.riskControlProperties = riskControlProperties;
     }
 
     @GetMapping("/orders/idempotency-token")
@@ -87,7 +92,11 @@ public class OrderController {
     @PostMapping("/orders/async")
     public ApiResponse<OrderRequestVO> submitAsyncOrder(@Valid @RequestBody CreateOrderRequest request,
                                                         HttpServletRequest httpServletRequest) {
-        return ApiResponse.successZero(orderService.submitAsyncOrder(request, clientIpResolver.resolve(httpServletRequest)));
+        return ApiResponse.successZero(orderService.submitAsyncOrder(
+                request,
+                clientIpResolver.resolve(httpServletRequest),
+                httpServletRequest.getHeader(riskControlProperties.getGatewayDecisionHeaderName())
+        ));
     }
 
     /**

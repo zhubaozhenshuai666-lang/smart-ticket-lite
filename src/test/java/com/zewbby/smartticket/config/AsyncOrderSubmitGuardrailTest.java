@@ -80,6 +80,15 @@ class AsyncOrderSubmitGuardrailTest {
                 .doesNotThrowAnyException();
     }
 
+    @Test
+    void flashSaleProfileAllowsRedisStreamEventPipeline() {
+        AsyncOrderSubmitProperties properties = flashSaleProperties();
+        properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM);
+
+        assertThatCode(() -> new AsyncOrderSubmitGuardrail(properties, flashSaleEnvironment()).afterPropertiesSet())
+                .doesNotThrowAnyException();
+    }
+
     private AsyncOrderSubmitProperties flashSaleProperties() {
         AsyncOrderSubmitProperties properties = new AsyncOrderSubmitProperties();
         properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_DIRECT_RABBIT);

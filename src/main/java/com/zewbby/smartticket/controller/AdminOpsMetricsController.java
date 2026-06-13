@@ -2,6 +2,7 @@ package com.zewbby.smartticket.controller;
 
 import com.zewbby.smartticket.common.ApiResponse;
 import com.zewbby.smartticket.domain.vo.CapacityAssessmentVO;
+import com.zewbby.smartticket.domain.vo.CapacityPressurePlanVO;
 import com.zewbby.smartticket.domain.vo.MetadataPrewarmResultVO;
 import com.zewbby.smartticket.domain.vo.OpsMetricsSummaryVO;
 import com.zewbby.smartticket.domain.vo.WaitingRoomAdmissionGrantVO;
@@ -60,6 +61,11 @@ public class AdminOpsMetricsController {
     @GetMapping("/capacity/order-pipeline")
     public ApiResponse<CapacityAssessmentVO> orderPipelineCapacity() {
         return ApiResponse.successZero(capacityAssessmentService.assessOrderPipelineCapacity());
+    }
+
+    @GetMapping("/capacity/order-pipeline/pressure-plan")
+    public ApiResponse<CapacityPressurePlanVO> orderPipelinePressurePlan(@RequestParam(defaultValue = "10000") double targetQps) {
+        return ApiResponse.successZero(capacityAssessmentService.planForTargetSubmitQps(targetQps));
     }
 
     @PostMapping("/metadata-prewarm/order-submit")

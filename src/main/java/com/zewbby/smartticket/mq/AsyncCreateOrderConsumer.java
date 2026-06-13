@@ -5,11 +5,13 @@ import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.constant.RabbitMqConstant;
 import com.zewbby.smartticket.config.MqConsumerProperties;
 import com.zewbby.smartticket.config.StockBucketProperties;
+import com.zewbby.smartticket.domain.dto.ActivityScope;
 import com.zewbby.smartticket.domain.dto.OrderSnapshot;
 import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.domain.entity.TicketOrder;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
 import com.zewbby.smartticket.domain.entity.UserAccount;
+import com.zewbby.smartticket.domain.vo.OrderRequestVO;
 import com.zewbby.smartticket.enums.ConsumerExceptionTypeEnum;
 import com.zewbby.smartticket.enums.OrderRequestStatusEnum;
 import com.zewbby.smartticket.enums.OrderStatusEnum;
@@ -22,6 +24,7 @@ import com.zewbby.smartticket.mapper.TicketStockBucketMapper;
 import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.service.AsyncOrderInFlightService;
+import com.zewbby.smartticket.service.AsyncOrderRequestResultCacheService;
 import com.zewbby.smartticket.service.DeadLetterMessageService;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.OrderSnapshotCacheService;
@@ -79,6 +82,9 @@ public class AsyncCreateOrderConsumer {
     private final OrderSnapshotCacheService orderSnapshotCacheService;
 
     private final AsyncOrderInFlightService asyncOrderInFlightService;
+
+    @Autowired(required = false)
+    private AsyncOrderRequestResultCacheService asyncOrderRequestResultCacheService;
 
     @Autowired
     public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
@@ -365,6 +371,9 @@ public class AsyncCreateOrderConsumer {
             if (successRows != 1) {
                 throw new IllegalStateException("异步下单请求状态更新失败");
             }
+            orderRequest.setStatus(OrderRequestStatusEnum.SUCCESS.getCode());
+            orderRequest.setOrderId(order.getId());
+            cacheAsyncOrderResult(orderRequest);
             //异步订单处理结束（无论成功还是失败）后，释放该票档占用的In-Flight并发名额，让前端正在排队的其他用户可以进入系统。
             releaseAsyncOrderInFlight(orderRequest);
             //非业务需求
@@ -582,7 +591,38 @@ public class AsyncCreateOrderConsumer {
             return false;
         }
         compensateRedisPreDeductedStock(orderRequest, failReason);
+        orderRequest.setStatus(OrderRequestStatusEnum.FAILED.getCode());
+        orderRequest.setFailReason(failReason);
+        cacheAsyncOrderResult(orderRequest);
         return true;
+    }
+
+    private void cacheAsyncOrderResult(TicketOrderRequest orderRequest) {
+        if (asyncOrderRequestResultCacheService == null || orderRequest == null) {
+            return;
+        }
+        asyncOrderRequestResultCacheService.cacheTerminalResult(orderRequest.getUserId(), toOrderRequestVO(orderRequest));
+    }
+
+    private OrderRequestVO toOrderRequestVO(TicketOrderRequest orderRequest) {
+        OrderRequestVO orderRequestVO = new OrderRequestVO();
+        orderRequestVO.setRequestId(orderRequest.getRequestId());
+        orderRequestVO.setStatus(orderRequest.getStatus());
+        orderRequestVO.setOrderId(orderRequest.getOrderId());
+        orderRequestVO.setProcessingAt(orderRequest.getProcessingAt());
+        orderRequestVO.setRedisDeducted(orderRequest.getRedisDeducted());
+        orderRequestVO.setDeductedQuantity(orderRequest.getDeductedQuantity());
+        orderRequestVO.setStockBucketVersion(orderRequest.getStockBucketVersion());
+        orderRequestVO.setStockBucketNo(orderRequest.getStockBucketNo());
+        orderRequestVO.setDeductedAt(orderRequest.getDeductedAt());
+        orderRequestVO.setCompensated(orderRequest.getCompensated());
+        orderRequestVO.setCompensationStatus(orderRequest.getCompensationStatus());
+        orderRequestVO.setCompensatedAt(orderRequest.getCompensatedAt());
+        orderRequestVO.setFailReason(orderRequest.getFailReason());
+        orderRequestVO.setMessageId(orderRequest.getMessageId());
+        orderRequestVO.setCreatedAt(orderRequest.getCreatedAt());
+        orderRequestVO.setUpdatedAt(orderRequest.getUpdatedAt());
+        return orderRequestVO;
     }
 
     private void compensateRedisPreDeductedStock(TicketOrderRequest orderRequest, String failReason) {
@@ -723,10 +763,15 @@ public class AsyncCreateOrderConsumer {
     }
 
     private void releaseAsyncOrderInFlight(TicketOrderRequest orderRequest) {
-        if (orderRequest == null) {
+        if (orderRequest == null || asyncOrderInFlightService == null) {
             return;
         }
-        releaseAsyncOrderInFlight(orderRequest.getTicketCategoryId());
+        ActivityScope activityScope = ActivityScope.from(
+                orderRequest.getShowId(),
+                orderRequest.getSessionId(),
+                orderRequest.getTicketCategoryId()
+        );
+        asyncOrderInFlightService.release(activityScope.scopeKey(), orderRequest.getTicketCategoryId());
     }
 
     private void releaseAsyncOrderInFlight(Long ticketCategoryId) {

@@ -33,10 +33,11 @@ public class AsyncOrderSubmitGuardrail implements InitializingBean {
     private void validatePublisherMode() {
         String publisherMode = properties.getPublisherMode();
         if (AsyncOrderSubmitProperties.PUBLISHER_MODE_OUTBOX.equalsIgnoreCase(publisherMode)
-                || AsyncOrderSubmitProperties.PUBLISHER_MODE_DIRECT_RABBIT.equalsIgnoreCase(publisherMode)) {
+                || AsyncOrderSubmitProperties.PUBLISHER_MODE_DIRECT_RABBIT.equalsIgnoreCase(publisherMode)
+                || AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM.equalsIgnoreCase(publisherMode)) {
             return;
         }
-        throw new IllegalStateException("smart-ticket.async-order-submit.publisher-mode 只允许 outbox 或 direct-rabbit");
+        throw new IllegalStateException("smart-ticket.async-order-submit.publisher-mode 只允许 outbox、direct-rabbit 或 redis-stream");
     }
 
     private boolean isFlashSaleProfileActive() {
@@ -45,8 +46,8 @@ public class AsyncOrderSubmitGuardrail implements InitializingBean {
     }
 
     private void validateFlashSaleProfile() {
-        if (!properties.isDirectRabbitPublisherMode()) {
-            throw new IllegalStateException("flash-sale profile 必须使用 direct-rabbit 发布模式，不能继续走 Outbox 写放大路径");
+        if (!properties.isDirectRabbitPublisherMode() && !properties.isRedisStreamPublisherMode()) {
+            throw new IllegalStateException("flash-sale profile 必须使用 direct-rabbit 或 redis-stream 发布模式，不能继续走 Outbox 写放大路径");
         }
         if (properties.isPersistRequestBeforePublish()) {
             throw new IllegalStateException("flash-sale profile 必须关闭入口 ticket_order_request 预落库");

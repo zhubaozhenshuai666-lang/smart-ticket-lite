@@ -37,12 +37,30 @@ public class AsyncOrderInFlightService {
         if (!properties.isInFlightControlEnabled()) {
             return true;
         }
-        String key = RedisKeyConstant.asyncOrderInFlightKey(ticketCategoryId);
+        return tryAcquireKey(
+                RedisKeyConstant.asyncOrderInFlightKey(ticketCategoryId),
+                properties.getMaxInFlightPerTicketCategory(),
+                ticketCategoryId
+        );
+    }
+
+    public boolean tryAcquire(String activityScopeKey, Long ticketCategoryId, long maxInFlight) {
+        if (!properties.isInFlightControlEnabled()) {
+            return true;
+        }
+        return tryAcquireKey(
+                RedisKeyConstant.asyncOrderActivityInFlightKey(activityScopeKey, ticketCategoryId),
+                maxInFlight,
+                ticketCategoryId
+        );
+    }
+
+    private boolean tryAcquireKey(String key, long maxInFlight, Long ticketCategoryId) {
         try {
             Long result = stringRedisTemplate.execute(
                     acquireScript,
                     Collections.singletonList(key),
-                    String.valueOf(properties.getMaxInFlightPerTicketCategory()),
+                    String.valueOf(Math.max(1L, maxInFlight)),
                     String.valueOf(properties.getInFlightCounterTtlSeconds())
             );
             return result != null && result > 0L;
@@ -58,8 +76,17 @@ public class AsyncOrderInFlightService {
         if (!properties.isInFlightControlEnabled() || ticketCategoryId == null) {
             return;
         }
-        //取key
-        String key = RedisKeyConstant.asyncOrderInFlightKey(ticketCategoryId);
+        releaseKey(RedisKeyConstant.asyncOrderInFlightKey(ticketCategoryId), ticketCategoryId);
+    }
+
+    public void release(String activityScopeKey, Long ticketCategoryId) {
+        if (!properties.isInFlightControlEnabled() || ticketCategoryId == null) {
+            return;
+        }
+        releaseKey(RedisKeyConstant.asyncOrderActivityInFlightKey(activityScopeKey, ticketCategoryId), ticketCategoryId);
+    }
+
+    private void releaseKey(String key, Long ticketCategoryId) {
         try {
             //执行释放脚本
             stringRedisTemplate.execute(releaseScript, Collections.singletonList(key));
