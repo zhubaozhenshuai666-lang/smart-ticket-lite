@@ -1,310 +1,367 @@
-# 异步下单与异步创单吞吐压测手册
+# JMeter 异步下单与异步创单吞吐压测手册
 
-这份文档只讲一件事：怎样用项目里的脚本测试抢票链路的吞吐，并且看懂结果。不要把“接口提交成功 QPS”和“最终创建订单 TPS”混为一谈，前者只能说明入口扛住了，后者才接近真实订单链路能力。
+这份文档只讲一件事：用 JMeter 正式测试抢票链路的入口吞吐和异步创单吞吐。轻量脚本不能冒充正式压测，高并发测试交付物必须有标准测试计划、参数化数据、可复现命令和可阅读报告。
 
-## 1. 本次压测测什么
+## 1. 文件清单
 
-脚本位置：
+本次压测文件：
+
+- `scripts/jmeter/async-order-throughput.jmx`：JMeter 测试计划。
+- `scripts/jmeter/data/order-users.csv`：用户、活动、票档、入场 token 参数模板。
+
+JMeter 测试计划覆盖这些动作：
+
+1. 从 CSV 读取用户 JWT、演出、场次、票档、购买数量、等待室 token。
+2. 调用 `/api/orders/idempotency-token` 获取幂等 token。
+3. 调用 `/api/orders/async` 提交异步下单。
+4. 提取 `requestId`。
+5. 轮询 `/api/order-requests/{requestId}`，直到进入 `SUCCESS`、`FAILED`、`CANCELLED`、`COMPENSATED` 终态。
+6. 通过 JMeter 聚合报告查看吞吐、错误率、平均响应时间、P90、P95、P99。
+
+## 2. 先讲清楚：你到底在测什么
+
+JMeter 报告里会出现多个请求：
+
+- `GET /api/orders/idempotency-token`
+- `POST /api/orders/async`
+- `GET /api/order-requests/{requestId}`
+- `异步下单完整链路`
+
+严格看指标时，口径如下：
+
+- 看入口提交能力：看 `POST /api/orders/async` 的 Throughput、Error%、P95、P99。
+- 看用户完整等待体验：看 `异步下单完整链路` 的响应时间分位数。
+- 看异步创单是否跟得上：看 `GET /api/order-requests/{requestId}` 的轮询次数、终态断言失败数、后台 MQ 和订单创建指标。
+
+不要只看总 Throughput。因为轮询请求会放大 HTTP 请求数，总 Throughput 不是下单 QPS。
+
+## 3. 压测前注意事项
+
+第一，禁止压生产。没有隔离活动、隔离库存、隔离用户、回滚方案和授权，就不要碰生产。
+
+第二，库存必须足够。库存不足时，大量请求会业务失败，测出来的是售罄失败速度，不是系统吞吐。
+
+第三，正式压测不要只用一个用户。项目里有幂等、风控、限流、等待室和可能的一人一单约束，单用户压测会污染结论。
+
+第四，等待室开启时，CSV 里的 `admissionToken` 必须是真实可消费 token。留空会被 `WaitingRoomService.consumeAdmissionToken` 拒绝。
+
+第五，JMeter GUI 只能用来编辑和冒烟，不要用 GUI 做正式大压测。正式压测必须用命令行 non-GUI 模式。
+
+第六，单台压测机也有极限。线程数上千以后，压测机 CPU、网卡、端口、文件句柄都可能先成为瓶颈。要测 10000 级并发，应准备 JMeter 分布式压测。
+
+第七，压测必须阶梯加压。不要一上来 10000 线程，先跑 10、100、500、1000，确认链路没有硬错误再继续。
+
+## 4. 环境准备
+
+### 4.1 安装 JMeter
+
+macOS 可用 Homebrew：
 
 ```bash
-scripts/load/async_order_throughput_test.py
+brew install jmeter
 ```
 
-它会按顺序做这些事：
+检查版本：
 
-1. 调用 `/api/admin/ops/capacity/order-pipeline` 检查当前抢票链路配置。
-2. 调用 `/api/admin/ops/metrics-summary` 记录压测前运维指标。
-3. 批量调用 `/api/orders/idempotency-tokens` 预取幂等 token。
-4. 并发调用 `/api/orders/async` 提交异步下单请求。
-5. 轮询 `/api/order-requests/{requestId}`，直到请求进入 `SUCCESS`、`FAILED`、`CANCELLED`、`COMPENSATED` 等终态。
-6. 再次调用 `/api/admin/ops/metrics-summary`，输出关键指标增量。
+```bash
+jmeter --version
+```
 
-最终你会得到两类指标：
+建议使用 JMeter 5.6.x。版本太老可能不兼容 JSON Extractor 或 Groovy 表达式。
 
-- `submit_qps`：入口接口接收请求的速度。
-- `created_order_tps`：异步请求真正变成成功订单的速度。
+### 4.2 启动项目依赖
 
-严格说，系统对外宣传能力时不能只看 `submit_qps`。如果入口 10000 QPS，但消费者、MQ、数据库只能每秒创单 800 单，那真实订单吞吐就是 800 TPS，剩下的是排队和积压。
-
-## 2. 压测前必须知道的注意事项
-
-第一，禁止直接压生产环境。除非你明确有授权、隔离活动、隔离库存、隔离用户和回滚方案，否则这就是事故。
-
-第二，压测前必须准备足够库存。库存不够时，失败原因会集中变成库存不足，测出来的是业务失败速度，不是系统吞吐上限。
-
-第三，抢票压测不能只用一个用户长期压。项目里有幂等、限流、风控、等待室和可能的“一人一单”规则，单用户压测会被业务规则干扰。单用户可以做冒烟测试，正式吞吐测试要准备多用户 token 或放宽本地规则。
-
-第四，幂等 token 预取不计入 `submit_qps`。真实抢票页也应该提前下发 token，点击瞬间再取 token 会把入口 HTTP 压力放大。
-
-第五，等待室开启时，真实请求需要 `admissionToken`。如果你本地只是测核心链路，可以加 `--skip-capacity-guard` 做摸底；如果你要测完整等待室链路，就要准备入场 token 文件。
-
-第六，单机压测机本身会成为瓶颈。Python 脚本适合本地和单机摸底；要压到几千甚至上万并发，应使用多台压测机，或者改用 k6、JMeter、Gatling 这类专门工具。
-
-第七，先小流量验证，再逐步加压。不要一上来 `10000` 并发，先确认接口、库存、token、等待室和消费者都正常。
-
-## 3. 环境准备
-
-### 3.1 启动依赖
-
-你需要保证这些组件已经启动并且应用能连上：
+确保这些组件已启动：
 
 - MySQL
 - Redis
 - RabbitMQ
 - smart-ticket-lite 应用
 
-建议本地使用抢票配置启动：
+建议使用抢票配置启动应用：
 
 ```bash
 SPRING_PROFILES_ACTIVE=local,flash-sale mvn spring-boot:run
 ```
 
-如果你的本地端口不是 `8081`，后续命令把 `--base-url` 改成实际地址。
+默认 JMeter 计划访问：
 
-### 3.2 准备登录 token
-
-脚本需要用户登录 JWT：
-
-```bash
-export AUTH_TOKEN="替换成你的用户JWT"
+```text
+http://127.0.0.1:8081
 ```
 
-不要带 `Bearer ` 前缀，脚本会自动加。
+如果你的端口不同，运行时用 `-JHOST`、`-JPORT` 覆盖。
 
-### 3.3 检查容量配置
+### 4.3 准备 CSV 数据
+
+编辑：
+
+```bash
+scripts/jmeter/data/order-users.csv
+```
+
+格式：
+
+```csv
+authToken,showId,sessionId,ticketCategoryId,quantity,admissionToken,idempotencyToken
+替换成用户JWT不要带Bearer,1,1,2,1,,
+```
+
+字段解释：
+
+- `authToken`：用户 JWT，不要带 `Bearer`。
+- `showId`：演出 ID。
+- `sessionId`：场次 ID。
+- `ticketCategoryId`：票档 ID。
+- `quantity`：购票数量。
+- `admissionToken`：等待室入场 token；等待室关闭时可留空。
+- `idempotencyToken`：默认留空，JMeter 会动态调用接口获取。只有你明确要用预生成幂等 token 时才填写。
+
+正式压测时应该准备多行用户数据，不要一行用户循环压到底。
+
+### 4.4 预热元数据
+
+压测前执行：
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer 你的JWT" \
+  http://127.0.0.1:8081/api/admin/ops/metadata-prewarm/order-submit
+```
+
+目的：提前把演出、场次、票档关系加载进应用缓存，避免压测第一波请求被数据库查询拖慢。
+
+### 4.5 检查容量配置
 
 执行：
 
 ```bash
 curl -sS \
-  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Authorization: Bearer 你的JWT" \
   http://127.0.0.1:8081/api/admin/ops/capacity/order-pipeline
 ```
 
-重点看这些字段：
+重点看：
 
-- `fastPipelineEnabled`：应该是 `true`。否则说明入口不是高并发快速链路。
-- `waitingRoomEnabled`：正式洪峰场景应该是 `true`。否则洪峰会直接打核心链路。
-- `directRabbitWaitForConfirm`：高吞吐入口通常不应该等待 MQ confirm。
-- `perOrderTimeoutDelayMessageEnabled`：如果是 `true`，每单都会多一条超时消息，吞吐会被写放大拖住。
-- `hardBottleneck`：如果提示 Outbox、单队列、单表热点等问题，压测结果会被这些瓶颈限制。
+- `fastPipelineEnabled`：应为 `true`。
+- `waitingRoomEnabled`：正式抢票洪峰应为 `true`。
+- `directRabbitWaitForConfirm`：高吞吐入口不应等待 MQ confirm。
+- `perOrderTimeoutDelayMessageEnabled`：如果为 `true`，每单都会增加超时消息写放大。
+- `hardBottleneck`：如果提示 Outbox、单队列、单表热点，压测结果会被硬瓶颈限制。
 
-脚本默认会做容量守卫检查，不满足就直接失败。你本地摸底时可以加：
+## 5. GUI 冒烟测试
 
-```bash
---skip-capacity-guard
-```
-
-但要清楚：跳过守卫后测出来的是“当前配置能力”，不是工业级抢票配置能力。
-
-### 3.4 预热下单元数据
-
-执行：
+只用 GUI 做小流量检查：
 
 ```bash
-curl -sS -X POST \
-  -H "Authorization: Bearer ${AUTH_TOKEN}" \
-  http://127.0.0.1:8081/api/admin/ops/metadata-prewarm/order-submit
+jmeter -t scripts/jmeter/async-order-throughput.jmx
 ```
 
-这一步是为了让演出、场次、票档关系等元数据提前进入应用内存缓存，避免压测时第一批请求被数据库查询拖慢。
+打开后检查：
 
-### 3.5 准备库存
+1. `用户变量` 里的 `HOST`、`PORT` 是否正确。
+2. `CSV 用户与活动参数` 的文件路径是否正确。
+3. `THREADS` 先设成 `2`。
+4. `LOOP_COUNT` 先设成 `5`。
+5. 点击运行。
 
-你必须确认目标 `ticketCategoryId` 有足够可售库存。建议压测库存数量至少是 `TOTAL * QUANTITY` 的 1.2 倍。
+冒烟通过标准：
 
-如果库存不足，压测结果里会出现大量业务失败，这不是吞吐问题，是测试数据错误。
+- `GET /api/orders/idempotency-token` 成功。
+- `POST /api/orders/async` 成功并提取到 `requestId`。
+- `GET /api/order-requests/{requestId}` 最终进入终态。
+- `异步创单终态断言` 没有大量失败。
 
-## 4. 最小冒烟测试
+## 6. 命令行正式压测
 
-先跑 10 个请求：
+创建结果目录：
 
 ```bash
-python3 scripts/load/async_order_throughput_test.py \
-  --base-url http://127.0.0.1:8081 \
-  --auth-token "${AUTH_TOKEN}" \
-  --total 10 \
-  --concurrency 2 \
-  --show-id 1 \
-  --session-id 1 \
-  --ticket-category-id 2 \
-  --quantity 1 \
-  --skip-capacity-guard
+mkdir -p /tmp/smart-ticket-jmeter
 ```
 
-冒烟测试通过标准：
-
-- `submit_failed=0`
-- 没有大量 `terminal_timeout`
-- `Terminal status distribution` 里能看到合理的终态
-- `Metrics delta` 里没有 `localMessageDeadCount`、`stockCompensationFailedCount` 这类严重异常增长
-
-## 5. 正式压测步骤
-
-### 5.1 基线压测
-
-先用低并发确认稳定性：
+### 6.1 基线压测
 
 ```bash
-python3 scripts/load/async_order_throughput_test.py \
-  --base-url http://127.0.0.1:8081 \
-  --auth-token "${AUTH_TOKEN}" \
-  --total 1000 \
-  --concurrency 50 \
-  --show-id 1 \
-  --session-id 1 \
-  --ticket-category-id 2 \
-  --quantity 1 \
-  --poll-timeout-seconds 60 \
-  --output-json /tmp/async-order-1000-c50.json
+jmeter -n \
+  -t scripts/jmeter/async-order-throughput.jmx \
+  -l /tmp/smart-ticket-jmeter/order-c50.jtl \
+  -e -o /tmp/smart-ticket-jmeter/report-c50 \
+  -JTHREADS=50 \
+  -JRAMP_SECONDS=30 \
+  -JLOOP_COUNT=20 \
+  -JHOST=127.0.0.1 \
+  -JPORT=8081 \
+  -JCSV_FILE=scripts/jmeter/data/order-users.csv
 ```
 
-### 5.2 阶梯加压
+这轮总提交量约为：
 
-建议按下面顺序跑，不要跳级：
+```text
+THREADS * LOOP_COUNT = 50 * 20 = 1000 单
+```
 
-| 轮次 | total | concurrency | 目的 |
-| --- | ---: | ---: | --- |
-| 1 | 1000 | 50 | 基线稳定性 |
-| 2 | 5000 | 100 | 观察入口 RT 和消费者积压 |
-| 3 | 10000 | 300 | 找 MQ、Redis、DB 的第一瓶颈 |
-| 4 | 30000 | 500 | 观察 p99 和终态超时 |
-| 5 | 50000 | 1000 | 单机压测上限摸底 |
+### 6.2 阶梯加压
+
+建议顺序：
+
+| 轮次 | THREADS | LOOP_COUNT | 约提交量 | 目的 |
+| --- | ---: | ---: | ---: | --- |
+| 1 | 10 | 10 | 100 | 冒烟 |
+| 2 | 50 | 20 | 1000 | 基线 |
+| 3 | 100 | 50 | 5000 | 观察入口 RT |
+| 4 | 300 | 50 | 15000 | 观察 MQ 和消费者 |
+| 5 | 500 | 100 | 50000 | 单机高压 |
+| 6 | 1000 | 100 | 100000 | 压测机也可能成为瓶颈 |
 
 示例：
 
 ```bash
-python3 scripts/load/async_order_throughput_test.py \
-  --base-url http://127.0.0.1:8081 \
-  --auth-token "${AUTH_TOKEN}" \
-  --total 10000 \
-  --concurrency 300 \
-  --show-id 1 \
-  --session-id 1 \
-  --ticket-category-id 2 \
-  --quantity 1 \
-  --poll-timeout-seconds 120 \
-  --output-json /tmp/async-order-10000-c300.json
+jmeter -n \
+  -t scripts/jmeter/async-order-throughput.jmx \
+  -l /tmp/smart-ticket-jmeter/order-c300.jtl \
+  -e -o /tmp/smart-ticket-jmeter/report-c300 \
+  -JTHREADS=300 \
+  -JRAMP_SECONDS=120 \
+  -JLOOP_COUNT=50 \
+  -JHOST=127.0.0.1 \
+  -JPORT=8081 \
+  -JCSV_FILE=scripts/jmeter/data/order-users.csv
 ```
 
-### 5.3 只测入口提交
+### 6.3 只测入口提交
 
-如果你只想看 `/api/orders/async` 接口接收能力，不想轮询结果：
+如果只想测 `/api/orders/async` 入口，不想让轮询请求影响 HTTP 总吞吐：
 
 ```bash
-python3 scripts/load/async_order_throughput_test.py \
-  --base-url http://127.0.0.1:8081 \
-  --auth-token "${AUTH_TOKEN}" \
-  --total 10000 \
-  --concurrency 300 \
-  --show-id 1 \
-  --session-id 1 \
-  --ticket-category-id 2 \
-  --quantity 1 \
-  --skip-result-poll \
-  --output-json /tmp/async-order-submit-only.json
+jmeter -n \
+  -t scripts/jmeter/async-order-throughput.jmx \
+  -l /tmp/smart-ticket-jmeter/order-submit-only.jtl \
+  -e -o /tmp/smart-ticket-jmeter/report-submit-only \
+  -JTHREADS=300 \
+  -JRAMP_SECONDS=120 \
+  -JLOOP_COUNT=50 \
+  -JPOLL_RESULT=false
 ```
 
-注意：这个模式不能证明订单创建链路扛得住，只能证明入口能接多少。
+注意：这个模式只能证明入口接收能力，不能证明异步创单能力。
 
-## 6. 等待室 admissionToken 怎么测
+## 7. 报告怎么看
 
-如果等待室校验开启，正式提交订单需要请求体里带 `admissionToken`。脚本支持：
+打开 HTML 报告：
 
 ```bash
---admission-token-file /tmp/admission-tokens.txt
+open /tmp/smart-ticket-jmeter/report-c50/index.html
 ```
 
-文件格式是一行一个 token：
+重点看这些页面：
 
-```text
-token-1
-token-2
-token-3
+- Dashboard 首页：整体 Throughput、Error、响应时间概览。
+- Statistics：每个 sampler 的平均、P90、P95、P99、Throughput、Error%。
+- Response Times Percentiles：响应时间分位数。
+- Transactions per Second：吞吐曲线。
+- Response Codes per Second：错误码曲线。
+
+核心 sampler 判断：
+
+- `POST /api/orders/async`：入口下单提交能力。
+- `异步下单完整链路`：用户从提交到异步终态的完整体验。
+- `GET /api/order-requests/{requestId}`：轮询结果接口压力，不等于下单 QPS。
+
+## 8. 性能指标怎么判
+
+入口提交能力看：
+
+- `POST /api/orders/async` Throughput。
+- `POST /api/orders/async` Error%。
+- `POST /api/orders/async` P95、P99。
+
+异步创单能力看：
+
+- `异步下单完整链路` P95、P99。
+- `异步创单终态断言` 失败数量。
+- 后台 `orderCreatedCount` 增量。
+- RabbitMQ 队列积压。
+- MySQL 慢 SQL。
+
+合格线建议：
+
+- 计划流量内 `POST /api/orders/async` Error% 小于 `1%`。
+- `POST /api/orders/async` P99 不持续恶化。
+- `异步下单完整链路` 绝大多数能在业务允许时间内进入终态。
+- `localMessageDeadCount` 增量必须为 `0`。
+- `stockCompensationFailedCount` 增量必须为 `0`。
+- MQ 队列不能无限增长。
+
+## 9. 运维指标必须同步看
+
+压测前后分别执行：
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer 你的JWT" \
+  http://127.0.0.1:8081/api/admin/ops/metrics-summary
 ```
 
-注意：`/api/admin/ops/waiting-room/admission-batches` 是释放已经排队用户的入场资格，不是凭空制造任意用户 token。正式压测需要先按用户进入等待室，再释放入场资格，再把得到的 token 写入文件。否则你测到的会是入场失败，不是下单吞吐。
+重点看增量：
 
-## 7. 输出指标怎么看
+- `asyncOrderRequestSuccessCount`
+- `asyncOrderRequestFailedCount`
+- `orderCreatedCount`
+- `rateLimitRejectedCount`
+- `soldoutFastfailCount`
+- `localMessageFailedCount`
+- `localMessageDeadCount`
+- `deadLetterPendingCount`
+- `stockConsistencyPendingCount`
+- `stockCompensationFailedCount`
 
-脚本输出示例字段如下：
+严厉标准：
 
-```text
-submit_success=998 submit_failed=2 submit_elapsed=3.421s submit_qps=292.02
-terminal_success=940 terminal_failed=40 terminal_timeout=18 poll_elapsed=25.314s created_order_tps=37.13
-```
+- `localMessageDeadCount` 增长，说明可靠消息链路有硬伤。
+- `stockCompensationFailedCount` 增长，说明库存补偿不可靠。
+- `deadLetterPendingCount` 持续增长，说明消费者或延迟关闭链路有问题。
+- `asyncOrderRequestSuccessCount` 高但 `orderCreatedCount` 低，说明入口接住了，后端没消化。
 
-逐项解释：
+## 10. 常见问题定位
 
-- `submit_success`：入口成功返回 `requestId` 的数量。
-- `submit_failed`：入口直接失败的数量，包括限流、风控、参数错误、库存快速失败等。
-- `submit_qps`：入口提交吞吐。这个值高不代表最终订单创建快。
-- `terminal_success`：异步处理后真正创建订单成功的数量。
-- `terminal_failed`：异步处理进入失败终态的数量，例如库存不足、重复下单、入场资格无效。
-- `terminal_timeout`：在 `poll-timeout-seconds` 时间内没有进入终态。这个值高，通常说明队列积压或消费者吞吐不足。
-- `created_order_tps`：成功订单完成速度，比 `submit_qps` 更接近真实创单能力。
-- `submit_latency.p95_ms`：入口接口 95 分位耗时。
-- `submit_latency.p99_ms`：入口接口 99 分位耗时。这个值升高说明入口开始抖动。
-- `terminal_latency.p99_ms`：从提交到异步终态的 99 分位耗时。它包含排队、消费、数据库写入等全部时间。
-
-## 8. 运维指标怎么看
-
-`Metrics delta` 是压测前后指标差值：
-
-- `asyncOrderRequestSuccessCount`：异步请求成功受理数量。
-- `asyncOrderRequestFailedCount`：异步请求失败数量。
-- `orderCreatedCount`：创建订单数量。
-- `rateLimitRejectedCount`：限流拒绝数量。压测计划内有入场削峰时，它增长不一定是坏事；无计划增长说明入口限流过紧或压测参数过猛。
-- `soldoutFastfailCount`：库存售罄快速失败数量。压测库存不足时会暴涨。
-- `localMessageFailedCount`：本地消息失败数量。出现增长就要查 MQ 或消息可靠性链路。
-- `localMessageDeadCount`：本地消息死亡数量。这个不能容忍。
-- `deadLetterPendingCount`：死信待处理数量。增长说明消费者、超时关闭或补偿存在问题。
-- `stockConsistencyPendingCount`：库存一致性待处理数量。增长说明库存链路存在延迟或异常。
-- `stockCompensationFailedCount`：库存补偿失败数量。这个是严重问题，不能当成普通压测噪声。
-
-## 9. 常见问题定位
-
-| 现象 | 严格判断 | 优先检查 |
+| 现象 | 判断 | 优先检查 |
 | --- | --- | --- |
-| `submit_qps` 低，`submit_latency.p99_ms` 高 | 入口链路扛不住 | 鉴权、限流 Lua、Redis RTT、元数据缓存、应用线程池 |
-| `submit_qps` 高，`created_order_tps` 低 | 只是入口接住了，后端没消化 | MQ 积压、消费者数量、DB 写入、订单表索引 |
-| `terminal_timeout` 高 | 请求卡在队列或消费者处理太慢 | RabbitMQ 队列深度、消费者日志、DB 慢 SQL |
-| `terminal_failed` 高且原因是库存不足 | 测试数据错误或库存真的耗尽 | Redis 库存、DB 库存桶、压测 total |
-| `rateLimitRejectedCount` 高 | 入场或限流拒绝了流量 | 令牌桶配置、等待室发放速度、目标 QPS |
-| `localMessageDeadCount` 增长 | 消息可靠性链路有硬伤 | local_message 状态、MQ 连接、消费者异常 |
-| `stockCompensationFailedCount` 增长 | 库存补偿不可靠 | 库存回滚 Lua、补偿任务、异常日志 |
+| `POST /api/orders/async` P99 很高 | 入口链路扛不住 | 鉴权、限流 Lua、Redis RTT、应用线程池、元数据缓存 |
+| `POST /api/orders/async` 成功，完整链路 P99 很高 | 后端异步处理慢 | RabbitMQ 积压、消费者数量、DB 写入 |
+| `异步创单终态断言` 大量失败 | 请求没有按时进入终态 | MQ、消费者异常、DB 慢 SQL、库存不足 |
+| `GET /api/orders/idempotency-token` 慢 | token 生成影响压测 | 抢票页应提前预取 token，正式压测可用 CSV 预生成 token |
+| 大量 401/403 | 用户 token 错误 | CSV 的 `authToken` |
+| 大量等待室失败 | admissionToken 错误或为空 | 等待室 token 生成、过期时间、CSV 字段 |
+| 大量库存不足 | 测试数据错误或库存耗尽 | Redis 库存、DB 库存桶、压测提交量 |
 
-## 10. 合格线怎么定
+## 11. 分布式压测建议
 
-本地机器不要幻想测出大麦、猫眼级能力。合理的合格线应该按环境分。
+单机 JMeter 不适合硬压 10000 并发。要严肃测 10000 并发，至少准备：
 
-开发机冒烟：
+- 1 台 JMeter Controller。
+- 多台 JMeter Worker。
+- 每台 Worker 控制线程数，避免单机 CPU 或网卡打满。
+- 所有 Worker 使用同版本 JMeter、同一份 CSV 数据。
+- 压测机和被测服务不要部署在同一台机器。
 
-- `submit_failed=0`
-- `terminal_timeout=0`
-- `localMessageDeadCount` 增量为 `0`
-- `stockCompensationFailedCount` 增量为 `0`
+否则你看到的瓶颈可能是 JMeter，不是下单系统。
 
-单机压测：
+## 12. 最终结论怎么写
 
-- 计划流量内入口成功率不低于 `99%`
-- 异步请求在 `60-120` 秒内进入终态的比例不低于 `99%`
-- `submit_latency.p99_ms` 不持续恶化
-- `terminal_latency.p99_ms` 随并发上升可以变高，但不能无限堆积
-- RabbitMQ、Redis、MySQL 不能出现不可恢复错误
+不要写“系统支持 10000 并发”这种空话。压测结论必须包含：
 
-准生产压测：
+- 压测环境规格。
+- JMeter 线程数、Ramp-Up、循环次数。
+- 活动、票档、库存规模。
+- 用户 token 数量。
+- 是否开启等待室。
+- `POST /api/orders/async` Throughput、P95、P99、Error%。
+- `异步下单完整链路` P95、P99、Error%。
+- `orderCreatedCount` 增量。
+- MQ 最大积压和恢复时间。
+- MySQL 慢 SQL 情况。
+- Redis 慢日志情况。
+- 失败原因 TopN。
 
-- 必须多用户、多压测机、隔离活动、隔离库存
-- 必须记录应用 CPU、内存、GC、Redis 慢日志、MySQL 慢 SQL、MQ 队列深度
-- 必须有停止压测和恢复数据方案
-
-## 11. 脚本返回码
-
-- 返回 `0`：入口提交没有失败，轮询模式下也没有终态超时。
-- 返回 `1`：存在入口失败或终态超时。
-- 返回 `2`：参数错误，例如没有传 `AUTH_TOKEN`。
-- 返回 `130`：手动中断。
-
-返回 `0` 不代表系统已经具备高并发能力，只代表这轮压测没有触发脚本定义的明显失败。真正结论必须结合 QPS、TPS、p99、MQ 积压、DB 慢 SQL 和运维指标一起判断。
-
+没有这些数据，就不能下吞吐结论。
