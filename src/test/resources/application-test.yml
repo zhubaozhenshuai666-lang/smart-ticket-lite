@@ -1,0 +1,39 @@
+spring:
+  sql:
+    init:
+      mode: never
+
+  rabbitmq:
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        default-requeue-rejected: false
+
+smart-ticket:
+  local-message:
+    sender-enabled: false
+    batch-size: 20
+    confirm-timeout-seconds: 10
+    default-max-retry-count: 3
+  mq-consumer:
+    max-retry-count: 2
+    retry-interval-seconds: 1
+    processing-timeout-seconds: 5
+  stock-consistency:
+    enabled: false
+    auto-repair-enabled: false
+  rate-limit:
+    enabled: true
+    order-user-capacity: 20
+    order-user-refill-rate-per-second: 20
+    order-ip-capacity: 100
+    order-ip-refill-rate-per-second: 100
+    order-api-capacity: 200
+    order-api-refill-rate-per-second: 200
+    order-ticket-capacity: 100
+    order-ticket-refill-rate-per-second: 100
+    key-ttl-seconds: 60
+    soldout-ttl-seconds: 60

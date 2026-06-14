@@ -297,7 +297,7 @@ class OrderServiceImplTest {
     @Test
     void submitAsyncOrderRejectsWhenActivityRateLimitIsExceeded() {
         mockCommonCreateOrderChecks(true);
-        when(rateLimitService.tryAcquireOrderActivity("show:1:session:1")).thenReturn(false);
+        when(rateLimitService.tryAcquireOrderActivityAndTicket("show:1:session:1", 2L)).thenReturn(false);
 
         assertThatThrownBy(() -> orderService.submitAsyncOrder(validRequest()))
                 .isInstanceOf(BusinessException.class)
@@ -761,6 +761,7 @@ class OrderServiceImplTest {
                 .thenReturn(true);
         lenient().when(rateLimitService.tryAcquireOrderActivity(anyString())).thenReturn(true);
         lenient().when(rateLimitService.tryAcquireOrderTicket(anyLong())).thenReturn(true);
+        lenient().when(rateLimitService.tryAcquireOrderActivityAndTicket(anyString(), anyLong())).thenReturn(true);
         lenient().when(stockCacheService.isSoldOut(anyLong())).thenReturn(false);
         lenient().when(stockCacheService.isSoldOut(anyLong(), anyInt())).thenReturn(false);
         when(orderSubmitGuard.tryAcquire(anyLong(), anyLong())).thenReturn(true);

@@ -15,10 +15,15 @@ public class AsyncOrderSubmitGuardrail implements InitializingBean {
 
     private final AsyncOrderSubmitProperties properties;
 
+    private final OrderTimeoutProperties orderTimeoutProperties;
+
     private final Environment environment;
 
-    public AsyncOrderSubmitGuardrail(AsyncOrderSubmitProperties properties, Environment environment) {
+    public AsyncOrderSubmitGuardrail(AsyncOrderSubmitProperties properties,
+                                     OrderTimeoutProperties orderTimeoutProperties,
+                                     Environment environment) {
         this.properties = properties;
+        this.orderTimeoutProperties = orderTimeoutProperties;
         this.environment = environment;
     }
 
@@ -61,6 +66,9 @@ public class AsyncOrderSubmitGuardrail implements InitializingBean {
         if (properties.getMaxInFlightPerTicketCategory() < FLASH_SALE_MIN_IN_FLIGHT_PER_TICKET_CATEGORY) {
             throw new IllegalStateException("flash-sale profile 单票档 in-flight 上限不能低于 "
                     + FLASH_SALE_MIN_IN_FLIGHT_PER_TICKET_CATEGORY);
+        }
+        if (orderTimeoutProperties.isDelayMessageEnabled()) {
+            throw new IllegalStateException("flash-sale profile 必须关闭订单超时延迟消息写入，避免成功创单链路 Outbox 写放大");
         }
     }
 }

@@ -451,9 +451,7 @@ public class OrderServiceImpl implements OrderService {
             checkActivityDegrade(activityScope);
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
-            checkActivityOrderSubmitRateLimit(activityScope);
-            //票档限流
-            checkTicketOrderSubmitRateLimit(request);
+            checkActivityAndTicketOrderSubmitRateLimit(activityScope, request.getTicketCategoryId());
             acquireAsyncOrderInFlight(activityScope, request.getTicketCategoryId());
             inFlightAcquired = true;
             checkWaitingRoomAdmission(currentUserId, request);
@@ -1102,6 +1100,12 @@ public class OrderServiceImpl implements OrderService {
 
     private void checkActivityOrderSubmitRateLimit(ActivityScope activityScope) {
         if (!rateLimitService.tryAcquireOrderActivity(activityScope.scopeKey())) {
+            throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
+        }
+    }
+
+    private void checkActivityAndTicketOrderSubmitRateLimit(ActivityScope activityScope, Long ticketCategoryId) {
+        if (!rateLimitService.tryAcquireOrderActivityAndTicket(activityScope.scopeKey(), ticketCategoryId)) {
             throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
         }
     }

@@ -1,0 +1,96 @@
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${SMART_TICKET_DB_URL:jdbc:mysql://localhost:3306/smart_ticket_lite?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=GMT%2B8}
+    username: ${SMART_TICKET_DB_USERNAME:root}
+    password: ${SMART_TICKET_DB_PASSWORD:}
+    hikari:
+      pool-name: SmartTicketLiteHikariCP
+      minimum-idle: 5
+      maximum-pool-size: 10
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+
+  data:
+    redis:
+      host: ${SMART_TICKET_REDIS_HOST:localhost}
+      port: ${SMART_TICKET_REDIS_PORT:6379}
+      database: ${SMART_TICKET_REDIS_DATABASE:0}
+      password: ${SMART_TICKET_REDIS_PASSWORD:}
+
+  rabbitmq:
+    host: ${SMART_TICKET_RABBITMQ_HOST:localhost}
+    port: ${SMART_TICKET_RABBITMQ_PORT:5672}
+    username: ${SMART_TICKET_RABBITMQ_USERNAME:guest}
+    password: ${SMART_TICKET_RABBITMQ_PASSWORD:}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        default-requeue-rejected: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+smart-ticket:
+  jwt:
+    secret: ${SMART_TICKET_JWT_SECRET:smart-ticket-dev-secret-at-least-32-bytes}
+    expire-minutes: ${SMART_TICKET_JWT_EXPIRE_MINUTES:120}
+  auth:
+    login-fail-threshold: ${SMART_TICKET_LOGIN_FAIL_THRESHOLD:5}
+    login-lock-minutes: ${SMART_TICKET_LOGIN_LOCK_MINUTES:10}
+  local-message:
+    sender-enabled: ${SMART_TICKET_LOCAL_MESSAGE_SENDER_ENABLED:true}
+    batch-size: ${SMART_TICKET_LOCAL_MESSAGE_BATCH_SIZE:100}
+    confirm-timeout-seconds: ${SMART_TICKET_LOCAL_MESSAGE_CONFIRM_TIMEOUT_SECONDS:60}
+    default-max-retry-count: ${SMART_TICKET_LOCAL_MESSAGE_MAX_RETRY_COUNT:5}
+  async-order-submit:
+    persist-request-before-publish: ${SMART_TICKET_ASYNC_ORDER_PERSIST_REQUEST_BEFORE_PUBLISH:true}
+  mq-consumer:
+    max-retry-count: ${SMART_TICKET_MQ_CONSUMER_MAX_RETRY_COUNT:3}
+    retry-interval-seconds: ${SMART_TICKET_MQ_CONSUMER_RETRY_INTERVAL_SECONDS:10}
+    processing-timeout-seconds: ${SMART_TICKET_MQ_CONSUMER_PROCESSING_TIMEOUT_SECONDS:120}
+  stock-consistency:
+    enabled: ${SMART_TICKET_STOCK_CONSISTENCY_ENABLED:false}
+    fixed-delay-seconds: ${SMART_TICKET_STOCK_CONSISTENCY_FIXED_DELAY_SECONDS:300}
+    batch-size: ${SMART_TICKET_STOCK_CONSISTENCY_BATCH_SIZE:100}
+    auto-repair-enabled: ${SMART_TICKET_STOCK_CONSISTENCY_AUTO_REPAIR_ENABLED:false}
+  stock-bucket:
+    enabled: ${SMART_TICKET_STOCK_BUCKET_ENABLED:true}
+    default-bucket-count: ${SMART_TICKET_STOCK_BUCKET_DEFAULT_COUNT:10}
+    active-version: ${SMART_TICKET_STOCK_BUCKET_ACTIVE_VERSION:1}
+    active-probe-count: ${SMART_TICKET_STOCK_BUCKET_ACTIVE_PROBE_COUNT:3}
+    tail-bucket-count: ${SMART_TICKET_STOCK_BUCKET_TAIL_BUCKET_COUNT:4}
+    porter-enabled: ${SMART_TICKET_STOCK_BUCKET_PORTER_ENABLED:false}
+    porter-source-version: ${SMART_TICKET_STOCK_BUCKET_PORTER_SOURCE_VERSION:1}
+    porter-max-move-quantity-per-run: ${SMART_TICKET_STOCK_BUCKET_PORTER_MAX_MOVE_QUANTITY_PER_RUN:1000}
+    porter-batch-size: ${SMART_TICKET_STOCK_BUCKET_PORTER_BATCH_SIZE:100}
+    porter-lock-ttl-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_LOCK_TTL_SECONDS:30}
+    porter-move-record-ttl-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_MOVE_RECORD_TTL_SECONDS:86400}
+    porter-fixed-delay-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_FIXED_DELAY_SECONDS:300}
+  rate-limit:
+    enabled: ${SMART_TICKET_RATE_LIMIT_ENABLED:true}
+    algorithm: ${SMART_TICKET_RATE_LIMIT_ALGORITHM:token-bucket}
+    order-user-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_USER_CAPACITY:5}
+    order-user-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_USER_REFILL_RATE_PER_SECOND:1}
+    order-ip-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_IP_CAPACITY:30}
+    order-ip-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_IP_REFILL_RATE_PER_SECOND:5}
+    order-api-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_API_CAPACITY:500}
+    order-api-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_API_REFILL_RATE_PER_SECOND:100}
+    order-ticket-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_CAPACITY:100}
+    order-ticket-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_REFILL_RATE_PER_SECOND:20}
+    key-ttl-seconds: ${SMART_TICKET_RATE_LIMIT_KEY_TTL_SECONDS:120}
+    soldout-ttl-seconds: ${SMART_TICKET_SOLDOUT_TTL_SECONDS:600}
+  payment:
+    mock-callback-secret: ${SMART_TICKET_PAYMENT_MOCK_CALLBACK_SECRET:smart-ticket-mock-payment-secret-at-least-32-bytes}
+    callback-timestamp-tolerance-seconds: ${SMART_TICKET_PAYMENT_CALLBACK_TIMESTAMP_TOLERANCE_SECONDS:300}
+    callback-nonce-ttl-seconds: ${SMART_TICKET_PAYMENT_CALLBACK_NONCE_TTL_SECONDS:600}

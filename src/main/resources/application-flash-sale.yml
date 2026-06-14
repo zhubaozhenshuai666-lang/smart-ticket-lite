@@ -23,6 +23,7 @@ smart-ticket:
     redis-stream-read-batch-size: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_READ_BATCH_SIZE:256}
     redis-stream-poll-fixed-delay-millis: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_POLL_FIXED_DELAY_MILLIS:20}
     redis-stream-block-millis: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_BLOCK_MILLIS:50}
+    redis-stream-worker-threads: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_WORKER_THREADS:32}
 
   mq-consumer:
     concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_CONCURRENT_CONSUMERS:32}

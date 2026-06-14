@@ -2,6 +2,7 @@ package com.zewbby.smartticket.mq;
 
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
+import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.config.MqConsumerProperties;
 import com.zewbby.smartticket.config.StockBucketProperties;
 import com.zewbby.smartticket.domain.dto.OrderSnapshot;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -397,6 +399,34 @@ class AsyncCreateOrderConsumerTest {
         assertThat(requestCaptor.getValue().getStockBucketNo()).isEqualTo(4);
         assertThat(requestCaptor.getValue().getMessageId()).isEqualTo("MSGREQ1");
         verify(orderRequestMapper, never()).tryMarkProcessing(anyString());
+        verify(orderMapper).insert(any(TicketOrder.class));
+    }
+
+    @Test
+    void fastPipelineConsumerCreatesProcessingRequestBeforeSelectingExistingRequest() {
+        AsyncOrderSubmitProperties asyncOrderSubmitProperties = new AsyncOrderSubmitProperties();
+        asyncOrderSubmitProperties.setPersistRequestBeforePublish(false);
+        ReflectionTestUtils.setField(consumer, "asyncOrderSubmitProperties", asyncOrderSubmitProperties);
+        when(orderRequestMapper.insertIgnore(any(TicketOrderRequest.class))).thenAnswer(invocation -> {
+            TicketOrderRequest request = invocation.getArgument(0);
+            request.setId(10L);
+            return 1;
+        });
+        when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
+        when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
+        when(ticketStockMapper.decreaseStock(2L, 1)).thenReturn(1);
+        when(orderMapper.insert(any(TicketOrder.class))).thenAnswer(invocation -> {
+            TicketOrder order = invocation.getArgument(0);
+            order.setId(200L);
+            return 1;
+        });
+        when(orderRequestMapper.markSuccess(10L, 200L)).thenReturn(1);
+
+        consumer.consume(new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1));
+
+        verify(orderRequestMapper).insertIgnore(any(TicketOrderRequest.class));
+        verify(orderRequestMapper, never()).selectByRequestId("REQ1");
+        verify(orderRequestMapper, never()).tryMarkProcessing("REQ1");
         verify(orderMapper).insert(any(TicketOrder.class));
     }
 

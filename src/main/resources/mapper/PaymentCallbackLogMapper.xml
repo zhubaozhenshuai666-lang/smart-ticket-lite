@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zewbby.smartticket.mapper.PaymentCallbackLogMapper">
+
+    <insert id="insert"
+            parameterType="com.zewbby.smartticket.domain.entity.PaymentCallbackLog"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO payment_callback_log (
+            payment_no,
+            order_id,
+            user_id,
+            channel,
+            raw_body,
+            headers,
+            signature,
+            verify_result,
+            process_result,
+            error_message,
+            callback_time,
+            created_at
+        ) VALUES (
+            #{paymentNo},
+            #{orderId},
+            #{userId},
+            #{channel},
+            #{rawBody},
+            #{headers},
+            #{signature},
+            #{verifyResult},
+            #{processResult},
+            #{errorMessage},
+            #{callbackTime},
+            #{createdAt}
+        )
+    </insert>
+</mapper>

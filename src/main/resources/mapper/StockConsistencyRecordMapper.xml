@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zewbby.smartticket.mapper.StockConsistencyRecordMapper">
+
+    <resultMap id="StockConsistencyRecordResultMap" type="com.zewbby.smartticket.domain.entity.StockConsistencyRecord">
+        <id property="id" column="id"/>
+        <result property="ticketCategoryId" column="ticket_category_id"/>
+        <result property="redisAvailableStock" column="redis_available_stock"/>
+        <result property="mysqlAvailableStock" column="mysql_available_stock"/>
+        <result property="mysqlLockedStock" column="mysql_locked_stock"/>
+        <result property="mysqlSoldStock" column="mysql_sold_stock"/>
+        <result property="inFlightDeductedQuantity" column="in_flight_deducted_quantity"/>
+        <result property="expectedRedisAvailableStock" column="expected_redis_available_stock"/>
+        <result property="diff" column="diff"/>
+        <result property="status" column="status"/>
+        <result property="checkType" column="check_type"/>
+        <result property="repairStrategy" column="repair_strategy"/>
+        <result property="repairResult" column="repair_result"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="repairedAt" column="repaired_at"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id,
+        ticket_category_id,
+        redis_available_stock,
+        mysql_available_stock,
+        mysql_locked_stock,
+        mysql_sold_stock,
+        in_flight_deducted_quantity,
+        expected_redis_available_stock,
+        diff,
+        status,
+        check_type,
+        repair_strategy,
+        repair_result,
+        created_at,
+        updated_at,
+        repaired_at
+    </sql>
+
+    <insert id="insert"
+            parameterType="com.zewbby.smartticket.domain.entity.StockConsistencyRecord"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO stock_consistency_record (
+            ticket_category_id,
+            redis_available_stock,
+            mysql_available_stock,
+            mysql_locked_stock,
+            mysql_sold_stock,
+            in_flight_deducted_quantity,
+            expected_redis_available_stock,
+            diff,
+            status,
+            check_type,
+            repair_strategy,
+            repair_result,
+            created_at,
+            updated_at,
+            repaired_at
+        ) VALUES (
+            #{ticketCategoryId},
+            #{redisAvailableStock},
+            #{mysqlAvailableStock},
+            #{mysqlLockedStock},
+            #{mysqlSoldStock},
+            #{inFlightDeductedQuantity},
+            #{expectedRedisAvailableStock},
+            #{diff},
+            #{status},
+            #{checkType},
+            #{repairStrategy},
+            #{repairResult},
+            #{createdAt},
+            #{updatedAt},
+            #{repairedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="StockConsistencyRecordResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM stock_consistency_record
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectRecent" resultMap="StockConsistencyRecordResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM stock_consistency_record
+        <where>
+            <if test="status != null and status != ''">
+                status = #{status}
+            </if>
+        </where>
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countByStatus" resultType="java.lang.Long">
+        SELECT COUNT(1)
+        FROM stock_consistency_record
+        WHERE status = #{status}
+    </select>
+
+    <update id="markRepaired">
+        UPDATE stock_consistency_record
+        SET
+            status = 'REPAIRED',
+            repair_strategy = #{repairStrategy},
+            repair_result = #{repairResult},
+            repaired_at = #{repairedAt},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status IN ('PENDING', 'FAILED')
+    </update>
+
+    <update id="markFailed">
+        UPDATE stock_consistency_record
+        SET
+            status = 'FAILED',
+            repair_strategy = #{repairStrategy},
+            repair_result = #{repairResult},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status IN ('PENDING', 'FAILED')
+    </update>
+
+    <update id="markIgnored">
+        UPDATE stock_consistency_record
+        SET
+            status = 'IGNORED',
+            repair_result = #{repairResult},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status IN ('PENDING', 'FAILED')
+    </update>
+</mapper>

@@ -15,6 +15,7 @@ import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
+import java.util.List;
 
 @Service
 public class RateLimitService {
@@ -28,6 +29,8 @@ public class RateLimitService {
     private final RateLimitProperties rateLimitProperties;
 
     private final DefaultRedisScript<Long> tokenBucketScript;
+
+    private final DefaultRedisScript<Long> twoTokenBucketsScript;
 
     private final ObservabilityMetricsService observabilityMetricsService;
 
@@ -49,6 +52,7 @@ public class RateLimitService {
         this.observabilityMetricsService = observabilityMetricsService;
         this.localMessageService = localMessageService;
         this.tokenBucketScript = buildScript("lua/rate_limit_token_bucket.lua");
+        this.twoTokenBucketsScript = buildScript("lua/rate_limit_two_token_buckets.lua");
     }
 
     public RateLimitService(StringRedisTemplate stringRedisTemplate,
@@ -191,6 +195,20 @@ public class RateLimitService {
         );
     }
 
+    public boolean tryAcquireOrderActivityAndTicket(String activityScopeKey, Long ticketCategoryId) {
+        return tryAcquireTwoTokenBuckets(
+                RedisKeyConstant.orderRateLimitActivityKey(activityScopeKey),
+                rateLimitProperties.getOrderApiCapacity(),
+                rateLimitProperties.getOrderApiRefillRatePerSecond(),
+                REQUESTED_TOKENS_PER_ORDER,
+                RedisKeyConstant.orderRateLimitTicketKey(ticketCategoryId),
+                rateLimitProperties.getOrderTicketCapacity(),
+                rateLimitProperties.getOrderTicketRefillRatePerSecond(),
+                REQUESTED_TOKENS_PER_ORDER,
+                rateLimitProperties.getKeyTtlSeconds()
+        );
+    }
+
     public boolean tryAcquireOrderActivity(String activityScopeKey) {
         return tryAcquireTokenBucket(
                 RedisKeyConstant.orderRateLimitActivityKey(activityScopeKey),
@@ -199,6 +217,49 @@ public class RateLimitService {
                 REQUESTED_TOKENS_PER_ORDER,
                 rateLimitProperties.getKeyTtlSeconds()
         );
+    }
+
+    private boolean tryAcquireTwoTokenBuckets(String firstKey,
+                                              int firstCapacity,
+                                              double firstRefillRatePerSecond,
+                                              int firstRequestedTokens,
+                                              String secondKey,
+                                              int secondCapacity,
+                                              double secondRefillRatePerSecond,
+                                              int secondRequestedTokens,
+                                              long keyTtlSeconds) {
+        if (!rateLimitProperties.isEnabled()) {
+            return true;
+        }
+        if (firstCapacity <= 0 || firstRefillRatePerSecond <= 0 || firstRequestedTokens <= 0
+                || secondCapacity <= 0 || secondRefillRatePerSecond <= 0 || secondRequestedTokens <= 0
+                || keyTtlSeconds <= 0) {
+            throw new IllegalArgumentException("token bucket arguments must be positive");
+        }
+        try {
+            Long result = stringRedisTemplate.execute(
+                    twoTokenBucketsScript,
+                    List.of(firstKey, secondKey),
+                    String.valueOf(firstCapacity),
+                    String.valueOf(firstRefillRatePerSecond),
+                    String.valueOf(firstRequestedTokens),
+                    String.valueOf(secondCapacity),
+                    String.valueOf(secondRefillRatePerSecond),
+                    String.valueOf(secondRequestedTokens),
+                    String.valueOf(System.currentTimeMillis()),
+                    String.valueOf(keyTtlSeconds)
+            );
+            boolean allowed = result != null && result == 1L;
+            if (!allowed) {
+                observabilityMetricsService.recordRateLimitRejected();
+            }
+            return allowed;
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Redis two-token-bucket rate limit failed and rejects request, firstKey={}, secondKey={}",
+                    firstKey, secondKey, exception);
+            observabilityMetricsService.recordRateLimitRejected();
+            return false;
+        }
     }
 
     public long getSoldoutTtlSeconds() {

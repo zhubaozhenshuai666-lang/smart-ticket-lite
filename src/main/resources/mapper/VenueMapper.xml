@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zewbby.smartticket.mapper.VenueMapper">
+
+    <resultMap id="VenueResultMap" type="com.zewbby.smartticket.domain.entity.Venue">
+        <id property="id" column="id"/>
+        <result property="name" column="name"/>
+        <result property="city" column="city"/>
+        <result property="address" column="address"/>
+        <result property="capacity" column="capacity"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="VenueResultMap">
+        SELECT
+            id,
+            name,
+            city,
+            address,
+            capacity,
+            created_at,
+            updated_at
+        FROM venue
+        WHERE id = #{id}
+    </select>
+</mapper>

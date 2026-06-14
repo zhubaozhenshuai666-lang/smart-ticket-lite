@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zewbby.smartticket.mapper.StockAdjustmentRecordMapper">
+
+    <resultMap id="StockAdjustmentRecordResultMap" type="com.zewbby.smartticket.domain.entity.StockAdjustmentRecord">
+        <id property="id" column="id"/>
+        <result property="ticketCategoryId" column="ticket_category_id"/>
+        <result property="operatorUserId" column="operator_user_id"/>
+        <result property="adjustQuantity" column="adjust_quantity"/>
+        <result property="beforeAvailableStock" column="before_available_stock"/>
+        <result property="afterAvailableStock" column="after_available_stock"/>
+        <result property="beforeRedisStock" column="before_redis_stock"/>
+        <result property="afterRedisStock" column="after_redis_stock"/>
+        <result property="reason" column="reason"/>
+        <result property="status" column="status"/>
+        <result property="confirmToken" column="confirm_token"/>
+        <result property="confirmedAt" column="confirmed_at"/>
+        <result property="rollbackAvailable" column="rollback_available"/>
+        <result property="rollbackRecordId" column="rollback_record_id"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <insert id="insert"
+            parameterType="com.zewbby.smartticket.domain.entity.StockAdjustmentRecord"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO stock_adjustment_record (
+            ticket_category_id,
+            operator_user_id,
+            adjust_quantity,
+            before_available_stock,
+            after_available_stock,
+            before_redis_stock,
+            after_redis_stock,
+            reason,
+            status,
+            confirm_token,
+            confirmed_at,
+            rollback_available,
+            rollback_record_id,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{ticketCategoryId},
+            #{operatorUserId},
+            #{adjustQuantity},
+            #{beforeAvailableStock},
+            #{afterAvailableStock},
+            #{beforeRedisStock},
+            #{afterRedisStock},
+            #{reason},
+            #{status},
+            #{confirmToken},
+            #{confirmedAt},
+            #{rollbackAvailable},
+            #{rollbackRecordId},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="StockAdjustmentRecordResultMap">
+        SELECT
+            id,
+            ticket_category_id,
+            operator_user_id,
+            adjust_quantity,
+            before_available_stock,
+            after_available_stock,
+            before_redis_stock,
+            after_redis_stock,
+            reason,
+            status,
+            confirm_token,
+            confirmed_at,
+            rollback_available,
+            rollback_record_id,
+            created_at,
+            updated_at
+        FROM stock_adjustment_record
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectRecent" resultMap="StockAdjustmentRecordResultMap">
+        SELECT
+            id,
+            ticket_category_id,
+            operator_user_id,
+            adjust_quantity,
+            before_available_stock,
+            after_available_stock,
+            before_redis_stock,
+            after_redis_stock,
+            reason,
+            status,
+            confirm_token,
+            confirmed_at,
+            rollback_available,
+            rollback_record_id,
+            created_at,
+            updated_at
+        FROM stock_adjustment_record
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="markConfirmed">
+        UPDATE stock_adjustment_record
+        SET
+            status = 'CONFIRMED',
+            confirmed_at = #{confirmedAt},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND confirm_token = #{confirmToken}
+          AND status = 'PENDING_CONFIRM'
+    </update>
+
+    <update id="markApplied">
+        UPDATE stock_adjustment_record
+        SET
+            status = 'ROLLBACK_RECORDED',
+            before_available_stock = #{beforeAvailableStock},
+            after_available_stock = #{afterAvailableStock},
+            before_redis_stock = #{beforeRedisStock},
+            after_redis_stock = #{afterRedisStock},
+            rollback_available = true,
+            rollback_record_id = #{rollbackRecordId},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'CONFIRMED'
+    </update>
+
+    <update id="markFailed">
+        UPDATE stock_adjustment_record
+        SET
+            status = 'FAILED',
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status IN ('PENDING_CONFIRM', 'CONFIRMED')
+    </update>
+</mapper>

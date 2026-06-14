@@ -63,6 +63,8 @@ public class AsyncOrderSubmitProperties {
 
     private long redisStreamBlockMillis = 100L;
 
+    private int redisStreamWorkerThreads = 1;
+
     public boolean isPersistRequestBeforePublish() {
         return persistRequestBeforePublish;
     }
@@ -179,5 +181,13 @@ public class AsyncOrderSubmitProperties {
 
     public void setRedisStreamBlockMillis(long redisStreamBlockMillis) {
         this.redisStreamBlockMillis = redisStreamBlockMillis;
+    }
+
+    public int getRedisStreamWorkerThreads() {
+        return Math.max(1, redisStreamWorkerThreads);
+    }
+
+    public void setRedisStreamWorkerThreads(int redisStreamWorkerThreads) {
+        this.redisStreamWorkerThreads = redisStreamWorkerThreads;
     }
 }

@@ -7,6 +7,7 @@ import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
 import com.zewbby.smartticket.mq.AsyncCreateOrderConsumer;
 import com.zewbby.smartticket.service.impl.RedisStreamAsyncOrderMessagePublisher;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -25,6 +26,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @Component
 @ConditionalOnProperty(prefix = "smart-ticket.async-order-submit", name = "publisher-mode", havingValue = "redis-stream")
@@ -40,6 +44,8 @@ public class RedisStreamAsyncCreateOrderConsumerTask {
 
     private final AsyncCreateOrderConsumer asyncCreateOrderConsumer;
 
+    private final ExecutorService workerExecutor;
+
     public RedisStreamAsyncCreateOrderConsumerTask(StringRedisTemplate stringRedisTemplate,
                                                    ObjectMapper objectMapper,
                                                    AsyncOrderSubmitProperties properties,
@@ -48,6 +54,7 @@ public class RedisStreamAsyncCreateOrderConsumerTask {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.asyncCreateOrderConsumer = asyncCreateOrderConsumer;
+        this.workerExecutor = Executors.newFixedThreadPool(properties.getRedisStreamWorkerThreads());
     }
 
     @PostConstruct
@@ -82,8 +89,27 @@ public class RedisStreamAsyncCreateOrderConsumerTask {
         if (records == null || records.isEmpty()) {
             return;
         }
+        if (properties.getRedisStreamWorkerThreads() <= 1) {
+            for (MapRecord<String, Object, Object> record : records) {
+                consume(record);
+            }
+            return;
+        }
         for (MapRecord<String, Object, Object> record : records) {
-            consume(record);
+            workerExecutor.submit(() -> consume(record));
+        }
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        workerExecutor.shutdown();
+        try {
+            if (!workerExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                workerExecutor.shutdownNow();
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            workerExecutor.shutdownNow();
         }
     }
 

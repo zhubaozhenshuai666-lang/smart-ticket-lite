@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zewbby.smartticket.mapper.DeadLetterMessageMapper">
+
+    <resultMap id="DeadLetterMessageResultMap" type="com.zewbby.smartticket.domain.entity.DeadLetterMessage">
+        <id property="id" column="id"/>
+        <result property="messageId" column="message_id"/>
+        <result property="businessType" column="business_type"/>
+        <result property="businessKey" column="business_key"/>
+        <result property="queueName" column="queue_name"/>
+        <result property="exchangeName" column="exchange_name"/>
+        <result property="routingKey" column="routing_key"/>
+        <result property="payload" column="payload"/>
+        <result property="exceptionType" column="exception_type"/>
+        <result property="exceptionMessage" column="exception_message"/>
+        <result property="status" column="status"/>
+        <result property="retryCount" column="retry_count"/>
+        <result property="maxRetryCount" column="max_retry_count"/>
+        <result property="lastRetryAt" column="last_retry_at"/>
+        <result property="resolvedAt" column="resolved_at"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id,
+        message_id,
+        business_type,
+        business_key,
+        queue_name,
+        exchange_name,
+        routing_key,
+        payload,
+        exception_type,
+        exception_message,
+        status,
+        retry_count,
+        max_retry_count,
+        last_retry_at,
+        resolved_at,
+        created_at,
+        updated_at
+    </sql>
+
+    <insert id="insert"
+            parameterType="com.zewbby.smartticket.domain.entity.DeadLetterMessage"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO dead_letter_message (
+            message_id,
+            business_type,
+            business_key,
+            queue_name,
+            exchange_name,
+            routing_key,
+            payload,
+            exception_type,
+            exception_message,
+            status,
+            retry_count,
+            max_retry_count,
+            last_retry_at,
+            resolved_at,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{messageId},
+            #{businessType},
+            #{businessKey},
+            #{queueName},
+            #{exchangeName},
+            #{routingKey},
+            #{payload},
+            #{exceptionType},
+            #{exceptionMessage},
+            #{status},
+            #{retryCount},
+            #{maxRetryCount},
+            #{lastRetryAt},
+            #{resolvedAt},
+            #{createdAt},
+            #{updatedAt}
+        )
+    </insert>
+
+    <select id="selectById" resultMap="DeadLetterMessageResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM dead_letter_message
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectRecent" resultMap="DeadLetterMessageResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM dead_letter_message
+        <where>
+            <if test="status != null and status != ''">
+                status = #{status}
+            </if>
+        </where>
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countByStatus" resultType="java.lang.Long">
+        SELECT COUNT(1)
+        FROM dead_letter_message
+        WHERE status = #{status}
+    </select>
+
+    <update id="markRetried">
+        UPDATE dead_letter_message
+        SET
+            status = 'RETRIED',
+            retry_count = retry_count + 1,
+            last_retry_at = #{lastRetryAt},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status IN ('PENDING', 'FAILED')
+          AND retry_count &lt; max_retry_count
+    </update>
+
+    <update id="markIgnored">
+        UPDATE dead_letter_message
+        SET
+            status = 'IGNORED',
+            resolved_at = #{resolvedAt},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status IN ('PENDING', 'FAILED')
+    </update>
+
+    <update id="markResolved">
+        UPDATE dead_letter_message
+        SET
+            status = 'RESOLVED',
+            resolved_at = #{resolvedAt},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status IN ('PENDING', 'FAILED', 'RETRIED')
+    </update>
+
+    <update id="markManualRetryFailed">
+        UPDATE dead_letter_message
+        SET
+            status = 'FAILED',
+            exception_message = #{exceptionMessage},
+            retry_count = retry_count + 1,
+            last_retry_at = #{lastRetryAt},
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status IN ('PENDING', 'FAILED')
+    </update>
+</mapper>

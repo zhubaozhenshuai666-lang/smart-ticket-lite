@@ -10,12 +10,30 @@ TICKET_CATEGORY_ID="${TICKET_CATEGORY_ID:-2}"
 QUANTITY="${QUANTITY:-1}"
 AUTH_TOKEN="${AUTH_TOKEN:-}"
 RISK_DECISION="${RISK_DECISION:-pass}"
+SKIP_CAPACITY_GUARD="${SKIP_CAPACITY_GUARD:-false}"
 TOKEN_ENDPOINT="${BASE_URL}/api/orders/idempotency-token"
 ORDER_ENDPOINT="${BASE_URL}/api/orders/async"
+CAPACITY_ENDPOINT="${BASE_URL}/api/admin/ops/capacity/order-pipeline"
 
 if [[ -z "${AUTH_TOKEN}" ]]; then
   echo "AUTH_TOKEN is required" >&2
   exit 1
+fi
+
+if [[ "${SKIP_CAPACITY_GUARD}" != "true" ]]; then
+  capacity_payload="$(curl -sS -H "Authorization: Bearer ${AUTH_TOKEN}" "${CAPACITY_ENDPOINT}")"
+  if [[ "${capacity_payload}" != *'"fastPipelineEnabled":true'* ]]; then
+    echo "capacity_guard_failed fastPipelineEnabled is not true; enable flash-sale fast pipeline or set SKIP_CAPACITY_GUARD=true" >&2
+    exit 1
+  fi
+  if [[ "${capacity_payload}" != *'"waitingRoomEnabled":true'* ]]; then
+    echo "capacity_guard_failed waitingRoomEnabled is not true; pressure test would hit Redis/MQ without admission control" >&2
+    exit 1
+  fi
+  if [[ "${capacity_payload}" == *'"hardBottleneck":"入口仍通过 Outbox'* ]]; then
+    echo "capacity_guard_failed publisher mode is still Outbox" >&2
+    exit 1
+  fi
 fi
 
 run_one() {

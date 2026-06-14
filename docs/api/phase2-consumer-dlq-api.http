@@ -1,0 +1,49 @@
+@host = http://localhost:8081
+@token = replace-with-login-token
+@deadLetterId = 1
+
+### 1. 登录获取 token
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "phone": "13800000001",
+  "password": "Test123456"
+}
+
+### 2. 查询死信消息列表
+GET {{host}}/api/admin/dead-letters?limit=20
+Authorization: Bearer {{token}}
+
+### 3. 只查询待处理死信
+GET {{host}}/api/admin/dead-letters?status=PENDING&limit=20
+Authorization: Bearer {{token}}
+
+### 4. 查询单条死信
+GET {{host}}/api/admin/dead-letters/{{deadLetterId}}
+Authorization: Bearer {{token}}
+
+### 5. 人工重试死信
+# retry 不会直接发送 RabbitMQ，而是重新写 local_message(INIT)，由可靠消息发送器统一投递。
+POST {{host}}/api/admin/dead-letters/{{deadLetterId}}/retry
+Authorization: Bearer {{token}}
+
+### 6. 人工忽略死信
+POST {{host}}/api/admin/dead-letters/{{deadLetterId}}/ignore
+Authorization: Bearer {{token}}
+
+### 7. 标记死信已解决
+POST {{host}}/api/admin/dead-letters/{{deadLetterId}}/resolve
+Authorization: Bearer {{token}}
+
+### 8. MySQL 验证死信状态
+# SELECT id, business_type, business_key, exception_type, status, retry_count, last_retry_at, resolved_at, created_at
+# FROM dead_letter_message
+# ORDER BY id DESC
+# LIMIT 20;
+
+### 9. MySQL 验证请求补偿状态
+# SELECT request_id, status, redis_deducted, deducted_quantity, compensation_status, compensated, compensated_at, fail_reason
+# FROM ticket_order_request
+# ORDER BY id DESC
+# LIMIT 20;

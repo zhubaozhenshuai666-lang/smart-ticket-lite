@@ -3,6 +3,7 @@ package com.zewbby.smartticket.mq;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.constant.RabbitMqConstant;
+import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.config.MqConsumerProperties;
 import com.zewbby.smartticket.config.StockBucketProperties;
 import com.zewbby.smartticket.domain.dto.ActivityScope;
@@ -82,6 +83,9 @@ public class AsyncCreateOrderConsumer {
     private final OrderSnapshotCacheService orderSnapshotCacheService;
 
     private final AsyncOrderInFlightService asyncOrderInFlightService;
+
+    @Autowired(required = false)
+    private AsyncOrderSubmitProperties asyncOrderSubmitProperties;
 
     @Autowired(required = false)
     private AsyncOrderRequestResultCacheService asyncOrderRequestResultCacheService;
@@ -398,6 +402,13 @@ public class AsyncCreateOrderConsumer {
      * @return
      */
     private TicketOrderRequest claimOrCreateProcessingRequest(AsyncCreateOrderMessage message) {
+        if (isFastPipelineRequestRebuildEnabled()) {
+            TicketOrderRequest insertedRequest = tryInsertProcessingRequestFromMessage(message);
+            if (insertedRequest != null) {
+                return insertedRequest;
+            }
+        }
+
         //查数据库现在的状态。
         TicketOrderRequest existingRequest = orderRequestMapper.selectByRequestId(message.getRequestId());
         if (existingRequest == null) {
@@ -447,12 +458,25 @@ public class AsyncCreateOrderConsumer {
         return orderRequest;
     }
 
-    private TicketOrderRequest insertProcessingRequestFromMessage(AsyncCreateOrderMessage message) {
+    private boolean isFastPipelineRequestRebuildEnabled() {
+        return asyncOrderSubmitProperties != null
+                && !asyncOrderSubmitProperties.isPersistRequestBeforePublish();
+    }
+
+    private TicketOrderRequest tryInsertProcessingRequestFromMessage(AsyncCreateOrderMessage message) {
         TicketOrderRequest orderRequest = buildProcessingOrderRequest(message);
         int insertedRows = orderRequestMapper.insertIgnore(orderRequest);
         if (insertedRows == 1) {
             LOGGER.info("Created async order request from message, requestId={}", message.getRequestId());
             return orderRequest;
+        }
+        return null;
+    }
+
+    private TicketOrderRequest insertProcessingRequestFromMessage(AsyncCreateOrderMessage message) {
+        TicketOrderRequest insertedRequest = tryInsertProcessingRequestFromMessage(message);
+        if (insertedRequest != null) {
+            return insertedRequest;
         }
 
         TicketOrderRequest existingRequest = orderRequestMapper.selectByRequestId(message.getRequestId());

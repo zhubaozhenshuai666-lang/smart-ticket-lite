@@ -1,0 +1,122 @@
+@host = http://localhost:8081
+@showId = 1
+@sessionId = 1
+@ticketCategoryId = 2
+@quantity = 1
+
+### 0. 登录获取 token
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "phone": "13800000001",
+  "password": "Test123456"
+}
+
+> {%
+    client.global.set("token", response.body.data.token);
+%}
+
+### 1. 预热 Redis 库存
+POST {{host}}/api/admin/stocks/{{ticketCategoryId}}/preload
+Authorization: Bearer {{token}}
+
+### 2. 获取幂等 token
+GET {{host}}/api/orders/idempotency-token
+Authorization: Bearer {{token}}
+
+> {%
+    client.global.set("idempotencyToken", response.body.data.token);
+%}
+
+### 3. 提交异步下单
+POST {{host}}/api/orders/async
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "showId": {{showId}},
+  "sessionId": {{sessionId}},
+  "ticketCategoryId": {{ticketCategoryId}},
+  "quantity": {{quantity}},
+  "idempotencyToken": "{{idempotencyToken}}"
+}
+
+> {%
+    client.global.set("requestId", response.body.data.requestId);
+%}
+
+### 4. 立即查询异步请求结果
+GET {{host}}/api/order-requests/{{requestId}}
+Authorization: Bearer {{token}}
+
+### 5. 等待本地消息发送任务和消费者处理后，再查结果
+GET {{host}}/api/order-requests/{{requestId}}
+Authorization: Bearer {{token}}
+
+> {%
+    if (response.body.data.orderId) {
+        client.global.set("orderId", response.body.data.orderId);
+    }
+%}
+
+### 6. 如果 SUCCESS，查询订单
+GET {{host}}/api/orders/{{orderId}}
+Authorization: Bearer {{token}}
+
+### 7. 查询 Redis 库存
+GET {{host}}/api/admin/stocks/{{ticketCategoryId}}/redis
+Authorization: Bearer {{token}}
+
+### 8. 查询 Redis / MySQL 库存一致性
+GET {{host}}/api/admin/stocks/{{ticketCategoryId}}/consistency
+Authorization: Bearer {{token}}
+
+### 9. 库存不足场景
+# 先在 MySQL 或 Redis 中把票档库存调低，再重新获取 token 并提交。
+# 预期：ticket_order_request 最终 FAILED，fail_reason 包含“库存不足”。
+
+### 10. MySQL 验证 local_message
+# SELECT id, message_id, business_type, business_key, status, retry_count, next_retry_time,
+#        last_error, sent_at, confirmed_at, returned_at, dead_at, created_at
+# FROM local_message
+# ORDER BY id DESC
+# LIMIT 20;
+
+### 11. MySQL 验证异步请求和订单
+# SELECT * FROM ticket_order_request ORDER BY id DESC LIMIT 20;
+# SELECT * FROM ticket_order ORDER BY id DESC LIMIT 20;
+# SELECT ticket_category_id, total_stock, available_stock, locked_stock, sold_stock, version
+# FROM ticket_stock
+# WHERE ticket_category_id = 2;
+
+### 12. RabbitMQ 管理台验证
+# 打开 http://localhost:15672
+# 账号密码以你的本地 RabbitMQ 配置为准
+# 查看：
+# - Queues -> order.async.queue
+# - Queues -> order.async.dlq
+# - Exchanges -> order.async.exchange
+# - Exchanges -> order.async.dlx.exchange
+
+### 13. 查询本地消息
+GET {{host}}/api/admin/local-messages?limit=20
+Authorization: Bearer {{token}}
+
+### 14. 按状态查询失败消息
+GET {{host}}/api/admin/local-messages?status=FAILED&limit=20
+Authorization: Bearer {{token}}
+
+### 15. 查询单条消息
+# 将 MSG_xxx 替换成 local_message.message_id
+GET {{host}}/api/admin/local-messages/MSG_xxx
+Authorization: Bearer {{token}}
+
+### 16. 人工重试 FAILED / DEAD 消息
+# 只把消息改回 INIT，不会在接口线程直接发送 MQ。
+POST {{host}}/api/admin/local-messages/MSG_xxx/retry
+Authorization: Bearer {{token}}
+
+### 17. 人工标记 DEAD
+POST {{host}}/api/admin/local-messages/MSG_xxx/mark-dead
+Authorization: Bearer {{token}}

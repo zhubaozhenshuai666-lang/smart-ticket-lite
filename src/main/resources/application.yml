@@ -54,6 +54,7 @@ smart-ticket:
     redis-stream-read-batch-size: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_READ_BATCH_SIZE:64}
     redis-stream-poll-fixed-delay-millis: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_POLL_FIXED_DELAY_MILLIS:50}
     redis-stream-block-millis: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_BLOCK_MILLIS:100}
+    redis-stream-worker-threads: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_WORKER_THREADS:1}
   mq-consumer:
     max-retry-count: ${SMART_TICKET_MQ_CONSUMER_MAX_RETRY_COUNT:3}
     retry-interval-seconds: ${SMART_TICKET_MQ_CONSUMER_RETRY_INTERVAL_SECONDS:10}
