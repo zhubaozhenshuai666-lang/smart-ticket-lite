@@ -20,7 +20,7 @@ class AsyncOrderSubmitGuardrailTest {
     @Test
     void rejectsUnknownPublisherMode() {
         AsyncOrderSubmitProperties properties = new AsyncOrderSubmitProperties();
-        properties.setPublisherMode("kafka");
+        properties.setPublisherMode("rocket");
         MockEnvironment environment = new MockEnvironment();
 
         assertThatThrownBy(() -> new AsyncOrderSubmitGuardrail(properties, new OrderTimeoutProperties(), environment).afterPropertiesSet())
@@ -95,6 +95,16 @@ class AsyncOrderSubmitGuardrailTest {
     void flashSaleProfileAllowsRedisStreamEventPipeline() {
         AsyncOrderSubmitProperties properties = flashSaleProperties();
         properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM);
+
+        assertThatCode(() -> newGuardrail(properties).afterPropertiesSet())
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void flashSaleProfileAllowsKafkaEventPipeline() {
+        AsyncOrderSubmitProperties properties = flashSaleProperties();
+        properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA);
+        properties.setDirectRabbitWaitForConfirm(true);
 
         assertThatCode(() -> newGuardrail(properties).afterPropertiesSet())
                 .doesNotThrowAnyException();

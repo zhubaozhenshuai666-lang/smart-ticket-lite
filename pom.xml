@@ -61,6 +61,12 @@
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
+        <!-- Kafka：用于并行接入异步下单事件流，第一阶段不替换 RabbitMQ 主链路 -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- Spring AMQP 消费端有限重试：用于 listener retry + 自定义 MessageRecoverer -->
         <dependency>
             <groupId>org.springframework.retry</groupId>

@@ -13,6 +13,8 @@ public class AsyncOrderSubmitProperties {
 
     public static final String PUBLISHER_MODE_REDIS_STREAM = "redis-stream";
 
+    public static final String PUBLISHER_MODE_KAFKA = "kafka";
+
     /**
      * 是否在入口发布消息前先写 ticket_order_request。
      *
@@ -27,6 +29,7 @@ public class AsyncOrderSubmitProperties {
      * outbox: 写 local_message 后可靠投递，可靠性强但 DB 写放大明显。
      * direct-rabbit: 入口直接发布到 RabbitMQ 分片队列，减少 local_message 写入，适合压测和高峰资格事件链路。
      * redis-stream: 入口写 Redis Stream 日志，使用 consumer group 消费；这是 Kafka/RocketMQ 迁移前的本地可运行事件流形态。
+     * kafka: 入口写 Kafka topic；第一阶段只并行接入能力，默认不启用正式主链路。
      */
     private String publisherMode = PUBLISHER_MODE_OUTBOX;
 
@@ -65,6 +68,12 @@ public class AsyncOrderSubmitProperties {
 
     private int redisStreamWorkerThreads = 1;
 
+    private String kafkaAsyncCreateOrderTopic = "smart-ticket.async-order.create";
+
+    private String kafkaAsyncCreateOrderConsumerGroup = "smart-ticket-async-order-shadow";
+
+    private boolean kafkaAsyncCreateOrderConsumerEnabled = false;
+
     public boolean isPersistRequestBeforePublish() {
         return persistRequestBeforePublish;
     }
@@ -87,6 +96,10 @@ public class AsyncOrderSubmitProperties {
 
     public boolean isRedisStreamPublisherMode() {
         return PUBLISHER_MODE_REDIS_STREAM.equalsIgnoreCase(getPublisherMode());
+    }
+
+    public boolean isKafkaPublisherMode() {
+        return PUBLISHER_MODE_KAFKA.equalsIgnoreCase(getPublisherMode());
     }
 
     public boolean isDirectRabbitWaitForConfirm() {
@@ -189,5 +202,33 @@ public class AsyncOrderSubmitProperties {
 
     public void setRedisStreamWorkerThreads(int redisStreamWorkerThreads) {
         this.redisStreamWorkerThreads = redisStreamWorkerThreads;
+    }
+
+    public String getKafkaAsyncCreateOrderTopic() {
+        return kafkaAsyncCreateOrderTopic == null || kafkaAsyncCreateOrderTopic.isBlank()
+                ? "smart-ticket.async-order.create"
+                : kafkaAsyncCreateOrderTopic.trim();
+    }
+
+    public void setKafkaAsyncCreateOrderTopic(String kafkaAsyncCreateOrderTopic) {
+        this.kafkaAsyncCreateOrderTopic = kafkaAsyncCreateOrderTopic;
+    }
+
+    public String getKafkaAsyncCreateOrderConsumerGroup() {
+        return kafkaAsyncCreateOrderConsumerGroup == null || kafkaAsyncCreateOrderConsumerGroup.isBlank()
+                ? "smart-ticket-async-order-shadow"
+                : kafkaAsyncCreateOrderConsumerGroup.trim();
+    }
+
+    public void setKafkaAsyncCreateOrderConsumerGroup(String kafkaAsyncCreateOrderConsumerGroup) {
+        this.kafkaAsyncCreateOrderConsumerGroup = kafkaAsyncCreateOrderConsumerGroup;
+    }
+
+    public boolean isKafkaAsyncCreateOrderConsumerEnabled() {
+        return kafkaAsyncCreateOrderConsumerEnabled;
+    }
+
+    public void setKafkaAsyncCreateOrderConsumerEnabled(boolean kafkaAsyncCreateOrderConsumerEnabled) {
+        this.kafkaAsyncCreateOrderConsumerEnabled = kafkaAsyncCreateOrderConsumerEnabled;
     }
 }
