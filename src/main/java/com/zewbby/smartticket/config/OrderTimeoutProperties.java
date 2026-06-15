@@ -11,7 +11,7 @@ public class OrderTimeoutProperties {
 
     public static final String PUBLISHER_MODE_OUTBOX = "outbox";
 
-    private boolean delayMessageEnabled = true;
+    private boolean delayMessageEnabled = false;
 
     private String publisherMode = PUBLISHER_MODE_DIRECT_RABBIT;
 

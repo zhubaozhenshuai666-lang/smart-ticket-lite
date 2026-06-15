@@ -48,8 +48,9 @@ public class CapacityAssessmentService {
         boolean fastPipeline = !asyncOrderSubmitProperties.isPersistRequestBeforePublish();
         boolean directRabbit = asyncOrderSubmitProperties.isDirectRabbitPublisherMode();
         boolean redisStream = asyncOrderSubmitProperties.isRedisStreamPublisherMode();
-        String bottleneck = decideHardBottleneck(fastPipeline, directRabbit, redisStream);
-        String recommendation = decideRecommendation(fastPipeline, directRabbit, redisStream);
+        boolean kafka = asyncOrderSubmitProperties.isKafkaPublisherMode();
+        String bottleneck = decideHardBottleneck(fastPipeline, directRabbit, redisStream, kafka);
+        String recommendation = decideRecommendation(fastPipeline, directRabbit, redisStream, kafka);
         return new CapacityAssessmentVO(
                 "order-submit-pipeline",
                 rateLimitProperties.getOrderApiRefillRatePerSecond(),
@@ -86,7 +87,9 @@ public class CapacityAssessmentService {
         requirements.add("压测必须预热 Redis 库存和库存 bucket，禁止开压后临时回源 MySQL 初始化库存");
         requirements.add("压测必须开启等待室，放行速率不要超过消费者和 MySQL 最终写入能力");
         requirements.add("压测必须独立观察 Redis Lua 耗时、MQ/Stream backlog、消费者 TPS、MySQL 行锁等待和接口 P99");
-        if (!asyncOrderSubmitProperties.isDirectRabbitPublisherMode() && !asyncOrderSubmitProperties.isRedisStreamPublisherMode()) {
+        if (!asyncOrderSubmitProperties.isDirectRabbitPublisherMode()
+                && !asyncOrderSubmitProperties.isRedisStreamPublisherMode()
+                && !asyncOrderSubmitProperties.isKafkaPublisherMode()) {
             requirements.add("当前仍是 Outbox 发布模式，不适合作为高峰压测主链路");
         }
         if (asyncOrderSubmitProperties.isPersistRequestBeforePublish()) {
@@ -108,11 +111,11 @@ public class CapacityAssessmentService {
         );
     }
 
-    private String decideHardBottleneck(boolean fastPipeline, boolean directRabbit, boolean redisStream) {
+    private String decideHardBottleneck(boolean fastPipeline, boolean directRabbit, boolean redisStream, boolean kafka) {
         if (!fastPipeline) {
             return "入口仍写 ticket_order_request，抢票洪峰首先卡在 MySQL insert 与索引维护";
         }
-        if (!directRabbit && !redisStream) {
+        if (!directRabbit && !redisStream && !kafka) {
             return "入口仍通过 Outbox 发布异步下单消息，local_message 写放大会限制吞吐";
         }
         if (directRabbit && asyncOrderSubmitProperties.isDirectRabbitWaitForConfirm()) {
@@ -124,9 +127,9 @@ public class CapacityAssessmentService {
         return "当前瓶颈主要转移到消费者并发、MySQL 最终扣库存和订单写入";
     }
 
-    private String decideRecommendation(boolean fastPipeline, boolean directRabbit, boolean redisStream) {
-        if (!fastPipeline || (!directRabbit && !redisStream)) {
-            return "高峰活动应开启 fast pipeline + direct-rabbit/redis-stream，并配合离线补偿巡检";
+    private String decideRecommendation(boolean fastPipeline, boolean directRabbit, boolean redisStream, boolean kafka) {
+        if (!fastPipeline || (!directRabbit && !redisStream && !kafka)) {
+            return "高峰活动应开启 fast pipeline + kafka/direct-rabbit/redis-stream，并配合离线补偿巡检";
         }
         if (!waitingRoomProperties.isEnabled()) {
             return "大型活动必须开启等待室，用分批入场控制入口瞬时并发";

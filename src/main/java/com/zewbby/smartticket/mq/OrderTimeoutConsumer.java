@@ -2,12 +2,14 @@ package com.zewbby.smartticket.mq;
 
 import com.zewbby.smartticket.constant.RabbitMqConstant;
 import com.zewbby.smartticket.service.OrderService;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(prefix = "smart-ticket.order-timeout", name = "delay-message-enabled", havingValue = "true")
 public class OrderTimeoutConsumer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OrderTimeoutConsumer.class);

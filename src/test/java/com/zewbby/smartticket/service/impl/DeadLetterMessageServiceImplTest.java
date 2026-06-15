@@ -12,7 +12,7 @@ import com.zewbby.smartticket.enums.OrderRequestStatusEnum;
 import com.zewbby.smartticket.mapper.DeadLetterMessageMapper;
 import com.zewbby.smartticket.mapper.OrderRequestMapper;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
-import com.zewbby.smartticket.service.LocalMessageService;
+import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,7 +39,7 @@ class DeadLetterMessageServiceImplTest {
     private OrderRequestMapper orderRequestMapper;
 
     @Mock
-    private LocalMessageService localMessageService;
+    private AsyncOrderMessagePublisher asyncOrderMessagePublisher;
 
     private DeadLetterMessageServiceImpl service;
 
@@ -48,7 +48,7 @@ class DeadLetterMessageServiceImplTest {
         service = new DeadLetterMessageServiceImpl(
                 deadLetterMessageMapper,
                 orderRequestMapper,
-                localMessageService,
+                asyncOrderMessagePublisher,
                 new ObjectMapper()
         );
     }
@@ -86,13 +86,13 @@ class DeadLetterMessageServiceImplTest {
         TicketOrderRequest request = retryableRequest(OrderRequestStatusEnum.QUEUED.getCode());
         when(deadLetterMessageMapper.selectById(1L)).thenReturn(deadLetterMessage);
         when(orderRequestMapper.selectByRequestId("REQ1")).thenReturn(request);
-        when(localMessageService.createAsyncCreateOrderMessage(any(AsyncCreateOrderMessage.class))).thenReturn("MSG-NEW");
+        when(asyncOrderMessagePublisher.publish(any(AsyncCreateOrderMessage.class))).thenReturn("MSG-NEW");
         when(orderRequestMapper.refreshQueuedMessage(10L, "MSG-NEW")).thenReturn(1);
         when(deadLetterMessageMapper.markRetried(eq(1L), any(LocalDateTime.class))).thenReturn(1);
 
         service.retry(1L);
 
-        verify(localMessageService).createAsyncCreateOrderMessage(any(AsyncCreateOrderMessage.class));
+        verify(asyncOrderMessagePublisher).publish(any(AsyncCreateOrderMessage.class));
         verify(orderRequestMapper).refreshQueuedMessage(10L, "MSG-NEW");
         verify(deadLetterMessageMapper).markRetried(eq(1L), any(LocalDateTime.class));
     }

@@ -40,6 +40,7 @@ class OrderTimeoutProducerTest {
 
     @Test
     void directRabbitModePublishesDelayMessageWithoutOutboxWrite() {
+        properties.setDelayMessageEnabled(true);
         OrderTimeoutMessage message = new OrderTimeoutMessage(1L, "ORDER1");
 
         String messageId = producer.sendOrderTimeoutMessage(message);
@@ -56,6 +57,7 @@ class OrderTimeoutProducerTest {
 
     @Test
     void outboxModeKeepsReliableLocalMessagePath() {
+        properties.setDelayMessageEnabled(true);
         properties.setPublisherMode(OrderTimeoutProperties.PUBLISHER_MODE_OUTBOX);
         OrderTimeoutMessage message = new OrderTimeoutMessage(1L, "ORDER1");
         when(localMessageService.createOrderTimeoutCloseMessage(message)).thenReturn("MSG1");

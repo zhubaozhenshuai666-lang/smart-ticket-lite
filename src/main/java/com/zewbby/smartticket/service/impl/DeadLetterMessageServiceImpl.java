@@ -14,8 +14,8 @@ import com.zewbby.smartticket.enums.OrderRequestStatusEnum;
 import com.zewbby.smartticket.mapper.DeadLetterMessageMapper;
 import com.zewbby.smartticket.mapper.OrderRequestMapper;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
+import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import com.zewbby.smartticket.service.DeadLetterMessageService;
-import com.zewbby.smartticket.service.LocalMessageService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,17 +37,17 @@ public class DeadLetterMessageServiceImpl implements DeadLetterMessageService {
 
     private final OrderRequestMapper orderRequestMapper;
 
-    private final LocalMessageService localMessageService;
+    private final AsyncOrderMessagePublisher asyncOrderMessagePublisher;
 
     private final ObjectMapper objectMapper;
 
     public DeadLetterMessageServiceImpl(DeadLetterMessageMapper deadLetterMessageMapper,
                                         OrderRequestMapper orderRequestMapper,
-                                        LocalMessageService localMessageService,
+                                        AsyncOrderMessagePublisher asyncOrderMessagePublisher,
                                         ObjectMapper objectMapper) {
         this.deadLetterMessageMapper = deadLetterMessageMapper;
         this.orderRequestMapper = orderRequestMapper;
-        this.localMessageService = localMessageService;
+        this.asyncOrderMessagePublisher = asyncOrderMessagePublisher;
         this.objectMapper = objectMapper;
     }
 
@@ -130,8 +130,8 @@ public class DeadLetterMessageServiceImpl implements DeadLetterMessageService {
     /**
      * 人工重试死信消息。
      *
-     * 这里不直接调用消费者方法，也不把消息硬塞回 RabbitMQ。正确做法是先检查 request 当前业务状态，
-     * 再写一条新的 local_message，由 Task B+ 的发送器、Publisher Confirm、ReturnCallback 和超时扫描统一处理。
+     * 这里不直接调用消费者方法。正确做法是先检查 request 当前业务状态，
+     * 再走当前启用的 AsyncOrderMessagePublisher：Kafka 模式回 Kafka，Outbox/Rabbit 模式走对应旧链路。
      * 如果 request 已 SUCCESS，重试会制造重复订单风险；如果已经 COMPENSATED，说明 Redis 预扣已经释放，
      * 此时直接重投会绕过入口预扣语义，所以当前阶段拒绝重试，留给后续人工补偿流程处理。
      */
@@ -162,7 +162,7 @@ public class DeadLetterMessageServiceImpl implements DeadLetterMessageService {
             }
         }
 
-        String newMessageId = localMessageService.createAsyncCreateOrderMessage(message);
+        String newMessageId = asyncOrderMessagePublisher.publish(message);
         int messageRows;
         if (OrderRequestStatusEnum.PRE_DEDUCTED.getCode().equals(request.getStatus())) {
             messageRows = orderRequestMapper.markQueued(request.getId(), newMessageId);

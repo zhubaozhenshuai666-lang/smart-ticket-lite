@@ -108,4 +108,27 @@ class CapacityAssessmentServiceTest {
         assertThat(assessment.getHardBottleneck()).doesNotContain("RabbitMQ");
         assertThat(assessment.getHardBottleneck()).contains("消费者并发");
     }
+
+    @Test
+    void assessOrderPipelineCapacityTreatsKafkaAsEventPipeline() {
+        AsyncOrderSubmitProperties asyncOrderSubmitProperties = new AsyncOrderSubmitProperties();
+        asyncOrderSubmitProperties.setPersistRequestBeforePublish(false);
+        asyncOrderSubmitProperties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA);
+        WaitingRoomProperties waitingRoomProperties = new WaitingRoomProperties();
+        waitingRoomProperties.setEnabled(true);
+
+        var service = new CapacityAssessmentService(
+                new RateLimitProperties(),
+                new MqConsumerProperties(),
+                asyncOrderSubmitProperties,
+                new StockBucketProperties(),
+                waitingRoomProperties,
+                new OrderTimeoutProperties()
+        );
+
+        var assessment = service.assessOrderPipelineCapacity();
+
+        assertThat(assessment.getHardBottleneck()).doesNotContain("Outbox");
+        assertThat(assessment.getHardBottleneck()).contains("消费者并发");
+    }
 }
