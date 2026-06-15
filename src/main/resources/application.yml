@@ -41,8 +41,8 @@ smart-ticket:
     default-max-retry-count: ${SMART_TICKET_LOCAL_MESSAGE_MAX_RETRY_COUNT:5}
     mark-sent-enabled: ${SMART_TICKET_LOCAL_MESSAGE_MARK_SENT_ENABLED:false}
   async-order-submit:
-    persist-request-before-publish: ${SMART_TICKET_ASYNC_ORDER_PERSIST_REQUEST_BEFORE_PUBLISH:true}
-    publisher-mode: ${SMART_TICKET_ASYNC_ORDER_PUBLISHER_MODE:outbox}
+    persist-request-before-publish: ${SMART_TICKET_ASYNC_ORDER_PERSIST_REQUEST_BEFORE_PUBLISH:false}
+    publisher-mode: ${SMART_TICKET_ASYNC_ORDER_PUBLISHER_MODE:direct-rabbit}
     direct-rabbit-wait-for-confirm: ${SMART_TICKET_ASYNC_ORDER_DIRECT_RABBIT_WAIT_FOR_CONFIRM:true}
     direct-rabbit-confirm-timeout-millis: ${SMART_TICKET_ASYNC_ORDER_DIRECT_RABBIT_CONFIRM_TIMEOUT_MILLIS:500}
     in-flight-control-enabled: ${SMART_TICKET_ASYNC_ORDER_IN_FLIGHT_CONTROL_ENABLED:true}
@@ -59,10 +59,10 @@ smart-ticket:
     max-retry-count: ${SMART_TICKET_MQ_CONSUMER_MAX_RETRY_COUNT:3}
     retry-interval-seconds: ${SMART_TICKET_MQ_CONSUMER_RETRY_INTERVAL_SECONDS:10}
     processing-timeout-seconds: ${SMART_TICKET_MQ_CONSUMER_PROCESSING_TIMEOUT_SECONDS:120}
-    concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_CONCURRENT_CONSUMERS:8}
+    concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_CONCURRENT_CONSUMERS:16}
     max-concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_MAX_CONCURRENT_CONSUMERS:64}
-    prefetch-count: ${SMART_TICKET_MQ_CONSUMER_PREFETCH_COUNT:10}
-    async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_ASYNC_QUEUE_SHARD_COUNT:16}
+    prefetch-count: ${SMART_TICKET_MQ_CONSUMER_PREFETCH_COUNT:20}
+    async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_ASYNC_QUEUE_SHARD_COUNT:32}
     max-concurrent-consumer-cap: ${SMART_TICKET_MQ_CONSUMER_MAX_CONCURRENT_CONSUMER_CAP:128}
     max-prefetch-count: ${SMART_TICKET_MQ_CONSUMER_MAX_PREFETCH_COUNT:50}
     max-unacked-messages: ${SMART_TICKET_MQ_CONSUMER_MAX_UNACKED_MESSAGES:1000}
@@ -78,7 +78,7 @@ smart-ticket:
     auto-repair-enabled: ${SMART_TICKET_STOCK_CONSISTENCY_AUTO_REPAIR_ENABLED:false}
   stock-bucket:
     enabled: ${SMART_TICKET_STOCK_BUCKET_ENABLED:true}
-    default-bucket-count: ${SMART_TICKET_STOCK_BUCKET_DEFAULT_COUNT:10}
+    default-bucket-count: ${SMART_TICKET_STOCK_BUCKET_DEFAULT_COUNT:32}
     active-version: ${SMART_TICKET_STOCK_BUCKET_ACTIVE_VERSION:1}
     active-probe-count: ${SMART_TICKET_STOCK_BUCKET_ACTIVE_PROBE_COUNT:3}
     tail-bucket-count: ${SMART_TICKET_STOCK_BUCKET_TAIL_BUCKET_COUNT:4}
