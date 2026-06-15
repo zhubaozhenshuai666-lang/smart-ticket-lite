@@ -184,7 +184,8 @@ public class RabbitMqConfig {
             ConnectionFactory connectionFactory,
             MessageConverter rabbitMessageConverter,
             RetryOperationsInterceptor asyncOrderRetryInterceptor,
-            MqConsumerProperties mqConsumerProperties) {
+            MqConsumerProperties mqConsumerProperties,
+            AsyncOrderSubmitProperties asyncOrderSubmitProperties) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(rabbitMessageConverter);
@@ -193,6 +194,7 @@ public class RabbitMqConfig {
         factory.setConcurrentConsumers(mqConsumerProperties.getConcurrentConsumers());
         factory.setMaxConcurrentConsumers(mqConsumerProperties.getMaxConcurrentConsumers());
         factory.setPrefetchCount(mqConsumerProperties.getPrefetchCount());
+        factory.setAutoStartup(!asyncOrderSubmitProperties.isKafkaPublisherMode());
         return factory;
     }
 }

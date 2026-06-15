@@ -4,6 +4,7 @@ import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import com.zewbby.smartticket.service.AsyncOrderPartitionService;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -18,7 +19,9 @@ public class KafkaAsyncOrderMessagePublisher implements AsyncOrderMessagePublish
 
     private final AsyncOrderPartitionService asyncOrderPartitionService;
 
-    public KafkaAsyncOrderMessagePublisher(KafkaTemplate<String, AsyncCreateOrderMessage> kafkaTemplate,
+    public KafkaAsyncOrderMessagePublisher(
+                                           @Qualifier("asyncOrderKafkaTemplate")
+                                           KafkaTemplate<String, AsyncCreateOrderMessage> kafkaTemplate,
                                            AsyncOrderSubmitProperties properties) {
         this(kafkaTemplate, properties, new AsyncOrderPartitionService());
     }

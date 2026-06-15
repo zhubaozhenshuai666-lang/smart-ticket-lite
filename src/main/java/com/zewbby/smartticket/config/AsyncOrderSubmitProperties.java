@@ -29,7 +29,7 @@ public class AsyncOrderSubmitProperties {
      * outbox: 写 local_message 后可靠投递，可靠性强但 DB 写放大明显。
      * direct-rabbit: 入口直接发布到 RabbitMQ 分片队列，减少 local_message 写入，适合压测和高峰资格事件链路。
      * redis-stream: 入口写 Redis Stream 日志，使用 consumer group 消费；这是 Kafka/RocketMQ 迁移前的本地可运行事件流形态。
-     * kafka: 入口写 Kafka topic；第一阶段只并行接入能力，默认不启用正式主链路。
+     * kafka: 入口写 Kafka topic，由 Kafka 消费者复用异步创单处理器创建正式订单。
      */
     private String publisherMode = PUBLISHER_MODE_OUTBOX;
 
@@ -70,9 +70,9 @@ public class AsyncOrderSubmitProperties {
 
     private String kafkaAsyncCreateOrderTopic = "smart-ticket.async-order.create";
 
-    private String kafkaAsyncCreateOrderConsumerGroup = "smart-ticket-async-order-shadow";
+    private String kafkaAsyncCreateOrderDeadLetterTopic = "smart-ticket.async-order.create.DLT";
 
-    private boolean kafkaAsyncCreateOrderConsumerEnabled = false;
+    private String kafkaAsyncCreateOrderConsumerGroup = "smart-ticket-async-order-create";
 
     public boolean isPersistRequestBeforePublish() {
         return persistRequestBeforePublish;
@@ -214,9 +214,19 @@ public class AsyncOrderSubmitProperties {
         this.kafkaAsyncCreateOrderTopic = kafkaAsyncCreateOrderTopic;
     }
 
+    public String getKafkaAsyncCreateOrderDeadLetterTopic() {
+        return kafkaAsyncCreateOrderDeadLetterTopic == null || kafkaAsyncCreateOrderDeadLetterTopic.isBlank()
+                ? getKafkaAsyncCreateOrderTopic() + ".DLT"
+                : kafkaAsyncCreateOrderDeadLetterTopic.trim();
+    }
+
+    public void setKafkaAsyncCreateOrderDeadLetterTopic(String kafkaAsyncCreateOrderDeadLetterTopic) {
+        this.kafkaAsyncCreateOrderDeadLetterTopic = kafkaAsyncCreateOrderDeadLetterTopic;
+    }
+
     public String getKafkaAsyncCreateOrderConsumerGroup() {
         return kafkaAsyncCreateOrderConsumerGroup == null || kafkaAsyncCreateOrderConsumerGroup.isBlank()
-                ? "smart-ticket-async-order-shadow"
+                ? "smart-ticket-async-order-create"
                 : kafkaAsyncCreateOrderConsumerGroup.trim();
     }
 
@@ -224,11 +234,4 @@ public class AsyncOrderSubmitProperties {
         this.kafkaAsyncCreateOrderConsumerGroup = kafkaAsyncCreateOrderConsumerGroup;
     }
 
-    public boolean isKafkaAsyncCreateOrderConsumerEnabled() {
-        return kafkaAsyncCreateOrderConsumerEnabled;
-    }
-
-    public void setKafkaAsyncCreateOrderConsumerEnabled(boolean kafkaAsyncCreateOrderConsumerEnabled) {
-        this.kafkaAsyncCreateOrderConsumerEnabled = kafkaAsyncCreateOrderConsumerEnabled;
-    }
 }
