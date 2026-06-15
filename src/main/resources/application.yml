@@ -121,6 +121,18 @@ smart-ticket:
     enabled: ${SMART_TICKET_USER_STATUS_CACHE_ENABLED:true}
     expire-after-write-seconds: ${SMART_TICKET_USER_STATUS_CACHE_EXPIRE_AFTER_WRITE_SECONDS:30}
     maximum-size: ${SMART_TICKET_USER_STATUS_CACHE_MAXIMUM_SIZE:200000}
+  show-cache:
+    show-detail-ttl-seconds: ${SMART_TICKET_SHOW_CACHE_DETAIL_TTL_SECONDS:1800}
+    show-detail-ttl-jitter-seconds: ${SMART_TICKET_SHOW_CACHE_DETAIL_TTL_JITTER_SECONDS:300}
+    show-sessions-ttl-seconds: ${SMART_TICKET_SHOW_CACHE_SESSIONS_TTL_SECONDS:600}
+    show-sessions-ttl-jitter-seconds: ${SMART_TICKET_SHOW_CACHE_SESSIONS_TTL_JITTER_SECONDS:120}
+    session-ticket-categories-ttl-seconds: ${SMART_TICKET_SHOW_CACHE_TICKET_CATEGORIES_TTL_SECONDS:600}
+    session-ticket-categories-ttl-jitter-seconds: ${SMART_TICKET_SHOW_CACHE_TICKET_CATEGORIES_TTL_JITTER_SECONDS:120}
+    null-ttl-seconds: ${SMART_TICKET_SHOW_CACHE_NULL_TTL_SECONDS:60}
+    null-ttl-jitter-seconds: ${SMART_TICKET_SHOW_CACHE_NULL_TTL_JITTER_SECONDS:30}
+    lock-ttl-seconds: ${SMART_TICKET_SHOW_CACHE_LOCK_TTL_SECONDS:5}
+    lock-retry-sleep-millis: ${SMART_TICKET_SHOW_CACHE_LOCK_RETRY_SLEEP_MILLIS:50}
+    lock-retry-times: ${SMART_TICKET_SHOW_CACHE_LOCK_RETRY_TIMES:3}
   rate-limit:
     enabled: ${SMART_TICKET_RATE_LIMIT_ENABLED:true}
     algorithm: ${SMART_TICKET_RATE_LIMIT_ALGORITHM:token-bucket}

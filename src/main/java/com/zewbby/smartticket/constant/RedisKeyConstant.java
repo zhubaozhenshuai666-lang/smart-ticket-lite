@@ -8,6 +8,8 @@ public final class RedisKeyConstant {
 
     private static final String SESSION_TICKET_CATEGORIES_PREFIX = "session:ticket-categories:";
 
+    private static final String CACHE_LOCK_PREFIX = "cache:lock:";
+
     private static final String ORDER_SUBMIT_PREFIX = "order:submit:user:";
 
     private static final String ORDER_IDEMPOTENCY_TOKEN_PREFIX = "order:idempotency:user:";
@@ -81,6 +83,10 @@ public final class RedisKeyConstant {
 
     public static String sessionTicketCategoriesKey(Long sessionId) {
         return SESSION_TICKET_CATEGORIES_PREFIX + sessionId;
+    }
+
+    public static String cacheLockKey(String cacheKey) {
+        return CACHE_LOCK_PREFIX + normalize(cacheKey);
     }
 
     public static String orderSubmitKey(Long userId, Long ticketCategoryId) {
