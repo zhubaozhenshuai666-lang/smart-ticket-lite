@@ -7,7 +7,13 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "smart-ticket.order-timeout")
 public class OrderTimeoutProperties {
 
+    public static final String PUBLISHER_MODE_DIRECT_RABBIT = "direct-rabbit";
+
+    public static final String PUBLISHER_MODE_OUTBOX = "outbox";
+
     private boolean delayMessageEnabled = true;
+
+    private String publisherMode = PUBLISHER_MODE_DIRECT_RABBIT;
 
     private int scanBatchSize = 1000;
 
@@ -19,6 +25,20 @@ public class OrderTimeoutProperties {
 
     public void setDelayMessageEnabled(boolean delayMessageEnabled) {
         this.delayMessageEnabled = delayMessageEnabled;
+    }
+
+    public String getPublisherMode() {
+        return publisherMode == null || publisherMode.isBlank()
+                ? PUBLISHER_MODE_DIRECT_RABBIT
+                : publisherMode.trim();
+    }
+
+    public void setPublisherMode(String publisherMode) {
+        this.publisherMode = publisherMode;
+    }
+
+    public boolean isOutboxPublisherMode() {
+        return PUBLISHER_MODE_OUTBOX.equalsIgnoreCase(getPublisherMode());
     }
 
     public int getScanBatchSize() {

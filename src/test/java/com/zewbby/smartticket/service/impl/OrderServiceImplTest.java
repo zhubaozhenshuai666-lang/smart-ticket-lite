@@ -404,9 +404,13 @@ class OrderServiceImplTest {
         var response = orderService.submitAsyncOrder(validRequest());
 
         ArgumentCaptor<TicketOrderRequest> requestCaptor = ArgumentCaptor.forClass(TicketOrderRequest.class);
+        ArgumentCaptor<AsyncCreateOrderMessage> messageCaptor = ArgumentCaptor.forClass(AsyncCreateOrderMessage.class);
         verify(orderRequestMapper).insert(requestCaptor.capture());
+        verify(asyncOrderMessagePublisher).publish(eq(requestCaptor.getValue().getMessageId()), messageCaptor.capture());
         assertThat(response.getStockBucketNo()).isEqualTo(4);
         assertThat(requestCaptor.getValue().getStockBucketNo()).isEqualTo(4);
+        assertThat(messageCaptor.getValue().getRoutingPartitionKey())
+                .isEqualTo("show:1:session:1:ticket:2:v1:bucket:4");
         verify(stockLuaService).preDeductBucketStock(anyString(), eq(2L), eq(1), eq(1), anyInt(), eq(10), eq(3));
         verify(stockLuaService, never()).preDeductStock(anyString(), anyLong(), anyInt());
     }

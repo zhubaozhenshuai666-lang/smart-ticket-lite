@@ -557,8 +557,19 @@ public class OrderServiceImpl implements OrderService {
         message.setDeductedAt(orderRequest.getDeductedAt());
         message.setMessageId(orderRequest.getMessageId());
         message.setActivityScopeKey(activityScope.scopeKey());
-        message.setRoutingPartitionKey(activityScope.routingPartitionKey());
+        message.setRoutingPartitionKey(buildRoutingPartitionKey(orderRequest, activityScope));
         return message;
+    }
+
+    private String buildRoutingPartitionKey(TicketOrderRequest orderRequest, ActivityScope activityScope) {
+        String baseKey = activityScope.routingPartitionKey();
+        if (orderRequest.getStockBucketNo() == null) {
+            return baseKey;
+        }
+        String bucketVersion = orderRequest.getStockBucketVersion() == null
+                ? "unknown"
+                : String.valueOf(orderRequest.getStockBucketVersion());
+        return baseKey + ":v" + bucketVersion + ":bucket:" + orderRequest.getStockBucketNo();
     }
 
     @Override

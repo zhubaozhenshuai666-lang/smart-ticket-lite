@@ -21,6 +21,11 @@ public class AsyncOrderPartitionService {
         if (message.getRoutingPartitionKey() != null && !message.getRoutingPartitionKey().isBlank()) {
             return message.getRoutingPartitionKey().trim();
         }
+        if (message.getTicketCategoryId() != null && message.getStockBucketNo() != null) {
+            return "ticket:" + message.getTicketCategoryId()
+                    + ":v" + normalizeBucketVersion(message.getStockBucketVersion())
+                    + ":bucket:" + message.getStockBucketNo();
+        }
         if (message.getActivityScopeKey() != null && !message.getActivityScopeKey().isBlank()) {
             return message.getActivityScopeKey().trim();
         }
@@ -28,5 +33,9 @@ public class AsyncOrderPartitionService {
             return "ticket:" + message.getTicketCategoryId();
         }
         return "request:" + (message.getRequestId() == null ? "unknown" : message.getRequestId());
+    }
+
+    private String normalizeBucketVersion(Integer bucketVersion) {
+        return bucketVersion == null || bucketVersion <= 0 ? "unknown" : String.valueOf(bucketVersion);
     }
 }

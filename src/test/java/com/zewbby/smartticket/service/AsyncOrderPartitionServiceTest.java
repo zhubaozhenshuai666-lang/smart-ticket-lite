@@ -29,6 +29,16 @@ class AsyncOrderPartitionServiceTest {
     }
 
     @Test
+    void stockBucketIsUsedBeforeActivityScopeWhenRoutingPartitionKeyIsMissing() {
+        AsyncCreateOrderMessage message = new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1);
+        message.setActivityScopeKey("show:1:session:1");
+        message.setStockBucketVersion(3);
+        message.setStockBucketNo(7);
+
+        assertThat(service.partitionKey(message)).isEqualTo("ticket:2:v3:bucket:7");
+    }
+
+    @Test
     void ticketCategoryIsCompatibilityFallback() {
         AsyncCreateOrderMessage message = new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1);
 

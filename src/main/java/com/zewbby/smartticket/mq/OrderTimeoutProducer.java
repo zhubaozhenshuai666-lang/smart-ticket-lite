@@ -1,11 +1,15 @@
 package com.zewbby.smartticket.mq;
 
 import com.zewbby.smartticket.config.OrderTimeoutProperties;
+import com.zewbby.smartticket.constant.RabbitMqConstant;
 import com.zewbby.smartticket.service.LocalMessageService;
 import com.zewbby.smartticket.task.LocalMessagePublishTask;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import java.util.UUID;
 
 @Component
 public class OrderTimeoutProducer {
@@ -14,13 +18,17 @@ public class OrderTimeoutProducer {
 
     private final LocalMessagePublishTask localMessagePublishTask;
 
+    private final RabbitTemplate rabbitTemplate;
+
     private final OrderTimeoutProperties orderTimeoutProperties;
 
     public OrderTimeoutProducer(LocalMessageService localMessageService,
                                 LocalMessagePublishTask localMessagePublishTask,
+                                RabbitTemplate rabbitTemplate,
                                 OrderTimeoutProperties orderTimeoutProperties) {
         this.localMessageService = localMessageService;
         this.localMessagePublishTask = localMessagePublishTask;
+        this.rabbitTemplate = rabbitTemplate;
         this.orderTimeoutProperties = orderTimeoutProperties;
     }
 
@@ -33,6 +41,11 @@ public class OrderTimeoutProducer {
         //如果不开启延迟功能直接拦截
         if (!orderTimeoutProperties.isDelayMessageEnabled()) {
             return null;
+        }
+        if (!orderTimeoutProperties.isOutboxPublisherMode()) {
+            String messageId = ensureMessageId(message);
+            publishDirectAfterCommit(message);
+            return messageId;
         }
         //在本地数据库插入一条消息记录，状态为 SENDING（发送中），并返回这笔消息的唯一身份证 messageId
         String messageId = localMessageService.createOrderTimeoutCloseMessage(message);
@@ -59,5 +72,33 @@ public class OrderTimeoutProducer {
                 localMessagePublishTask.publishByMessageId(messageId);
             }
         });
+    }
+
+    private void publishDirectAfterCommit(OrderTimeoutMessage message) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            publishDirect(message);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                publishDirect(message);
+            }
+        });
+    }
+
+    private void publishDirect(OrderTimeoutMessage message) {
+        rabbitTemplate.convertAndSend(
+                RabbitMqConstant.ORDER_TIMEOUT_DELAY_EXCHANGE,
+                RabbitMqConstant.ORDER_TIMEOUT_DELAY_ROUTING_KEY,
+                message
+        );
+    }
+
+    private String ensureMessageId(OrderTimeoutMessage message) {
+        if (message.getMessageId() == null || message.getMessageId().isBlank()) {
+            message.setMessageId("OT" + UUID.randomUUID().toString().replace("-", ""));
+        }
+        return message.getMessageId();
     }
 }

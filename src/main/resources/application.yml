@@ -69,8 +69,9 @@ smart-ticket:
     max-async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_MAX_ASYNC_QUEUE_SHARD_COUNT:64}
   order-timeout:
     delay-message-enabled: ${SMART_TICKET_ORDER_TIMEOUT_DELAY_MESSAGE_ENABLED:true}
-    scan-batch-size: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_BATCH_SIZE:1000}
-    scan-fixed-delay-millis: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_FIXED_DELAY_MILLIS:1000}
+    publisher-mode: ${SMART_TICKET_ORDER_TIMEOUT_PUBLISHER_MODE:direct-rabbit}
+    scan-batch-size: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_BATCH_SIZE:5000}
+    scan-fixed-delay-millis: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_FIXED_DELAY_MILLIS:500}
   stock-consistency:
     enabled: ${SMART_TICKET_STOCK_CONSISTENCY_ENABLED:false}
     fixed-delay-seconds: ${SMART_TICKET_STOCK_CONSISTENCY_FIXED_DELAY_SECONDS:300}

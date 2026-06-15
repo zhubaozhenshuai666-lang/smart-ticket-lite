@@ -243,8 +243,8 @@ class MapperSqlContractTest {
         assertThat(localMessageXml).contains("retry_count = retry_count + 1");
         assertThat(businessTypeEnum).contains("ORDER_TIMEOUT_CLOSE");
         assertThat(timeoutProducer).contains("createOrderTimeoutCloseMessage");
-        assertThat(timeoutProducer).doesNotContain("import org.springframework.amqp.rabbit.core.RabbitTemplate");
-        assertThat(timeoutProducer).doesNotContain("private final RabbitTemplate");
+        assertThat(timeoutProducer).contains("import org.springframework.amqp.rabbit.core.RabbitTemplate");
+        assertThat(timeoutProducer).contains("publishDirectAfterCommit");
     }
 
     @Test
