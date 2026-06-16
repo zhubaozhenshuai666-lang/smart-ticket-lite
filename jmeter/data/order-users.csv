@@ -1,0 +1,2 @@
+authToken,showId,sessionId,ticketCategoryId,quantity,admissionToken,idempotencyToken
+替换成用户JWT不要带Bearer,1,1,2,1,,
