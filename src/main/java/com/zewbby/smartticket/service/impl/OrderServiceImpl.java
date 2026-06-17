@@ -806,6 +806,11 @@ public class OrderServiceImpl implements OrderService {
                     orderId, order.getStatus());
             return;
         }
+        if (order.getExpireTime() != null && order.getExpireTime().isAfter(LocalDateTime.now())) {
+            LOGGER.info("Skipped timeout close because order has not expired, orderId={}, expireTime={}",
+                    orderId, order.getExpireTime());
+            return;
+        }
 
         /*
          * 超时关闭必须以数据库订单状态为准，不能信任消息 payload 直接改状态。
@@ -839,7 +844,7 @@ public class OrderServiceImpl implements OrderService {
         message.setExpireTime(order.getExpireTime());
         /*
          * 当前项目还没有完整的跨线程 TraceContext，这里先使用订单维度的稳定 traceId。
-         * 它不是链路追踪平台里的全局 trace，但足够把 local_message、RabbitMQ 日志和超时关闭日志串到同一笔订单上。
+         * 它不是链路追踪平台里的全局 trace，但足够把 local_message、Kafka 日志和超时关闭日志串到同一笔订单上。
          */
         message.setTraceId("order-timeout-" + order.getId());
         message.setMessageId(null);

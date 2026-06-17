@@ -18,18 +18,6 @@ spring:
       port: ${SMART_TICKET_REDIS_PORT:6379}
       database: ${SMART_TICKET_REDIS_DATABASE:0}
       password: ${SMART_TICKET_REDIS_PASSWORD:}
-
-  rabbitmq:
-    host: ${SMART_TICKET_RABBITMQ_HOST:localhost}
-    port: ${SMART_TICKET_RABBITMQ_PORT:5672}
-    username: ${SMART_TICKET_RABBITMQ_USERNAME:guest}
-    password: ${SMART_TICKET_RABBITMQ_PASSWORD:}
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    listener:
-      simple:
-        default-requeue-rejected: false
-
 smart-ticket:
   jwt:
     secret: ${SMART_TICKET_JWT_SECRET:smart-ticket-dev-secret-at-least-32-bytes}

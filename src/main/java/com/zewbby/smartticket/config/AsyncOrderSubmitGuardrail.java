@@ -38,12 +38,10 @@ public class AsyncOrderSubmitGuardrail implements InitializingBean {
     private void validatePublisherMode() {
         String publisherMode = properties.getPublisherMode();
         if (AsyncOrderSubmitProperties.PUBLISHER_MODE_OUTBOX.equalsIgnoreCase(publisherMode)
-                || AsyncOrderSubmitProperties.PUBLISHER_MODE_DIRECT_RABBIT.equalsIgnoreCase(publisherMode)
-                || AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM.equalsIgnoreCase(publisherMode)
                 || AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA.equalsIgnoreCase(publisherMode)) {
             return;
         }
-        throw new IllegalStateException("smart-ticket.async-order-submit.publisher-mode 只允许 outbox、direct-rabbit、redis-stream 或 kafka");
+        throw new IllegalStateException("smart-ticket.async-order-submit.publisher-mode 只允许 outbox 或 kafka");
     }
 
     private boolean isFlashSaleProfileActive() {
@@ -52,16 +50,11 @@ public class AsyncOrderSubmitGuardrail implements InitializingBean {
     }
 
     private void validateFlashSaleProfile() {
-        if (!properties.isDirectRabbitPublisherMode()
-                && !properties.isRedisStreamPublisherMode()
-                && !properties.isKafkaPublisherMode()) {
-            throw new IllegalStateException("flash-sale profile 必须使用 direct-rabbit、redis-stream 或 kafka 发布模式，不能继续走 Outbox 写放大路径");
+        if (!properties.isKafkaPublisherMode()) {
+            throw new IllegalStateException("flash-sale profile 必须使用 kafka 发布模式，不能继续走 Outbox 写放大路径");
         }
         if (properties.isPersistRequestBeforePublish()) {
             throw new IllegalStateException("flash-sale profile 必须关闭入口 ticket_order_request 预落库");
-        }
-        if (properties.isDirectRabbitPublisherMode() && properties.isDirectRabbitWaitForConfirm()) {
-            throw new IllegalStateException("flash-sale profile 必须关闭 direct-rabbit 同步 confirm 等待");
         }
         if (!properties.isInFlightControlEnabled()) {
             throw new IllegalStateException("flash-sale profile 必须开启 in-flight 控制，防止 MQ 和消费者被无限堆积打穿");

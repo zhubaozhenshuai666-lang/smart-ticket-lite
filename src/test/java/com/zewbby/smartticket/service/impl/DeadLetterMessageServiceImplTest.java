@@ -2,6 +2,7 @@ package com.zewbby.smartticket.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zewbby.smartticket.common.BusinessException;
+import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.domain.entity.DeadLetterMessage;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
 import com.zewbby.smartticket.enums.CompensationStatusEnum;
@@ -49,7 +50,8 @@ class DeadLetterMessageServiceImplTest {
                 deadLetterMessageMapper,
                 orderRequestMapper,
                 asyncOrderMessagePublisher,
-                new ObjectMapper()
+                new ObjectMapper(),
+                new AsyncOrderSubmitProperties()
         );
     }
 

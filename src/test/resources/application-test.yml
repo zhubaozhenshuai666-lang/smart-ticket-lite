@@ -2,16 +2,6 @@ spring:
   sql:
     init:
       mode: never
-
-  rabbitmq:
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    template:
-      mandatory: true
-    listener:
-      simple:
-        default-requeue-rejected: false
-
 smart-ticket:
   local-message:
     sender-enabled: false

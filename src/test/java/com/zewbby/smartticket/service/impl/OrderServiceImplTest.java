@@ -569,7 +569,7 @@ class OrderServiceImplTest {
 
     @Test
     void repeatedTimeoutCloseDoesNotReleaseStockTwice() {
-        TicketOrder pending = order(1L, OrderStatusEnum.PENDING_PAYMENT.getCode());
+        TicketOrder pending = expiredOrder(1L, OrderStatusEnum.PENDING_PAYMENT.getCode());
         when(orderMapper.selectById(1L)).thenReturn(pending, order(1L, OrderStatusEnum.CLOSED.getCode()));
         when(orderMapper.updateCloseStatus(anyLong(), anyString(), anyString(), any(), anyString())).thenReturn(1);
         when(ticketStockMapper.rollbackStock(2L, 1)).thenReturn(1);
@@ -584,7 +584,7 @@ class OrderServiceImplTest {
 
     @Test
     void pendingPaymentCanBeClosedAndReleaseStock() {
-        TicketOrder pending = order(1L, OrderStatusEnum.PENDING_PAYMENT.getCode());
+        TicketOrder pending = expiredOrder(1L, OrderStatusEnum.PENDING_PAYMENT.getCode());
         when(orderMapper.selectById(1L)).thenReturn(pending);
         when(orderMapper.updateCloseStatus(anyLong(), anyString(), anyString(), any(), anyString())).thenReturn(1);
         when(ticketStockMapper.rollbackStock(2L, 1)).thenReturn(1);
@@ -599,7 +599,7 @@ class OrderServiceImplTest {
     @Test
     void timeoutCloseAsyncBucketOrderRollsBackVersionedBucketAndReleasesOriginalRedisDeduction() {
         orderService = bucketEnabledOrderService();
-        TicketOrder pending = order(1L, OrderStatusEnum.PENDING_PAYMENT.getCode());
+        TicketOrder pending = expiredOrder(1L, OrderStatusEnum.PENDING_PAYMENT.getCode());
         when(orderMapper.selectById(1L)).thenReturn(pending);
         when(orderMapper.updateCloseStatus(anyLong(), anyString(), anyString(), any(), anyString())).thenReturn(1);
         TicketOrderRequest asyncRequest = asyncBucketOrderRequest(10L, "REQ1", 2, 4);
@@ -618,7 +618,7 @@ class OrderServiceImplTest {
     @Test
     void timeoutCloseDoesNotDependOnUserContext() {
         UserContext.clear();
-        TicketOrder pending = order(1L, OrderStatusEnum.PENDING_PAYMENT.getCode());
+        TicketOrder pending = expiredOrder(1L, OrderStatusEnum.PENDING_PAYMENT.getCode());
         when(orderMapper.selectById(1L)).thenReturn(pending);
         when(orderMapper.updateCloseStatus(anyLong(), anyString(), anyString(), any(), anyString())).thenReturn(1);
         when(ticketStockMapper.rollbackStock(2L, 1)).thenReturn(1);
@@ -628,6 +628,17 @@ class OrderServiceImplTest {
         verify(orderMapper).updateCloseStatus(anyLong(), anyString(), anyString(), any(), anyString());
         verify(ticketStockMapper).rollbackStock(2L, 1);
         verify(paymentMapper).closeUnpaidByOrderId(anyLong(), any());
+    }
+
+    @Test
+    void timeoutCloseSkipsUnexpiredOrder() {
+        TicketOrder pending = order(1L, OrderStatusEnum.PENDING_PAYMENT.getCode());
+        when(orderMapper.selectById(1L)).thenReturn(pending);
+
+        orderService.closeTimeoutOrder(1L);
+
+        verify(orderMapper, never()).updateCloseStatus(anyLong(), anyString(), anyString(), any(), anyString());
+        verify(ticketStockMapper, never()).rollbackStock(anyLong(), anyInt());
     }
 
     @Test
@@ -902,6 +913,12 @@ class OrderServiceImplTest {
         order.setExpireTime(now.plusMinutes(OrderConstant.ORDER_TIMEOUT_MINUTES));
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
+        return order;
+    }
+
+    private TicketOrder expiredOrder(Long id, String status) {
+        TicketOrder order = order(id, status);
+        order.setExpireTime(LocalDateTime.now().minusMinutes(1));
         return order;
     }
 

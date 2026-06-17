@@ -3,11 +3,9 @@ package com.zewbby.smartticket.integration;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zewbby.smartticket.config.LocalMessageProperties;
-import com.zewbby.smartticket.constant.RabbitMqConstant;
 import com.zewbby.smartticket.service.PaymentSignatureService;
 import com.zewbby.smartticket.task.LocalMessagePublishTask;
 import org.junit.jupiter.api.AfterEach;
-import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,7 +20,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
@@ -55,8 +52,6 @@ public abstract class BaseIntegrationTest {
     ).withExposedPorts(6379);
 
     @Container
-    protected static final RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:3.13-management");
-
     @Autowired
     protected MockMvc mockMvc;
 
@@ -68,9 +63,6 @@ public abstract class BaseIntegrationTest {
 
     @Autowired
     protected StringRedisTemplate stringRedisTemplate;
-
-    @Autowired
-    protected RabbitAdmin rabbitAdmin;
 
     @Autowired
     protected LocalMessageProperties localMessageProperties;
@@ -85,8 +77,8 @@ public abstract class BaseIntegrationTest {
      * 把 Spring Boot 测试上下文的基础设施连接切到 Testcontainers。
      *
      * 交易系统不能只靠 Mock 测试：Mock 能验证“我期望 mapper 被调用”，但验证不了 SQL 真的能跑、
-     * Redis Lua 真的原子执行、RabbitMQ exchange/queue/routingKey 真的匹配。
-     * Testcontainers 用真实 MySQL/Redis/RabbitMQ 容器替代本机服务，让集成测试覆盖协议、驱动、SQL 和消息路由。
+     * Redis Lua 真的原子执行。
+     * Testcontainers 用真实 MySQL/Redis 容器替代本机服务，让集成测试覆盖协议、驱动和 SQL。
      */
     @DynamicPropertySource
     static void registerContainerProperties(DynamicPropertyRegistry registry) {
@@ -99,26 +91,17 @@ public abstract class BaseIntegrationTest {
         registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
         registry.add("spring.data.redis.password", () -> "");
         registry.add("spring.data.redis.database", () -> 0);
-
-        registry.add("spring.rabbitmq.host", RABBITMQ::getHost);
-        registry.add("spring.rabbitmq.port", RABBITMQ::getAmqpPort);
-        registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
-        registry.add("spring.rabbitmq.password", RABBITMQ::getAdminPassword);
     }
 
     /**
      * 每个测试方法都会重新执行 schema.sql/data.sql，保证 MySQL 数据隔离。
-     * Redis 和 RabbitMQ 不受 @Sql 管理，所以测试结束后主动 flush/purge，避免上一个测试残留的库存 key、
-     * soldout 标记或队列消息污染下一条链路。
+     * Redis 不受 @Sql 管理，所以测试结束后主动 flush，避免上一个测试残留的库存 key、
+     * soldout 标记污染下一条链路。
      */
     @AfterEach
     void cleanInfrastructureState() {
         localMessageProperties.setSenderEnabled(false);
         stringRedisTemplate.getConnectionFactory().getConnection().serverCommands().flushDb();
-        purgeQueue(RabbitMqConstant.ORDER_ASYNC_QUEUE);
-        purgeQueue(RabbitMqConstant.ORDER_ASYNC_DLQ);
-        purgeQueue(RabbitMqConstant.ORDER_TIMEOUT_DELAY_QUEUE);
-        purgeQueue(RabbitMqConstant.ORDER_TIMEOUT_DEAD_QUEUE);
     }
 
     protected String loginAsUser() throws Exception {
@@ -220,13 +203,5 @@ public abstract class BaseIntegrationTest {
                 "nonce", nonce,
                 "signature", signature
         );
-    }
-
-    private void purgeQueue(String queueName) {
-        try {
-            rabbitAdmin.purgeQueue(queueName, true);
-        } catch (RuntimeException ignored) {
-            // 队列尚未声明或容器正在关闭时无需让清理逻辑掩盖真正的测试结果。
-        }
     }
 }

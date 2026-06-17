@@ -23,8 +23,7 @@ class CapacityAssessmentServiceTest {
         mqConsumerProperties.setPrefetchCount(10);
         AsyncOrderSubmitProperties asyncOrderSubmitProperties = new AsyncOrderSubmitProperties();
         asyncOrderSubmitProperties.setPersistRequestBeforePublish(false);
-        asyncOrderSubmitProperties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_DIRECT_RABBIT);
-        asyncOrderSubmitProperties.setDirectRabbitWaitForConfirm(false);
+        asyncOrderSubmitProperties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA);
         asyncOrderSubmitProperties.setMaxInFlightPerTicketCategory(50000L);
         StockBucketProperties stockBucketProperties = new StockBucketProperties();
         stockBucketProperties.setDefaultBucketCount(64);
@@ -48,7 +47,7 @@ class CapacityAssessmentServiceTest {
         assertThat(assessment.getAsyncQueueShardCount()).isEqualTo(32);
         assertThat(assessment.getEstimatedConsumerInFlightMessages()).isEqualTo(640);
         assertThat(assessment.isFastPipelineEnabled()).isTrue();
-        assertThat(assessment.isDirectRabbitEnabled()).isTrue();
+        assertThat(assessment.isKafkaEnabled()).isTrue();
         assertThat(assessment.getHardBottleneck()).contains("消费者并发");
     }
 
@@ -61,7 +60,7 @@ class CapacityAssessmentServiceTest {
         mqConsumerProperties.setMaxAsyncQueueShardCount(128);
         AsyncOrderSubmitProperties asyncOrderSubmitProperties = new AsyncOrderSubmitProperties();
         asyncOrderSubmitProperties.setPersistRequestBeforePublish(false);
-        asyncOrderSubmitProperties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM);
+        asyncOrderSubmitProperties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA);
         asyncOrderSubmitProperties.setMaxInFlightPerTicketCategory(100000L);
         StockBucketProperties stockBucketProperties = new StockBucketProperties();
         stockBucketProperties.setDefaultBucketCount(64);
@@ -85,11 +84,10 @@ class CapacityAssessmentServiceTest {
     }
 
     @Test
-    void assessOrderPipelineCapacityTreatsRedisStreamAsEventPipeline() {
+    void assessOrderPipelineCapacityTreatsOutboxAsWriteAmplification() {
         AsyncOrderSubmitProperties asyncOrderSubmitProperties = new AsyncOrderSubmitProperties();
         asyncOrderSubmitProperties.setPersistRequestBeforePublish(false);
-        asyncOrderSubmitProperties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM);
-        asyncOrderSubmitProperties.setDirectRabbitWaitForConfirm(true);
+        asyncOrderSubmitProperties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_OUTBOX);
         WaitingRoomProperties waitingRoomProperties = new WaitingRoomProperties();
         waitingRoomProperties.setEnabled(true);
 
@@ -104,9 +102,7 @@ class CapacityAssessmentServiceTest {
 
         var assessment = service.assessOrderPipelineCapacity();
 
-        assertThat(assessment.getHardBottleneck()).doesNotContain("Outbox");
-        assertThat(assessment.getHardBottleneck()).doesNotContain("RabbitMQ");
-        assertThat(assessment.getHardBottleneck()).contains("消费者并发");
+        assertThat(assessment.getHardBottleneck()).contains("Outbox");
     }
 
     @Test

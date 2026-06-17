@@ -1,6 +1,7 @@
 package com.zewbby.smartticket.config;
 
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
+import com.zewbby.smartticket.mq.OrderTimeoutMessage;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.context.annotation.Bean;
@@ -24,6 +25,18 @@ public class KafkaAsyncOrderConfig {
     }
 
     @Bean
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public KafkaTemplate<String, OrderTimeoutMessage> orderTimeoutKafkaTemplate(ProducerFactory producerFactory) {
+        return new KafkaTemplate<>(producerFactory);
+    }
+
+    @Bean
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public KafkaTemplate<String, Object> localMessageKafkaTemplate(ProducerFactory producerFactory) {
+        return new KafkaTemplate<>(producerFactory);
+    }
+
+    @Bean
     public NewTopic asyncCreateOrderTopic(AsyncOrderSubmitProperties asyncOrderSubmitProperties,
                                           MqConsumerProperties mqConsumerProperties) {
         return TopicBuilder.name(asyncOrderSubmitProperties.getKafkaAsyncCreateOrderTopic())
@@ -35,6 +48,14 @@ public class KafkaAsyncOrderConfig {
     public NewTopic asyncCreateOrderDeadLetterTopic(AsyncOrderSubmitProperties asyncOrderSubmitProperties,
                                                     MqConsumerProperties mqConsumerProperties) {
         return TopicBuilder.name(asyncOrderSubmitProperties.getKafkaAsyncCreateOrderDeadLetterTopic())
+                .partitions(mqConsumerProperties.getAsyncQueueShardCount())
+                .build();
+    }
+
+    @Bean
+    public NewTopic orderTimeoutTopic(OrderTimeoutProperties orderTimeoutProperties,
+                                      MqConsumerProperties mqConsumerProperties) {
+        return TopicBuilder.name(orderTimeoutProperties.getKafkaOrderTimeoutTopic())
                 .partitions(mqConsumerProperties.getAsyncQueueShardCount())
                 .build();
     }

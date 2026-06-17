@@ -3,7 +3,7 @@ package com.zewbby.smartticket.service.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zewbby.smartticket.common.BusinessException;
-import com.zewbby.smartticket.constant.RabbitMqConstant;
+import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.domain.entity.DeadLetterMessage;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
 import com.zewbby.smartticket.enums.CompensationStatusEnum;
@@ -41,21 +41,25 @@ public class DeadLetterMessageServiceImpl implements DeadLetterMessageService {
 
     private final ObjectMapper objectMapper;
 
+    private final AsyncOrderSubmitProperties asyncOrderSubmitProperties;
+
     public DeadLetterMessageServiceImpl(DeadLetterMessageMapper deadLetterMessageMapper,
                                         OrderRequestMapper orderRequestMapper,
                                         AsyncOrderMessagePublisher asyncOrderMessagePublisher,
-                                        ObjectMapper objectMapper) {
+                                        ObjectMapper objectMapper,
+                                        AsyncOrderSubmitProperties asyncOrderSubmitProperties) {
         this.deadLetterMessageMapper = deadLetterMessageMapper;
         this.orderRequestMapper = orderRequestMapper;
         this.asyncOrderMessagePublisher = asyncOrderMessagePublisher;
         this.objectMapper = objectMapper;
+        this.asyncOrderSubmitProperties = asyncOrderSubmitProperties;
     }
 
     /**
      * 将消费失败消息落到 dead_letter_message。
      *
-     * DLQ 或死信表不是“垃圾桶”，而是异常消息的工作台：我们保留原始 payload、业务主键、队列信息和异常分类，
-     * 后续才能判断应该 retry、ignore 还是 resolve。只打日志会在高并发下被刷掉；只进 RabbitMQ DLQ 又不方便
+     * DLT 或死信表不是“垃圾桶”，而是异常消息的工作台：我们保留原始 payload、业务主键、topic 信息和异常分类，
+     * 后续才能判断应该 retry、ignore 还是 resolve。只打日志会在高并发下被刷掉；只进 Kafka DLT 又不方便
      * 和 ticket_order_request 的业务状态放在一起排查。
      */
     @Override
@@ -74,7 +78,9 @@ public class DeadLetterMessageServiceImpl implements DeadLetterMessageService {
         deadLetterMessage.setMessageId(messageId);
         deadLetterMessage.setBusinessType(businessType);
         deadLetterMessage.setBusinessKey(businessKey == null ? "UNKNOWN" : businessKey);
-        deadLetterMessage.setQueueName(queueName == null ? RabbitMqConstant.ORDER_ASYNC_QUEUE : queueName);
+        deadLetterMessage.setQueueName(queueName == null
+                ? asyncOrderSubmitProperties.getKafkaAsyncCreateOrderDeadLetterTopic()
+                : queueName);
         deadLetterMessage.setExchangeName(exchangeName);
         deadLetterMessage.setRoutingKey(routingKey);
         deadLetterMessage.setPayload(payload == null ? "{}" : payload);
@@ -131,7 +137,7 @@ public class DeadLetterMessageServiceImpl implements DeadLetterMessageService {
      * 人工重试死信消息。
      *
      * 这里不直接调用消费者方法。正确做法是先检查 request 当前业务状态，
-     * 再走当前启用的 AsyncOrderMessagePublisher：Kafka 模式回 Kafka，Outbox/Rabbit 模式走对应旧链路。
+     * 再走当前启用的 AsyncOrderMessagePublisher：Kafka 模式回 Kafka，Outbox 模式也会由本地消息发送器投递到 Kafka。
      * 如果 request 已 SUCCESS，重试会制造重复订单风险；如果已经 COMPENSATED，说明 Redis 预扣已经释放，
      * 此时直接重投会绕过入口预扣语义，所以当前阶段拒绝重试，留给后续人工补偿流程处理。
      */

@@ -2,7 +2,6 @@ package com.zewbby.smartticket.mq;
 
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
-import com.zewbby.smartticket.constant.RabbitMqConstant;
 import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.config.MqConsumerProperties;
 import com.zewbby.smartticket.config.StockBucketProperties;
@@ -34,7 +33,6 @@ import com.zewbby.smartticket.service.UserStatusCacheService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -252,7 +250,6 @@ public class AsyncCreateOrderConsumer {
      * 将前端积压的异步流量，平滑且安全地转化为真实的数据库订单。
      * @param message
      */
-    @RabbitListener(queues = "#{orderAsyncQueueNames}", containerFactory = "asyncOrderRabbitListenerContainerFactory")
     @Transactional
     public void consume(AsyncCreateOrderMessage message) {
         LOGGER.info("Received async create order message, requestId={}", message.getRequestId());
@@ -363,9 +360,8 @@ public class AsyncCreateOrderConsumer {
                     orderRequest.getRequestId(), order.getId(), order.getOrderNo());
 
             /*
-             * 订单创建成功后，超时关闭消息也必须走 Outbox。
-             * 如果这里直接发 RabbitMQ，可能出现订单已提交但延迟消息丢失，最终 locked_stock 长期不释放。
-             * 写 local_message 后，即使发送器失败，也能通过 Publisher Confirm、重试和人工 retry 找回这条超时消息。
+             * 订单创建成功后，超时关闭消息必须走统一生产器。
+             * Kafka 没有原生延时队列语义，延时关闭主要依赖扫描兜底；开启超时事件时也必须由消费者重新校验 expireTime。
              */
             orderTimeoutProducer.sendOrderTimeoutMessage(buildOrderTimeoutMessage(order));
 
@@ -533,7 +529,7 @@ public class AsyncCreateOrderConsumer {
         message.setExpireTime(order.getExpireTime());
         /*
          * 异步创单线程和后续超时关闭消费者不是同一个调用栈。
-         * 当前项目没有完整 TraceContext，先用订单维度的稳定 traceId 把 local_message、RabbitMQ 投递和超时关闭日志串起来。
+         * 当前项目没有完整 TraceContext，先用订单维度的稳定 traceId 把 local_message、Kafka 投递和超时关闭日志串起来。
          */
         message.setTraceId("order-timeout-" + order.getId());
         message.setMessageId(null);
@@ -576,7 +572,7 @@ public class AsyncCreateOrderConsumer {
                                       String failReason) {
         /*
          * 业务失败和系统失败要分开处理：库存不足、关系校验失败、用户不存在通常重试也不会变好，
-         * 继续让 RabbitMQ 重试只会刷日志、拖慢队列。所以这里直接更新 request 失败并做 Redis 补偿，
+         * 继续让 Kafka 重试只会刷日志、拖慢消费。所以这里直接更新 request 失败并做 Redis 补偿，
          * 同时落 dead_letter_message，便于后续人工判断是否忽略或修正数据后重试。
          */
         if (markFailedAndCompensateRedis(orderRequest, failReason)) {
@@ -821,13 +817,30 @@ public class AsyncCreateOrderConsumer {
                                   String reason) {
         deadLetterMessageService.recordAsyncCreateOrderDeadLetter(
                 message,
-                RabbitMqConstant.ORDER_ASYNC_QUEUE,
-                RabbitMqConstant.ORDER_ASYNC_EXCHANGE,
-                RabbitMqConstant.ORDER_ASYNC_ROUTING_KEY,
+                resolveAsyncCreateOrderTopic(),
+                resolveAsyncCreateOrderTopic(),
+                resolveAsyncCreateOrderKey(message),
                 null,
                 exceptionType,
                 reason
         );
+    }
+
+    private String resolveAsyncCreateOrderTopic() {
+        if (asyncOrderSubmitProperties == null) {
+            return "smart-ticket.async-order.create";
+        }
+        return asyncOrderSubmitProperties.getKafkaAsyncCreateOrderTopic();
+    }
+
+    private String resolveAsyncCreateOrderKey(AsyncCreateOrderMessage message) {
+        if (message == null) {
+            return "request:unknown";
+        }
+        if (message.getRoutingPartitionKey() != null && !message.getRoutingPartitionKey().isBlank()) {
+            return message.getRoutingPartitionKey().trim();
+        }
+        return "request:" + (message.getRequestId() == null ? "unknown" : message.getRequestId());
     }
 
     /**

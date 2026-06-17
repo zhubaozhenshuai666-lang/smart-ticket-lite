@@ -1,7 +1,6 @@
 package com.zewbby.smartticket.mq;
 
 import com.zewbby.smartticket.config.OrderTimeoutProperties;
-import com.zewbby.smartticket.constant.RabbitMqConstant;
 import com.zewbby.smartticket.service.LocalMessageService;
 import com.zewbby.smartticket.task.LocalMessagePublishTask;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,7 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
@@ -26,7 +25,7 @@ class OrderTimeoutProducerTest {
     private LocalMessagePublishTask localMessagePublishTask;
 
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private KafkaTemplate<String, OrderTimeoutMessage> kafkaTemplate;
 
     private OrderTimeoutProperties properties;
 
@@ -35,11 +34,11 @@ class OrderTimeoutProducerTest {
     @BeforeEach
     void setUp() {
         properties = new OrderTimeoutProperties();
-        producer = new OrderTimeoutProducer(localMessageService, localMessagePublishTask, rabbitTemplate, properties);
+        producer = new OrderTimeoutProducer(localMessageService, localMessagePublishTask, kafkaTemplate, properties);
     }
 
     @Test
-    void directRabbitModePublishesDelayMessageWithoutOutboxWrite() {
+    void kafkaModePublishesTimeoutMessageWithoutOutboxWrite() {
         properties.setDelayMessageEnabled(true);
         OrderTimeoutMessage message = new OrderTimeoutMessage(1L, "ORDER1");
 
@@ -47,11 +46,7 @@ class OrderTimeoutProducerTest {
 
         assertThat(messageId).startsWith("OT");
         assertThat(message.getMessageId()).isEqualTo(messageId);
-        verify(rabbitTemplate).convertAndSend(
-                RabbitMqConstant.ORDER_TIMEOUT_DELAY_EXCHANGE,
-                RabbitMqConstant.ORDER_TIMEOUT_DELAY_ROUTING_KEY,
-                message
-        );
+        verify(kafkaTemplate).send("smart-ticket.order.timeout", "order:1", message);
         verify(localMessageService, never()).createOrderTimeoutCloseMessage(message);
     }
 
@@ -66,11 +61,7 @@ class OrderTimeoutProducerTest {
 
         assertThat(messageId).isEqualTo("MSG1");
         verify(localMessagePublishTask).publishByMessageId("MSG1");
-        verify(rabbitTemplate, never()).convertAndSend(
-                RabbitMqConstant.ORDER_TIMEOUT_DELAY_EXCHANGE,
-                RabbitMqConstant.ORDER_TIMEOUT_DELAY_ROUTING_KEY,
-                message
-        );
+        verify(kafkaTemplate, never()).send("smart-ticket.order.timeout", "order:1", message);
     }
 
     @Test
@@ -78,10 +69,6 @@ class OrderTimeoutProducerTest {
         properties.setDelayMessageEnabled(false);
 
         assertThat(producer.sendOrderTimeoutMessage(new OrderTimeoutMessage(1L, "ORDER1"))).isNull();
-        verify(rabbitTemplate, never()).convertAndSend(
-                RabbitMqConstant.ORDER_TIMEOUT_DELAY_EXCHANGE,
-                RabbitMqConstant.ORDER_TIMEOUT_DELAY_ROUTING_KEY,
-                new OrderTimeoutMessage(1L, "ORDER1")
-        );
+        verify(kafkaTemplate, never()).send("smart-ticket.order.timeout", "order:1", new OrderTimeoutMessage(1L, "ORDER1"));
     }
 }

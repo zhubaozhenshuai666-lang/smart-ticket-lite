@@ -1,13 +1,15 @@
 package com.zewbby.smartticket.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.config.LocalMessageProperties;
-import com.zewbby.smartticket.config.MqConsumerProperties;
+import com.zewbby.smartticket.config.OrderTimeoutProperties;
 import com.zewbby.smartticket.domain.entity.LocalMessage;
 import com.zewbby.smartticket.enums.LocalMessageStatusEnum;
 import com.zewbby.smartticket.mapper.LocalMessageMapper;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
 import com.zewbby.smartticket.mq.OrderTimeoutMessage;
+import com.zewbby.smartticket.service.AsyncOrderPartitionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,18 +35,17 @@ class LocalMessageServiceImplTest {
 
     private LocalMessageProperties properties;
 
-    private MqConsumerProperties mqConsumerProperties;
-
     @BeforeEach
     void setUp() {
         properties = new LocalMessageProperties();
         properties.setDefaultMaxRetryCount(5);
-        mqConsumerProperties = new MqConsumerProperties();
         localMessageService = new LocalMessageServiceImpl(
                 localMessageMapper,
                 new ObjectMapper().findAndRegisterModules(),
                 properties,
-                mqConsumerProperties
+                new AsyncOrderSubmitProperties(),
+                new OrderTimeoutProperties(),
+                new AsyncOrderPartitionService()
         );
     }
 
@@ -82,8 +83,7 @@ class LocalMessageServiceImplTest {
     }
 
     @Test
-    void createAsyncCreateOrderMessageRoutesToShardWhenShardingIsEnabled() {
-        mqConsumerProperties.setAsyncQueueShardCount(4);
+    void createAsyncCreateOrderMessageUsesKafkaPartitionKey() {
         when(localMessageMapper.insert(any(LocalMessage.class))).thenReturn(1);
         AsyncCreateOrderMessage message = new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 6L, 1);
 
@@ -91,7 +91,8 @@ class LocalMessageServiceImplTest {
 
         ArgumentCaptor<LocalMessage> captor = ArgumentCaptor.forClass(LocalMessage.class);
         verify(localMessageMapper).insert(captor.capture());
-        assertThat(captor.getValue().getRoutingKey()).isEqualTo("order.async.create.2");
+        assertThat(captor.getValue().getExchangeName()).isEqualTo("smart-ticket.async-order.create");
+        assertThat(captor.getValue().getRoutingKey()).isEqualTo("ticket:6");
     }
 
     @Test
@@ -112,8 +113,8 @@ class LocalMessageServiceImplTest {
         assertThat(localMessage.getStatus()).isEqualTo(LocalMessageStatusEnum.INIT.getCode());
         assertThat(localMessage.getBusinessType()).isEqualTo("ORDER_TIMEOUT_CLOSE");
         assertThat(localMessage.getBusinessKey()).isEqualTo("100");
-        assertThat(localMessage.getExchangeName()).isEqualTo("smart-ticket.order.timeout.delay.exchange");
-        assertThat(localMessage.getRoutingKey()).isEqualTo("smart-ticket.order.timeout.delay");
+        assertThat(localMessage.getExchangeName()).isEqualTo("smart-ticket.order.timeout");
+        assertThat(localMessage.getRoutingKey()).isEqualTo("order:100");
         assertThat(localMessage.getPayload()).contains("\"orderId\":100");
     }
 

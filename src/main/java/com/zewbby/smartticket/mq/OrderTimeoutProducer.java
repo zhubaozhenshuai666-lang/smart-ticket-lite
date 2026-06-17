@@ -1,10 +1,9 @@
 package com.zewbby.smartticket.mq;
 
 import com.zewbby.smartticket.config.OrderTimeoutProperties;
-import com.zewbby.smartticket.constant.RabbitMqConstant;
 import com.zewbby.smartticket.service.LocalMessageService;
 import com.zewbby.smartticket.task.LocalMessagePublishTask;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -18,17 +17,17 @@ public class OrderTimeoutProducer {
 
     private final LocalMessagePublishTask localMessagePublishTask;
 
-    private final RabbitTemplate rabbitTemplate;
+    private final KafkaTemplate<String, OrderTimeoutMessage> kafkaTemplate;
 
     private final OrderTimeoutProperties orderTimeoutProperties;
 
     public OrderTimeoutProducer(LocalMessageService localMessageService,
                                 LocalMessagePublishTask localMessagePublishTask,
-                                RabbitTemplate rabbitTemplate,
+                                KafkaTemplate<String, OrderTimeoutMessage> kafkaTemplate,
                                 OrderTimeoutProperties orderTimeoutProperties) {
         this.localMessageService = localMessageService;
         this.localMessagePublishTask = localMessagePublishTask;
-        this.rabbitTemplate = rabbitTemplate;
+        this.kafkaTemplate = kafkaTemplate;
         this.orderTimeoutProperties = orderTimeoutProperties;
     }
 
@@ -44,7 +43,7 @@ public class OrderTimeoutProducer {
         }
         if (!orderTimeoutProperties.isOutboxPublisherMode()) {
             String messageId = ensureMessageId(message);
-            publishDirectAfterCommit(message);
+            publishKafkaAfterCommit(message);
             return messageId;
         }
         //在本地数据库插入一条消息记录，状态为 SENDING（发送中），并返回这笔消息的唯一身份证 messageId
@@ -58,7 +57,7 @@ public class OrderTimeoutProducer {
     }
 
     /**
-     * 确保只有在当前的数据库事务成功提交（Commit）之后，才真正把消息通过网络送给 RabbitMQ。
+     * 确保只有在当前的数据库事务成功提交（Commit）之后，才真正把消息通过网络送给 Kafka。
      * @param messageId
      */
     private void publishAfterCommit(String messageId) {
@@ -74,23 +73,23 @@ public class OrderTimeoutProducer {
         });
     }
 
-    private void publishDirectAfterCommit(OrderTimeoutMessage message) {
+    private void publishKafkaAfterCommit(OrderTimeoutMessage message) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            publishDirect(message);
+            publishKafka(message);
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                publishDirect(message);
+                publishKafka(message);
             }
         });
     }
 
-    private void publishDirect(OrderTimeoutMessage message) {
-        rabbitTemplate.convertAndSend(
-                RabbitMqConstant.ORDER_TIMEOUT_DELAY_EXCHANGE,
-                RabbitMqConstant.ORDER_TIMEOUT_DELAY_ROUTING_KEY,
+    private void publishKafka(OrderTimeoutMessage message) {
+        kafkaTemplate.send(
+                orderTimeoutProperties.getKafkaOrderTimeoutTopic(),
+                orderTimeoutKey(message),
                 message
         );
     }
@@ -100,5 +99,12 @@ public class OrderTimeoutProducer {
             message.setMessageId("OT" + UUID.randomUUID().toString().replace("-", ""));
         }
         return message.getMessageId();
+    }
+
+    private String orderTimeoutKey(OrderTimeoutMessage message) {
+        if (message == null || message.getOrderId() == null) {
+            return "order:unknown";
+        }
+        return "order:" + message.getOrderId();
     }
 }

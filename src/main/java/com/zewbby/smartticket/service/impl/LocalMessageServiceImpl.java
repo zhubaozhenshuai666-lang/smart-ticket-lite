@@ -3,15 +3,16 @@ package com.zewbby.smartticket.service.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zewbby.smartticket.common.BusinessException;
+import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.config.LocalMessageProperties;
-import com.zewbby.smartticket.config.MqConsumerProperties;
-import com.zewbby.smartticket.constant.RabbitMqConstant;
+import com.zewbby.smartticket.config.OrderTimeoutProperties;
 import com.zewbby.smartticket.domain.entity.LocalMessage;
 import com.zewbby.smartticket.enums.LocalMessageBusinessTypeEnum;
 import com.zewbby.smartticket.enums.LocalMessageStatusEnum;
 import com.zewbby.smartticket.mapper.LocalMessageMapper;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
 import com.zewbby.smartticket.mq.OrderTimeoutMessage;
+import com.zewbby.smartticket.service.AsyncOrderPartitionService;
 import com.zewbby.smartticket.service.LocalMessageService;
 import org.springframework.stereotype.Service;
 
@@ -30,22 +31,30 @@ public class LocalMessageServiceImpl implements LocalMessageService {
 
     private final LocalMessageProperties localMessageProperties;
 
-    private final MqConsumerProperties mqConsumerProperties;
+    private final AsyncOrderSubmitProperties asyncOrderSubmitProperties;
+
+    private final OrderTimeoutProperties orderTimeoutProperties;
+
+    private final AsyncOrderPartitionService asyncOrderPartitionService;
 
     public LocalMessageServiceImpl(LocalMessageMapper localMessageMapper,
                                    ObjectMapper objectMapper,
                                    LocalMessageProperties localMessageProperties,
-                                   MqConsumerProperties mqConsumerProperties) {
+                                   AsyncOrderSubmitProperties asyncOrderSubmitProperties,
+                                   OrderTimeoutProperties orderTimeoutProperties,
+                                   AsyncOrderPartitionService asyncOrderPartitionService) {
         this.localMessageMapper = localMessageMapper;
         this.objectMapper = objectMapper;
         this.localMessageProperties = localMessageProperties;
-        this.mqConsumerProperties = mqConsumerProperties;
+        this.asyncOrderSubmitProperties = asyncOrderSubmitProperties;
+        this.orderTimeoutProperties = orderTimeoutProperties;
+        this.asyncOrderPartitionService = asyncOrderPartitionService;
     }
 
     /**
      * 创建异步下单本地消息。
      *
-     * 业务数据写成功后，如果应用马上调用 RabbitMQ 发送，可能出现“数据库事务已提交，但发送 MQ 失败或进程宕机”的不一致。
+     * 业务数据写成功后，如果应用马上调用 Kafka 发送，可能出现“数据库事务已提交，但发送 MQ 失败或进程宕机”的不一致。
      * Outbox 模式把“待发送消息”也写进本地数据库，让业务状态和消息意图尽量处在同一个事务里：
      * 订单请求进入 QUEUED 前，先落一条 INIT 消息。即使应用随后宕机，发送器也能从 local_message 找回这条待发送消息。
      *
@@ -63,8 +72,8 @@ public class LocalMessageServiceImpl implements LocalMessageService {
                 messageId,
                 LocalMessageBusinessTypeEnum.ASYNC_CREATE_ORDER.getCode(),
                 message.getRequestId(),
-                RabbitMqConstant.ORDER_ASYNC_EXCHANGE,
-                asyncCreateOrderRoutingKey(message.getTicketCategoryId()),
+                asyncOrderSubmitProperties.getKafkaAsyncCreateOrderTopic(),
+                asyncOrderPartitionService.partitionKey(message),
                 message
         );
     }
@@ -72,7 +81,7 @@ public class LocalMessageServiceImpl implements LocalMessageService {
     /**
      * 创建订单超时关闭本地消息。
      *
-     * 订单创建成功后如果直接发送延迟消息，一旦数据库事务提交后应用宕机、RabbitMQ 短暂不可用，
+     * 订单创建成功后如果直接发送超时事件，一旦数据库事务提交后应用宕机、Kafka 短暂不可用，
      * 就会出现“订单存在但没有超时关闭消息”的风险，未支付订单会长期占住 locked_stock。
      * 因此超时关闭消息也必须纳入 Outbox：先和订单状态一起落 local_message，再由发送器统一投递并等待 Publisher Confirm。
      */
@@ -82,8 +91,8 @@ public class LocalMessageServiceImpl implements LocalMessageService {
                 generateMessageId(),
                 LocalMessageBusinessTypeEnum.ORDER_TIMEOUT_CLOSE.getCode(),
                 String.valueOf(message.getOrderId()),
-                RabbitMqConstant.ORDER_TIMEOUT_DELAY_EXCHANGE,
-                RabbitMqConstant.ORDER_TIMEOUT_DELAY_ROUTING_KEY,
+                orderTimeoutProperties.getKafkaOrderTimeoutTopic(),
+                orderTimeoutKey(message),
                 message
         );
         message.setMessageId(messageId);
@@ -263,13 +272,11 @@ public class LocalMessageServiceImpl implements LocalMessageService {
         return "MSG" + UUID.randomUUID().toString().replace("-", "");
     }
 
-    private String asyncCreateOrderRoutingKey(Long ticketCategoryId) {
-        int shardCount = mqConsumerProperties.getAsyncQueueShardCount();
-        if (shardCount <= 1) {
-            return RabbitMqConstant.ORDER_ASYNC_ROUTING_KEY;
+    private String orderTimeoutKey(OrderTimeoutMessage message) {
+        if (message == null || message.getOrderId() == null) {
+            return "order:unknown";
         }
-        int shardNo = ticketCategoryId == null ? 0 : Math.floorMod(Long.hashCode(ticketCategoryId), shardCount);
-        return RabbitMqConstant.orderAsyncRoutingKey(shardNo);
+        return "order:" + message.getOrderId();
     }
 
     private String trimLastError(String message) {

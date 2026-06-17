@@ -18,20 +18,6 @@ spring:
       port: ${SMART_TICKET_REDIS_PORT:6379}
       database: ${SMART_TICKET_REDIS_DATABASE:0}
       password: ${SMART_TICKET_REDIS_PASSWORD:}
-
-  rabbitmq:
-    host: ${SMART_TICKET_RABBITMQ_HOST:localhost}
-    port: ${SMART_TICKET_RABBITMQ_PORT:5672}
-    username: ${SMART_TICKET_RABBITMQ_USERNAME:guest}
-    password: ${SMART_TICKET_RABBITMQ_PASSWORD:}
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    template:
-      mandatory: true
-    listener:
-      simple:
-        default-requeue-rejected: false
-
   kafka:
     bootstrap-servers: ${SMART_TICKET_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
@@ -59,7 +45,6 @@ smart-ticket:
   async-order-submit:
     persist-request-before-publish: ${SMART_TICKET_ASYNC_ORDER_PERSIST_REQUEST_BEFORE_PUBLISH:false}
     publisher-mode: ${SMART_TICKET_ASYNC_ORDER_PUBLISHER_MODE:kafka}
-    direct-rabbit-wait-for-confirm: ${SMART_TICKET_ASYNC_ORDER_DIRECT_RABBIT_WAIT_FOR_CONFIRM:true}
     kafka-async-create-order-topic: ${SMART_TICKET_ASYNC_ORDER_KAFKA_TOPIC:smart-ticket.async-order.create}
     kafka-async-create-order-dead-letter-topic: ${SMART_TICKET_ASYNC_ORDER_KAFKA_DLT_TOPIC:smart-ticket.async-order.create.DLT}
     kafka-async-create-order-consumer-group: ${SMART_TICKET_ASYNC_ORDER_KAFKA_CONSUMER_GROUP:smart-ticket-async-order-create}
@@ -72,9 +57,11 @@ smart-ticket:
     async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_ASYNC_QUEUE_SHARD_COUNT:32}
   order-timeout:
     delay-message-enabled: ${SMART_TICKET_ORDER_TIMEOUT_DELAY_MESSAGE_ENABLED:false}
-    publisher-mode: ${SMART_TICKET_ORDER_TIMEOUT_PUBLISHER_MODE:direct-rabbit}
+    publisher-mode: ${SMART_TICKET_ORDER_TIMEOUT_PUBLISHER_MODE:kafka}
     scan-batch-size: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_BATCH_SIZE:5000}
     scan-fixed-delay-millis: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_FIXED_DELAY_MILLIS:500}
+    kafka-order-timeout-topic: ${SMART_TICKET_ORDER_TIMEOUT_KAFKA_TOPIC:smart-ticket.order.timeout}
+    kafka-order-timeout-consumer-group: ${SMART_TICKET_ORDER_TIMEOUT_KAFKA_CONSUMER_GROUP:smart-ticket-order-timeout}
   stock-consistency:
     enabled: ${SMART_TICKET_STOCK_CONSISTENCY_ENABLED:false}
     fixed-delay-seconds: ${SMART_TICKET_STOCK_CONSISTENCY_FIXED_DELAY_SECONDS:300}

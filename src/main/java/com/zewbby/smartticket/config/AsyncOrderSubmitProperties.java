@@ -9,8 +9,6 @@ public class AsyncOrderSubmitProperties {
 
     public static final String PUBLISHER_MODE_OUTBOX = "outbox";
 
-    public static final String PUBLISHER_MODE_DIRECT_RABBIT = "direct-rabbit";
-
     public static final String PUBLISHER_MODE_REDIS_STREAM = "redis-stream";
 
     public static final String PUBLISHER_MODE_KAFKA = "kafka";
@@ -26,21 +24,11 @@ public class AsyncOrderSubmitProperties {
     /**
      * 异步下单消息发布模式。
      *
-     * outbox: 写 local_message 后可靠投递，可靠性强但 DB 写放大明显。
-     * direct-rabbit: 入口直接发布到 RabbitMQ 分片队列，减少 local_message 写入，适合压测和高峰资格事件链路。
-     * redis-stream: 入口写 Redis Stream 日志，使用 consumer group 消费；这是 Kafka/RocketMQ 迁移前的本地可运行事件流形态。
+     * outbox: 写 local_message 后由本地消息发送器可靠投递 Kafka，可靠性强但 DB 写放大明显。
+     * redis-stream: 历史本地事件流模式，不作为抢票主链路。
      * kafka: 入口写 Kafka topic，由 Kafka 消费者复用异步创单处理器创建正式订单。
      */
     private String publisherMode = PUBLISHER_MODE_OUTBOX;
-
-    /**
-     * direct-rabbit 模式下是否等待 Broker Confirm。
-     *
-     * 开启时可靠性更强但单请求延迟更高；关闭时吞吐更高，但需要外部补偿/巡检承接发布失败。
-     */
-    private boolean directRabbitWaitForConfirm = true;
-
-    private long directRabbitConfirmTimeoutMillis = 500L;
 
     /**
      * 是否启用异步下单 in-flight 退避。
@@ -90,32 +78,12 @@ public class AsyncOrderSubmitProperties {
         this.publisherMode = publisherMode;
     }
 
-    public boolean isDirectRabbitPublisherMode() {
-        return PUBLISHER_MODE_DIRECT_RABBIT.equalsIgnoreCase(getPublisherMode());
-    }
-
     public boolean isRedisStreamPublisherMode() {
         return PUBLISHER_MODE_REDIS_STREAM.equalsIgnoreCase(getPublisherMode());
     }
 
     public boolean isKafkaPublisherMode() {
         return PUBLISHER_MODE_KAFKA.equalsIgnoreCase(getPublisherMode());
-    }
-
-    public boolean isDirectRabbitWaitForConfirm() {
-        return directRabbitWaitForConfirm;
-    }
-
-    public void setDirectRabbitWaitForConfirm(boolean directRabbitWaitForConfirm) {
-        this.directRabbitWaitForConfirm = directRabbitWaitForConfirm;
-    }
-
-    public long getDirectRabbitConfirmTimeoutMillis() {
-        return directRabbitConfirmTimeoutMillis;
-    }
-
-    public void setDirectRabbitConfirmTimeoutMillis(long directRabbitConfirmTimeoutMillis) {
-        this.directRabbitConfirmTimeoutMillis = directRabbitConfirmTimeoutMillis;
     }
 
     public boolean isInFlightControlEnabled() {

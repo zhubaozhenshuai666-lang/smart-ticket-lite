@@ -4,7 +4,7 @@ public enum LocalMessageStatusEnum {
 
     INIT("INIT", "已入库，等待发送"),
     SENDING("SENDING", "发送器已抢占，准备发送"),
-    SENT("SENT", "已调用RabbitTemplate，等待Broker Confirm"),
+    SENT("SENT", "已调用KafkaTemplate，等待Broker确认"),
     CONFIRMED("CONFIRMED", "Broker已确认收到消息"),
     FAILED("FAILED", "发送失败，等待重试"),
     DEAD("DEAD", "超过最大重试次数，不再自动重试");

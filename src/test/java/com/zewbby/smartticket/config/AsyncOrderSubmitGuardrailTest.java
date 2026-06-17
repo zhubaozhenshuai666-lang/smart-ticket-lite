@@ -33,13 +33,12 @@ class AsyncOrderSubmitGuardrailTest {
         AsyncOrderSubmitProperties properties = new AsyncOrderSubmitProperties();
         properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_OUTBOX);
         properties.setPersistRequestBeforePublish(false);
-        properties.setDirectRabbitWaitForConfirm(false);
         properties.setMaxInFlightPerTicketCategory(100_000L);
         MockEnvironment environment = flashSaleEnvironment();
 
         assertThatThrownBy(() -> new AsyncOrderSubmitGuardrail(properties, flashSaleOrderTimeoutProperties(), environment).afterPropertiesSet())
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("direct-rabbit");
+                .hasMessageContaining("kafka");
     }
 
     @Test
@@ -53,13 +52,13 @@ class AsyncOrderSubmitGuardrailTest {
     }
 
     @Test
-    void flashSaleProfileRejectsSynchronousConfirmWait() {
+    void normalProfileRejectsRedisStreamMode() {
         AsyncOrderSubmitProperties properties = flashSaleProperties();
-        properties.setDirectRabbitWaitForConfirm(true);
+        properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM);
 
-        assertThatThrownBy(() -> newGuardrail(properties).afterPropertiesSet())
+        assertThatThrownBy(() -> new AsyncOrderSubmitGuardrail(properties, new OrderTimeoutProperties(), new MockEnvironment()).afterPropertiesSet())
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("同步 confirm");
+                .hasMessageContaining("publisher-mode");
     }
 
     @Test
@@ -92,19 +91,9 @@ class AsyncOrderSubmitGuardrailTest {
     }
 
     @Test
-    void flashSaleProfileAllowsRedisStreamEventPipeline() {
-        AsyncOrderSubmitProperties properties = flashSaleProperties();
-        properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM);
-
-        assertThatCode(() -> newGuardrail(properties).afterPropertiesSet())
-                .doesNotThrowAnyException();
-    }
-
-    @Test
     void flashSaleProfileAllowsKafkaEventPipeline() {
         AsyncOrderSubmitProperties properties = flashSaleProperties();
         properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA);
-        properties.setDirectRabbitWaitForConfirm(true);
 
         assertThatCode(() -> newGuardrail(properties).afterPropertiesSet())
                 .doesNotThrowAnyException();
@@ -112,9 +101,8 @@ class AsyncOrderSubmitGuardrailTest {
 
     private AsyncOrderSubmitProperties flashSaleProperties() {
         AsyncOrderSubmitProperties properties = new AsyncOrderSubmitProperties();
-        properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_DIRECT_RABBIT);
+        properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA);
         properties.setPersistRequestBeforePublish(false);
-        properties.setDirectRabbitWaitForConfirm(false);
         properties.setInFlightControlEnabled(true);
         properties.setMaxInFlightPerTicketCategory(100_000L);
         return properties;

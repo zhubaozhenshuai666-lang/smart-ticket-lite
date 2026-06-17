@@ -11,17 +11,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.core.MessagePostProcessor;
-import org.springframework.amqp.rabbit.connection.CorrelationData;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,7 +32,7 @@ class LocalMessagePublishTaskTest {
     private LocalMessageService localMessageService;
 
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private KafkaTemplate<String, Object> kafkaTemplate;
 
     private LocalMessageProperties properties;
 
@@ -46,10 +45,12 @@ class LocalMessagePublishTaskTest {
         properties.setConfirmTimeoutSeconds(60);
         publishTask = new LocalMessagePublishTask(
                 localMessageService,
-                rabbitTemplate,
+                kafkaTemplate,
                 new ObjectMapper().findAndRegisterModules(),
                 properties
         );
+        lenient().when(kafkaTemplate.send(any(String.class), any(String.class), any(Object.class)))
+                .thenReturn(CompletableFuture.completedFuture(null));
     }
 
     @Test
@@ -61,13 +62,8 @@ class LocalMessagePublishTaskTest {
 
         publishTask.publishPendingMessages();
 
-        verify(rabbitTemplate).convertAndSend(
-                eq("order.async.exchange"),
-                eq("order.async.create"),
-                any(AsyncCreateOrderMessage.class),
-                any(MessagePostProcessor.class),
-                argThat((CorrelationData correlationData) -> "MSG1".equals(correlationData.getId()))
-        );
+        verify(kafkaTemplate).send(eq("smart-ticket.async-order.create"), eq("order.async.create"), any(AsyncCreateOrderMessage.class));
+        verify(localMessageService).markConfirmed("MSG1");
         verify(localMessageService, never()).markSent(1L);
     }
 
@@ -80,13 +76,8 @@ class LocalMessagePublishTaskTest {
 
         publishTask.publishPendingMessages();
 
-        verify(rabbitTemplate).convertAndSend(
-                eq("smart-ticket.order.timeout.delay.exchange"),
-                eq("smart-ticket.order.timeout.delay"),
-                any(OrderTimeoutMessage.class),
-                any(MessagePostProcessor.class),
-                argThat((CorrelationData correlationData) -> "MSG_TIMEOUT".equals(correlationData.getId()))
-        );
+        verify(kafkaTemplate).send(eq("smart-ticket.order.timeout"), eq("order:100"), any(OrderTimeoutMessage.class));
+        verify(localMessageService).markConfirmed("MSG_TIMEOUT");
         verify(localMessageService, never()).markSent(2L);
     }
 
@@ -98,13 +89,8 @@ class LocalMessagePublishTaskTest {
 
         publishTask.publishByMessageId("MSG1");
 
-        verify(rabbitTemplate).convertAndSend(
-                eq("order.async.exchange"),
-                eq("order.async.create"),
-                any(AsyncCreateOrderMessage.class),
-                any(MessagePostProcessor.class),
-                argThat((CorrelationData correlationData) -> "MSG1".equals(correlationData.getId()))
-        );
+        verify(kafkaTemplate).send(eq("smart-ticket.async-order.create"), eq("order.async.create"), any(AsyncCreateOrderMessage.class));
+        verify(localMessageService).markConfirmed("MSG1");
         verify(localMessageService, never()).markSent(1L);
     }
 
@@ -129,20 +115,15 @@ class LocalMessagePublishTaskTest {
 
         publishTask.publishPendingMessages();
 
-        verify(rabbitTemplate, never()).convertAndSend(any(String.class), any(String.class), any(Object.class),
-                any(MessagePostProcessor.class), any(CorrelationData.class));
+        verify(kafkaTemplate, never()).send(any(String.class), any(String.class), any(Object.class));
     }
 
     @Test
-    void senderMarksFailedWhenRabbitTemplateThrows() {
+    void senderMarksFailedWhenKafkaTemplateThrows() {
         LocalMessage message = localMessage();
-        doThrow(new RuntimeException("send failed")).when(rabbitTemplate).convertAndSend(
-                any(String.class),
-                any(String.class),
-                any(Object.class),
-                any(MessagePostProcessor.class),
-                any(CorrelationData.class)
-        );
+        doThrow(new RuntimeException("send failed"))
+                .when(kafkaTemplate)
+                .send(any(String.class), any(String.class), any(Object.class));
 
         publishTask.publishOne(message);
 
@@ -157,7 +138,7 @@ class LocalMessagePublishTaskTest {
 
         publishTask.scanConfirmTimeoutMessages();
 
-        verify(localMessageService).markPublishFailed(message, "Publisher Confirm超时");
+        verify(localMessageService).markPublishFailed(message, "Kafka发送确认超时");
     }
 
     private LocalMessage localMessage() {
@@ -166,7 +147,7 @@ class LocalMessagePublishTaskTest {
         message.setMessageId("MSG1");
         message.setBusinessType("ASYNC_CREATE_ORDER");
         message.setBusinessKey("REQ1");
-        message.setExchangeName("order.async.exchange");
+        message.setExchangeName("smart-ticket.async-order.create");
         message.setRoutingKey("order.async.create");
         message.setPayload("{\"requestId\":\"REQ1\",\"userId\":1,\"showId\":1,\"sessionId\":1,\"ticketCategoryId\":2,\"quantity\":1}");
         message.setRetryCount(0);
@@ -180,8 +161,8 @@ class LocalMessagePublishTaskTest {
         message.setMessageId("MSG_TIMEOUT");
         message.setBusinessType("ORDER_TIMEOUT_CLOSE");
         message.setBusinessKey("100");
-        message.setExchangeName("smart-ticket.order.timeout.delay.exchange");
-        message.setRoutingKey("smart-ticket.order.timeout.delay");
+        message.setExchangeName("smart-ticket.order.timeout");
+        message.setRoutingKey("order:100");
         message.setPayload("{\"orderId\":100,\"orderNo\":\"ST100\",\"userId\":1,\"expireTime\":\"2026-06-02T16:00:00\",\"traceId\":null,\"messageId\":null}");
         message.setRetryCount(0);
         message.setMaxRetryCount(5);

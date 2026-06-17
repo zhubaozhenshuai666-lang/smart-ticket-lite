@@ -35,9 +35,7 @@ public class CapacityAssessmentVO {
 
     private boolean fastPipelineEnabled;
 
-    private boolean directRabbitEnabled;
-
-    private boolean directRabbitWaitForConfirm;
+    private boolean kafkaEnabled;
 
     private boolean perOrderTimeoutDelayMessageEnabled;
 
