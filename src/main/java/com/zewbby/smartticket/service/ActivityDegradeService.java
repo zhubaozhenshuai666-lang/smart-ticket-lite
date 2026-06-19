@@ -16,7 +16,7 @@ public class ActivityDegradeService {
     }
 
     public boolean isOrderSubmitClosed(String activityScopeKey) {
-        return Boolean.TRUE.equals(stringRedisTemplate.hasKey(RedisKeyConstant.activityDegradeClosedKey(activityScopeKey)));
+        return stringRedisTemplate.hasKey(RedisKeyConstant.activityDegradeClosedKey(activityScopeKey));
     }
 
     public void closeOrderSubmit(String activityScopeKey, long ttlSeconds) {

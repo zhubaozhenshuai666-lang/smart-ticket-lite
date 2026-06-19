@@ -254,7 +254,7 @@ public class AsyncCreateOrderConsumer {
     public void consume(AsyncCreateOrderMessage message) {
         LOGGER.info("Received async create order message, requestId={}", message.getRequestId());
 
-        //检验message的状态是否合法，抛弃重复消息。不重复加乐观锁后返回对应实体
+        //检验message的状态是否合法，抛弃重复,超时消息。不重复加乐观锁后返回对应实体
         TicketOrderRequest orderRequest = claimOrCreateProcessingRequest(message);
         if (orderRequest == null) {
             return;

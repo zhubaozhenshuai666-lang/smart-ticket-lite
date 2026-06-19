@@ -426,11 +426,15 @@ public class OrderServiceImpl implements OrderService {
     @Transactional(noRollbackFor = BusinessException.class)
     public OrderRequestVO submitAsyncOrder(CreateOrderRequest request, String clientIp, String gatewayRiskDecision) {
 
-        //限流，库存不足快速失败，防重复
         Long currentUserId = UserContext.requireUserId();
+        //粗粒度限流，防止单账号疯狂提交，IP 维度防止单来源打爆入口，API 维度保护整体下单能力。
         checkCoarseOrderSubmitRateLimit(currentUserId, clientIp, ASYNC_ORDER_API_NAME);
+        //检验这个User是否合法，是不是黄牛
         checkRiskControl(currentUserId, clientIp, gatewayRiskDecision);
+        //读本地/Redis缓存判断票是否已售空，快速失败
         checkSoldoutFastFail(request.getTicketCategoryId());
+
+        //防止单用户利用脚本并发提交多个抢票请求
         if (!orderSubmitGuard.tryAcquire(currentUserId, request.getTicketCategoryId())) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REPEAT_SUBMIT);
         }
@@ -448,9 +452,11 @@ public class OrderServiceImpl implements OrderService {
                     request.getSessionId(),
                     request.getTicketCategoryId()
             );
+            //判断该演出的下单通道是否被人工或自动化降级关闭。
             checkActivityDegrade(activityScope);
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
+
             checkActivityAndTicketOrderSubmitRateLimit(activityScope, request.getTicketCategoryId());
             acquireAsyncOrderInFlight(activityScope, request.getTicketCategoryId());
             inFlightAcquired = true;
@@ -458,6 +464,7 @@ public class OrderServiceImpl implements OrderService {
             //用lua消耗token
             idempotencyTokenService.consumeOrderToken(currentUserId, request.getIdempotencyToken());
 
+            //redis预扣
             String requestId = generateRequestId(currentUserId, request.getTicketCategoryId(), request.getIdempotencyToken());
             Integer stockBucketVersion = stockBucketProperties.getActiveVersion();
 
@@ -1033,7 +1040,7 @@ public class OrderServiceImpl implements OrderService {
                                                         CreateOrderRequest request,
                                                         Integer bucketVersion) {
 
-        // 1. 降级开关校验：若未开启库存分桶机制，则走传统单 Key 扣减逻辑
+        // 1. 如果分桶配置关闭，直接回退到单Key使用Lua原子扣减库存。
         if (!stockBucketProperties.isEnabled()) {
             RedisStockDeductResult legacyResult = stockLuaService.preDeductStock(
                     requestId,
@@ -1044,6 +1051,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         // 2. 获取当前票档配置的总分桶数。热门活动可在预热时写入 Redis 覆盖值，避免所有票档只能使用同一个静态桶数。
+        // 实现了打散热点！高并发核心
         int bucketCount = resolveStockBucketCount(request.getTicketCategoryId(), bucketVersion);
 
         // 3. 分桶路由算法：基于请求ID（或其他分流因子）计算出该订单应该优先尝试扣减的“初始桶号”
@@ -1063,6 +1071,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private int resolveStockBucketCount(Long ticketCategoryId, Integer bucketVersion) {
+        //如果系统未注入动态扩缩容服务，说明当前部署环境不支持动态查询。
         if (stockBucketSizingService == null) {
             return Math.max(1, stockBucketProperties.getDefaultBucketCount());
         }
@@ -1083,6 +1092,12 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    /**
+     * 对接网关的黑白名单风控模型，识别黄牛脚本。
+     * @param userId
+     * @param clientIp
+     * @param gatewayRiskDecision
+     */
     private void checkRiskControl(Long userId, String clientIp, String gatewayRiskDecision) {
         if (riskControlService == null) {
             return;
