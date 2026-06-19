@@ -297,7 +297,8 @@ class OrderServiceImplTest {
     @Test
     void submitAsyncOrderRejectsWhenActivityRateLimitIsExceeded() {
         mockCommonCreateOrderChecks(true);
-        when(rateLimitService.tryAcquireOrderActivityAndTicket("show:1:session:1", 2L)).thenReturn(false);
+        when(rateLimitService.tryAcquireAsyncOrderSubmit(1L, "unknown", "orders:async", "show:1:session:1", 2L))
+                .thenReturn(false);
 
         assertThatThrownBy(() -> orderService.submitAsyncOrder(validRequest()))
                 .isInstanceOf(BusinessException.class)
@@ -311,8 +312,6 @@ class OrderServiceImplTest {
     @Test
     void submitAsyncOrderRejectsBeforeTokenAndStockWhenRiskControlBlocksRequest() {
         ReflectionTestUtils.setField(orderService, "riskControlService", riskControlService);
-        when(rateLimitService.tryAcquireOrderSubmit(anyLong(), anyString(), anyString(), any(), anyBoolean()))
-                .thenReturn(true);
         when(riskControlService.allowOrderSubmit(1L, "10.0.0.1", null)).thenReturn(false);
 
         assertThatThrownBy(() -> orderService.submitAsyncOrder(validRequest(), "10.0.0.1"))
@@ -327,8 +326,6 @@ class OrderServiceImplTest {
     @Test
     void submitAsyncOrderRejectsBeforeRelationAndTokenWhenActivityIsClosed() {
         ReflectionTestUtils.setField(orderService, "activityDegradeService", activityDegradeService);
-        when(rateLimitService.tryAcquireOrderSubmit(anyLong(), anyString(), anyString(), any(), anyBoolean()))
-                .thenReturn(true);
         when(stockCacheService.isSoldOut(2L)).thenReturn(false);
         when(orderSubmitGuard.tryAcquire(1L, 2L)).thenReturn(true);
         when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
@@ -472,8 +469,6 @@ class OrderServiceImplTest {
 
     @Test
     void submitAsyncOrderFastFailsWhenSoldoutAndDoesNotCreateRequestOrLocalMessage() {
-        when(rateLimitService.tryAcquireOrderSubmit(anyLong(), anyString(), anyString(), any(), anyBoolean()))
-                .thenReturn(true);
         when(stockCacheService.isSoldOut(2L)).thenReturn(true);
 
         assertThatThrownBy(() -> orderService.submitAsyncOrder(validRequest()))
@@ -787,7 +782,9 @@ class OrderServiceImplTest {
     }
 
     private void mockCommonCreateOrderChecks(boolean relationExists) {
-        when(rateLimitService.tryAcquireOrderSubmit(anyLong(), anyString(), anyString(), any(), anyBoolean()))
+        lenient().when(rateLimitService.tryAcquireOrderSubmit(anyLong(), anyString(), anyString(), any(), anyBoolean()))
+                .thenReturn(true);
+        lenient().when(rateLimitService.tryAcquireAsyncOrderSubmit(anyLong(), anyString(), anyString(), anyString(), anyLong()))
                 .thenReturn(true);
         lenient().when(rateLimitService.tryAcquireOrderActivity(anyString())).thenReturn(true);
         lenient().when(rateLimitService.tryAcquireOrderTicket(anyLong())).thenReturn(true);

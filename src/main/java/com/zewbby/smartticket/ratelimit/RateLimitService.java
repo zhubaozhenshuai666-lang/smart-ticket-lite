@@ -197,6 +197,54 @@ public class RateLimitService {
         );
     }
 
+    public boolean tryAcquireAsyncOrderSubmit(Long userId,
+                                              String clientIp,
+                                              String apiName,
+                                              String activityScopeKey,
+                                              Long ticketCategoryId) {
+        if (isBackpressureRejected()) {
+            observabilityMetricsService.recordRateLimitRejected();
+            return false;
+        }
+        return tryAcquireMultiTokenBuckets(
+                List.of(
+                        RedisKeyConstant.orderRateLimitUserKey(userId),
+                        RedisKeyConstant.orderRateLimitIpKey(clientIp),
+                        RedisKeyConstant.orderRateLimitApiKey(apiName),
+                        RedisKeyConstant.orderRateLimitActivityKey(activityScopeKey),
+                        RedisKeyConstant.orderRateLimitTicketKey(ticketCategoryId)
+                ),
+                List.of(
+                        new TokenBucketSpec(
+                                rateLimitProperties.getOrderUserCapacity(),
+                                rateLimitProperties.getOrderUserRefillRatePerSecond(),
+                                REQUESTED_TOKENS_PER_ORDER
+                        ),
+                        new TokenBucketSpec(
+                                rateLimitProperties.getOrderIpCapacity(),
+                                rateLimitProperties.getOrderIpRefillRatePerSecond(),
+                                REQUESTED_TOKENS_PER_ORDER
+                        ),
+                        new TokenBucketSpec(
+                                rateLimitProperties.getOrderApiCapacity(),
+                                rateLimitProperties.getOrderApiRefillRatePerSecond(),
+                                REQUESTED_TOKENS_PER_ORDER
+                        ),
+                        new TokenBucketSpec(
+                                rateLimitProperties.getOrderApiCapacity(),
+                                rateLimitProperties.getOrderApiRefillRatePerSecond(),
+                                REQUESTED_TOKENS_PER_ORDER
+                        ),
+                        new TokenBucketSpec(
+                                rateLimitProperties.getOrderTicketCapacity(),
+                                rateLimitProperties.getOrderTicketRefillRatePerSecond(),
+                                REQUESTED_TOKENS_PER_ORDER
+                        )
+                ),
+                rateLimitProperties.getKeyTtlSeconds()
+        );
+    }
+
     public boolean tryAcquireOrderActivity(String activityScopeKey) {
         return tryAcquireTokenBucket(
                 RedisKeyConstant.orderRateLimitActivityKey(activityScopeKey),

@@ -165,6 +165,35 @@ class RateLimitServiceTest {
         );
     }
 
+    @Test
+    void asyncOrderSubmitUsesOneMultiBucketScriptForAllEntryDimensions() {
+        when(stringRedisTemplate.execute(any(DefaultRedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(1L);
+
+        boolean allowed = rateLimitService.tryAcquireAsyncOrderSubmit(
+                1L,
+                "10.0.0.1",
+                "orders:async",
+                "show:1:session:2",
+                3L
+        );
+
+        assertThat(allowed).isTrue();
+        ArgumentCaptor<List<String>> keyCaptor = ArgumentCaptor.forClass(List.class);
+        verify(stringRedisTemplate).execute(
+                any(DefaultRedisScript.class),
+                keyCaptor.capture(),
+                any(Object[].class)
+        );
+        assertThat(keyCaptor.getValue()).containsExactly(
+                "rate:limit:user:1:order",
+                "rate:limit:ip:10.0.0.1:order",
+                "rate:limit:api:orders:async",
+                "rate:limit:activity:show:1:session:2",
+                "rate:limit:ticket:3"
+        );
+    }
+
     private void mockTokenBucketResult(Long result) {
         when(stringRedisTemplate.execute(
                 any(DefaultRedisScript.class),

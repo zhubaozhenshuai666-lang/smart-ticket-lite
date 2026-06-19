@@ -427,8 +427,6 @@ public class OrderServiceImpl implements OrderService {
     public OrderRequestVO submitAsyncOrder(CreateOrderRequest request, String clientIp, String gatewayRiskDecision) {
 
         Long currentUserId = UserContext.requireUserId();
-        //粗粒度限流，防止单账号疯狂提交，IP 维度防止单来源打爆入口，API 维度保护整体下单能力。
-        checkCoarseOrderSubmitRateLimit(currentUserId, clientIp, ASYNC_ORDER_API_NAME);
         //检验这个User是否合法，是不是黄牛
         checkRiskControl(currentUserId, clientIp, gatewayRiskDecision);
         //读本地/Redis缓存判断票是否已售空，快速失败
@@ -457,7 +455,7 @@ public class OrderServiceImpl implements OrderService {
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
 
-            checkActivityAndTicketOrderSubmitRateLimit(activityScope, request.getTicketCategoryId());
+            checkAsyncOrderSubmitRateLimit(currentUserId, clientIp, activityScope, request.getTicketCategoryId());
             acquireAsyncOrderInFlight(activityScope, request.getTicketCategoryId());
             inFlightAcquired = true;
             checkWaitingRoomAdmission(currentUserId, request);
@@ -1139,6 +1137,21 @@ public class OrderServiceImpl implements OrderService {
 
     private void checkActivityAndTicketOrderSubmitRateLimit(ActivityScope activityScope, Long ticketCategoryId) {
         if (!rateLimitService.tryAcquireOrderActivityAndTicket(activityScope.scopeKey(), ticketCategoryId)) {
+            throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
+        }
+    }
+
+    private void checkAsyncOrderSubmitRateLimit(Long userId,
+                                                String clientIp,
+                                                ActivityScope activityScope,
+                                                Long ticketCategoryId) {
+        if (!rateLimitService.tryAcquireAsyncOrderSubmit(
+                userId,
+                clientIp,
+                ASYNC_ORDER_API_NAME,
+                activityScope.scopeKey(),
+                ticketCategoryId
+        )) {
             throw new BusinessException(ErrorMessageConstant.RATE_LIMITED);
         }
     }
