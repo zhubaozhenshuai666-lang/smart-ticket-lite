@@ -583,7 +583,9 @@ public class OrderServiceImpl implements OrderService {
         if (orderRequest == null) {
             throw new BusinessException(ErrorMessageConstant.ORDER_REQUEST_NOT_FOUND);
         }
-        return toOrderRequestVO(orderRequest);
+        OrderRequestVO result = toOrderRequestVO(orderRequest);
+        cacheDbLoadedAsyncOrderResult(currentUserId, result);
+        return result;
     }
 
     @Override
@@ -1247,5 +1249,16 @@ public class OrderServiceImpl implements OrderService {
             return null;
         }
         return asyncOrderRequestResultCacheService.getCachedResult(userId, requestId);
+    }
+
+    private void cacheDbLoadedAsyncOrderResult(Long userId, OrderRequestVO orderRequestVO) {
+        if (asyncOrderRequestResultCacheService == null || orderRequestVO == null) {
+            return;
+        }
+        if (OrderRequestStatusEnum.isTerminal(orderRequestVO.getStatus())) {
+            asyncOrderRequestResultCacheService.cacheTerminalResult(userId, orderRequestVO);
+            return;
+        }
+        asyncOrderRequestResultCacheService.cacheQueuedResult(userId, orderRequestVO);
     }
 }

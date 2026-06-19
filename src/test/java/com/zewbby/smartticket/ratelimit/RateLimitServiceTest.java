@@ -71,36 +71,24 @@ class RateLimitServiceTest {
         boolean allowed = rateLimitService.tryAcquireOrderSubmit(1L, "127.0.0.1", "orders:async", 2L, true);
 
         assertThat(allowed).isTrue();
-        verify(stringRedisTemplate, never()).execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(stringRedisTemplate, never()).execute(any(DefaultRedisScript.class), anyList(), any(Object[].class));
     }
 
     @Test
     void orderSubmitChecksUserIpApiAndTicketBuckets() {
-        when(stringRedisTemplate.execute(
-                any(DefaultRedisScript.class),
-                anyList(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString()
-        )).thenReturn(1L, 1L, 1L, 1L);
+        when(stringRedisTemplate.execute(any(DefaultRedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(1L);
 
         boolean allowed = rateLimitService.tryAcquireOrderSubmit(1L, "10.0.0.1", "orders:async", 2L, true);
 
         assertThat(allowed).isTrue();
         ArgumentCaptor<List<String>> keyCaptor = ArgumentCaptor.forClass(List.class);
-        verify(stringRedisTemplate, org.mockito.Mockito.times(4)).execute(
+        verify(stringRedisTemplate).execute(
                 any(DefaultRedisScript.class),
                 keyCaptor.capture(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString()
+                any(Object[].class)
         );
-        assertThat(keyCaptor.getAllValues())
-                .extracting(keys -> keys.get(0))
+        assertThat(keyCaptor.getValue())
                 .containsExactly(
                         "rate:limit:user:1:order",
                         "rate:limit:ip:10.0.0.1:order",
@@ -121,13 +109,14 @@ class RateLimitServiceTest {
         boolean allowed = rateLimitService.tryAcquireOrderSubmit(1L, "10.0.0.1", "orders:async", 2L, true);
 
         assertThat(allowed).isFalse();
-        verify(stringRedisTemplate, never()).execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(stringRedisTemplate, never()).execute(any(DefaultRedisScript.class), anyList(), any(Object[].class));
         verify(observabilityMetricsService).recordRateLimitRejected();
     }
 
     @Test
-    void userDimensionRejectsOrderSubmit() {
-        mockTokenBucketResult(0L);
+    void multiBucketRejectsOrderSubmitWhenAnyDimensionRejects() {
+        when(stringRedisTemplate.execute(any(DefaultRedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(0L);
 
         boolean allowed = rateLimitService.tryAcquireOrderSubmit(1L, "10.0.0.1", "orders:async", 2L, true);
 
@@ -136,53 +125,30 @@ class RateLimitServiceTest {
     }
 
     @Test
-    void apiDimensionRejectsOrderSubmit() {
-        when(stringRedisTemplate.execute(
+    void orderSubmitCanSkipTicketDimension() {
+        when(stringRedisTemplate.execute(any(DefaultRedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(1L);
+
+        boolean allowed = rateLimitService.tryAcquireOrderSubmit(1L, "10.0.0.1", "orders:async", null, false);
+
+        assertThat(allowed).isTrue();
+        ArgumentCaptor<List<String>> keyCaptor = ArgumentCaptor.forClass(List.class);
+        verify(stringRedisTemplate).execute(
                 any(DefaultRedisScript.class),
-                anyList(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString()
-        )).thenReturn(1L, 1L, 0L);
-
-        boolean allowed = rateLimitService.tryAcquireOrderSubmit(1L, "10.0.0.1", "orders:async", 2L, true);
-
-        assertThat(allowed).isFalse();
+                keyCaptor.capture(),
+                any(Object[].class)
+        );
+        assertThat(keyCaptor.getValue()).containsExactly(
+                "rate:limit:user:1:order",
+                "rate:limit:ip:10.0.0.1:order",
+                "rate:limit:api:orders:async"
+        );
     }
 
     @Test
-    void ticketDimensionRejectsOrderSubmit() {
-        when(stringRedisTemplate.execute(
-                any(DefaultRedisScript.class),
-                anyList(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString()
-        )).thenReturn(1L, 1L, 1L, 0L);
-
-        boolean allowed = rateLimitService.tryAcquireOrderSubmit(1L, "10.0.0.1", "orders:async", 2L, true);
-
-        assertThat(allowed).isFalse();
-    }
-
-    @Test
-    void activityAndTicketLimitUsesOneTwoBucketScriptCall() {
-        when(stringRedisTemplate.execute(
-                any(DefaultRedisScript.class),
-                anyList(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString()
-        )).thenReturn(1L);
+    void activityAndTicketLimitUsesOneMultiBucketScriptCall() {
+        when(stringRedisTemplate.execute(any(DefaultRedisScript.class), anyList(), any(Object[].class)))
+                .thenReturn(1L);
 
         boolean allowed = rateLimitService.tryAcquireOrderActivityAndTicket("show:1:session:2", 3L);
 
@@ -191,14 +157,7 @@ class RateLimitServiceTest {
         verify(stringRedisTemplate).execute(
                 any(DefaultRedisScript.class),
                 keyCaptor.capture(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString(),
-                anyString()
+                any(Object[].class)
         );
         assertThat(keyCaptor.getValue()).containsExactly(
                 "rate:limit:activity:show:1:session:2",

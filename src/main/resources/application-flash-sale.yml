@@ -1,9 +1,9 @@
 spring:
   datasource:
     hikari:
-      minimum-idle: ${SMART_TICKET_FLASH_SALE_DB_MIN_IDLE:20}
-      maximum-pool-size: ${SMART_TICKET_FLASH_SALE_DB_MAX_POOL_SIZE:50}
-      connection-timeout: ${SMART_TICKET_FLASH_SALE_DB_CONNECTION_TIMEOUT:3000}
+      minimum-idle: ${SMART_TICKET_FLASH_SALE_DB_MIN_IDLE:30}
+      maximum-pool-size: ${SMART_TICKET_FLASH_SALE_DB_MAX_POOL_SIZE:80}
+      connection-timeout: ${SMART_TICKET_FLASH_SALE_DB_CONNECTION_TIMEOUT:2000}
 smart-ticket:
   async-order-submit:
     persist-request-before-publish: ${SMART_TICKET_ASYNC_ORDER_PERSIST_REQUEST_BEFORE_PUBLISH:false}
@@ -17,14 +17,14 @@ smart-ticket:
     redis-stream-worker-threads: ${SMART_TICKET_ASYNC_ORDER_REDIS_STREAM_WORKER_THREADS:32}
 
   mq-consumer:
-    concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_CONCURRENT_CONSUMERS:32}
-    max-concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_MAX_CONCURRENT_CONSUMERS:128}
-    prefetch-count: ${SMART_TICKET_MQ_CONSUMER_PREFETCH_COUNT:20}
-    async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_ASYNC_QUEUE_SHARD_COUNT:32}
+    concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_CONCURRENT_CONSUMERS:48}
+    max-concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_MAX_CONCURRENT_CONSUMERS:160}
+    prefetch-count: ${SMART_TICKET_MQ_CONSUMER_PREFETCH_COUNT:32}
+    async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_ASYNC_QUEUE_SHARD_COUNT:64}
     max-concurrent-consumer-cap: ${SMART_TICKET_MQ_CONSUMER_MAX_CONCURRENT_CONSUMER_CAP:256}
     max-prefetch-count: ${SMART_TICKET_MQ_CONSUMER_MAX_PREFETCH_COUNT:100}
-    max-unacked-messages: ${SMART_TICKET_MQ_CONSUMER_MAX_UNACKED_MESSAGES:4096}
-    max-async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_MAX_ASYNC_QUEUE_SHARD_COUNT:128}
+    max-unacked-messages: ${SMART_TICKET_MQ_CONSUMER_MAX_UNACKED_MESSAGES:8192}
+    max-async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_MAX_ASYNC_QUEUE_SHARD_COUNT:256}
 
   order-timeout:
     delay-message-enabled: ${SMART_TICKET_ORDER_TIMEOUT_DELAY_MESSAGE_ENABLED:false}
@@ -33,14 +33,14 @@ smart-ticket:
     scan-fixed-delay-millis: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_FIXED_DELAY_MILLIS:500}
 
   stock-bucket:
-    default-bucket-count: ${SMART_TICKET_STOCK_BUCKET_DEFAULT_COUNT:64}
-    active-probe-count: ${SMART_TICKET_STOCK_BUCKET_ACTIVE_PROBE_COUNT:8}
-    tail-bucket-count: ${SMART_TICKET_STOCK_BUCKET_TAIL_BUCKET_COUNT:16}
+    default-bucket-count: ${SMART_TICKET_STOCK_BUCKET_DEFAULT_COUNT:128}
+    active-probe-count: ${SMART_TICKET_STOCK_BUCKET_ACTIVE_PROBE_COUNT:12}
+    tail-bucket-count: ${SMART_TICKET_STOCK_BUCKET_TAIL_BUCKET_COUNT:32}
 
   waiting-room:
     enabled: ${SMART_TICKET_WAITING_ROOM_ENABLED:true}
-    default-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_DEFAULT_ADMISSION_TOKEN_BATCH_SIZE:100}
-    max-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_MAX_ADMISSION_TOKEN_BATCH_SIZE:1000}
+    default-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_DEFAULT_ADMISSION_TOKEN_BATCH_SIZE:200}
+    max-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_MAX_ADMISSION_TOKEN_BATCH_SIZE:2000}
 
   activity-isolation:
     enabled: ${SMART_TICKET_ACTIVITY_ISOLATION_ENABLED:true}
@@ -68,10 +68,10 @@ smart-ticket:
   rate-limit:
     order-user-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_USER_CAPACITY:3}
     order-user-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_USER_REFILL_RATE_PER_SECOND:0.5}
-    order-ip-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_IP_CAPACITY:300}
-    order-ip-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_IP_REFILL_RATE_PER_SECOND:80}
-    order-api-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_API_CAPACITY:20000}
-    order-api-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_API_REFILL_RATE_PER_SECOND:8000}
-    order-ticket-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_CAPACITY:12000}
-    order-ticket-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_REFILL_RATE_PER_SECOND:3000}
+    order-ip-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_IP_CAPACITY:500}
+    order-ip-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_IP_REFILL_RATE_PER_SECOND:120}
+    order-api-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_API_CAPACITY:40000}
+    order-api-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_API_REFILL_RATE_PER_SECOND:12000}
+    order-ticket-capacity: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_CAPACITY:24000}
+    order-ticket-refill-rate-per-second: ${SMART_TICKET_RATE_LIMIT_ORDER_TICKET_REFILL_RATE_PER_SECOND:6000}
     key-ttl-seconds: ${SMART_TICKET_RATE_LIMIT_KEY_TTL_SECONDS:300}

@@ -14,6 +14,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -30,7 +31,7 @@ public class RateLimitService {
 
     private final DefaultRedisScript<Long> tokenBucketScript;
 
-    private final DefaultRedisScript<Long> twoTokenBucketsScript;
+    private final DefaultRedisScript<Long> multiTokenBucketsScript;
 
     private final ObservabilityMetricsService observabilityMetricsService;
 
@@ -52,7 +53,7 @@ public class RateLimitService {
         this.observabilityMetricsService = observabilityMetricsService;
         this.localMessageService = localMessageService;
         this.tokenBucketScript = buildScript("lua/rate_limit_token_bucket.lua");
-        this.twoTokenBucketsScript = buildScript("lua/rate_limit_two_token_buckets.lua");
+        this.multiTokenBucketsScript = buildScript("lua/rate_limit_multi_token_buckets.lua");
     }
 
     public RateLimitService(StringRedisTemplate stringRedisTemplate,
@@ -140,48 +141,35 @@ public class RateLimitService {
             return false;
         }
 
-        boolean userAllowed = tryAcquireTokenBucket(
-                RedisKeyConstant.orderRateLimitUserKey(userId),
+        List<String> keys = new ArrayList<>();
+        List<TokenBucketSpec> buckets = new ArrayList<>();
+        keys.add(RedisKeyConstant.orderRateLimitUserKey(userId));
+        buckets.add(new TokenBucketSpec(
                 rateLimitProperties.getOrderUserCapacity(),
                 rateLimitProperties.getOrderUserRefillRatePerSecond(),
-                REQUESTED_TOKENS_PER_ORDER,
-                rateLimitProperties.getKeyTtlSeconds()
-        );
-        if (!userAllowed) {
-            return false;
-        }
-
-        // IP限流
-        boolean ipAllowed = tryAcquireTokenBucket(
-                RedisKeyConstant.orderRateLimitIpKey(clientIp),
+                REQUESTED_TOKENS_PER_ORDER
+        ));
+        keys.add(RedisKeyConstant.orderRateLimitIpKey(clientIp));
+        buckets.add(new TokenBucketSpec(
                 rateLimitProperties.getOrderIpCapacity(),
                 rateLimitProperties.getOrderIpRefillRatePerSecond(),
-                REQUESTED_TOKENS_PER_ORDER,
-                rateLimitProperties.getKeyTtlSeconds()
-        );
-        if (!ipAllowed) {
-            return false;
-        }
-
-        //API限流
-        boolean apiAllowed = tryAcquireTokenBucket(
-                RedisKeyConstant.orderRateLimitApiKey(apiName),
+                REQUESTED_TOKENS_PER_ORDER
+        ));
+        keys.add(RedisKeyConstant.orderRateLimitApiKey(apiName));
+        buckets.add(new TokenBucketSpec(
                 rateLimitProperties.getOrderApiCapacity(),
                 rateLimitProperties.getOrderApiRefillRatePerSecond(),
-                REQUESTED_TOKENS_PER_ORDER,
-                rateLimitProperties.getKeyTtlSeconds()
-        );
-        if (!apiAllowed || !includeTicketDimension) {
-            return apiAllowed;
+                REQUESTED_TOKENS_PER_ORDER
+        ));
+        if (includeTicketDimension) {
+            keys.add(RedisKeyConstant.orderRateLimitTicketKey(ticketCategoryId));
+            buckets.add(new TokenBucketSpec(
+                    rateLimitProperties.getOrderTicketCapacity(),
+                    rateLimitProperties.getOrderTicketRefillRatePerSecond(),
+                    REQUESTED_TOKENS_PER_ORDER
+            ));
         }
-
-        return tryAcquireTokenBucket(
-                RedisKeyConstant.orderRateLimitTicketKey(ticketCategoryId),
-                rateLimitProperties.getOrderTicketCapacity(),
-                rateLimitProperties.getOrderTicketRefillRatePerSecond(),
-                REQUESTED_TOKENS_PER_ORDER,
-                rateLimitProperties.getKeyTtlSeconds()
-        );
+        return tryAcquireMultiTokenBuckets(keys, buckets, rateLimitProperties.getKeyTtlSeconds());
     }
 
     //对票的key限流
@@ -228,26 +216,42 @@ public class RateLimitService {
                                               double secondRefillRatePerSecond,
                                               int secondRequestedTokens,
                                               long keyTtlSeconds) {
+        return tryAcquireMultiTokenBuckets(
+                List.of(firstKey, secondKey),
+                List.of(
+                        new TokenBucketSpec(firstCapacity, firstRefillRatePerSecond, firstRequestedTokens),
+                        new TokenBucketSpec(secondCapacity, secondRefillRatePerSecond, secondRequestedTokens)
+                ),
+                keyTtlSeconds
+        );
+    }
+
+    private boolean tryAcquireMultiTokenBuckets(List<String> keys,
+                                                List<TokenBucketSpec> buckets,
+                                                long keyTtlSeconds) {
         if (!rateLimitProperties.isEnabled()) {
             return true;
         }
-        if (firstCapacity <= 0 || firstRefillRatePerSecond <= 0 || firstRequestedTokens <= 0
-                || secondCapacity <= 0 || secondRefillRatePerSecond <= 0 || secondRequestedTokens <= 0
-                || keyTtlSeconds <= 0) {
-            throw new IllegalArgumentException("token bucket arguments must be positive");
+        if (keys == null || buckets == null || keys.isEmpty() || keys.size() != buckets.size() || keyTtlSeconds <= 0) {
+            throw new IllegalArgumentException("multi token bucket arguments must be positive");
+        }
+        List<String> args = new ArrayList<>(3 + buckets.size() * 3);
+        args.add(String.valueOf(System.currentTimeMillis()));
+        args.add(String.valueOf(keyTtlSeconds));
+        args.add(String.valueOf(buckets.size()));
+        for (TokenBucketSpec bucket : buckets) {
+            if (bucket.capacity() <= 0 || bucket.refillRatePerSecond() <= 0 || bucket.requestedTokens() <= 0) {
+                throw new IllegalArgumentException("multi token bucket arguments must be positive");
+            }
+            args.add(String.valueOf(bucket.capacity()));
+            args.add(String.valueOf(bucket.refillRatePerSecond()));
+            args.add(String.valueOf(bucket.requestedTokens()));
         }
         try {
             Long result = stringRedisTemplate.execute(
-                    twoTokenBucketsScript,
-                    List.of(firstKey, secondKey),
-                    String.valueOf(firstCapacity),
-                    String.valueOf(firstRefillRatePerSecond),
-                    String.valueOf(firstRequestedTokens),
-                    String.valueOf(secondCapacity),
-                    String.valueOf(secondRefillRatePerSecond),
-                    String.valueOf(secondRequestedTokens),
-                    String.valueOf(System.currentTimeMillis()),
-                    String.valueOf(keyTtlSeconds)
+                    multiTokenBucketsScript,
+                    keys,
+                    args.toArray(new String[0])
             );
             boolean allowed = result != null && result == 1L;
             if (!allowed) {
@@ -255,8 +259,7 @@ public class RateLimitService {
             }
             return allowed;
         } catch (RuntimeException exception) {
-            LOGGER.warn("Redis two-token-bucket rate limit failed and rejects request, firstKey={}, secondKey={}",
-                    firstKey, secondKey, exception);
+            LOGGER.warn("Redis multi-token-bucket rate limit failed and rejects request, keys={}", keys, exception);
             observabilityMetricsService.recordRateLimitRejected();
             return false;
         }
@@ -307,5 +310,8 @@ public class RateLimitService {
         script.setScriptSource(new ResourceScriptSource(new ClassPathResource(path)));
         script.setResultType(Long.class);
         return script;
+    }
+
+    private record TokenBucketSpec(int capacity, double refillRatePerSecond, int requestedTokens) {
     }
 }

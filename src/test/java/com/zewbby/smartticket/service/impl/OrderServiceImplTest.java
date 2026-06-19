@@ -384,6 +384,21 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void getOrderRequestResultCachesDbLoadedTerminalResult() {
+        ReflectionTestUtils.setField(orderService, "asyncOrderRequestResultCacheService", asyncOrderRequestResultCacheService);
+        TicketOrderRequest request = orderRequest("REQ_DB", 1L);
+        request.setStatus(OrderRequestStatusEnum.SUCCESS.getCode());
+        request.setOrderId(100L);
+        when(asyncOrderRequestResultCacheService.getCachedResult(1L, "REQ_DB")).thenReturn(null);
+        when(orderRequestMapper.selectByRequestIdAndUserId("REQ_DB", 1L)).thenReturn(request);
+
+        var response = orderService.getOrderRequestResult("REQ_DB");
+
+        assertThat(response.getOrderId()).isEqualTo(100L);
+        verify(asyncOrderRequestResultCacheService).cacheTerminalResult(eq(1L), any(OrderRequestVO.class));
+    }
+
+    @Test
     void submitAsyncOrderRecordsActualStockBucketNoWhenBucketEnabled() {
         orderService = bucketEnabledOrderService();
         mockCommonCreateOrderChecks(true);
