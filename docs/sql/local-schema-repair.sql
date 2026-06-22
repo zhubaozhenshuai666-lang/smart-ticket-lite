@@ -47,6 +47,28 @@ END//
 
 DELIMITER ;
 
+CREATE TABLE IF NOT EXISTS admin_operation_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    operator_user_id BIGINT NOT NULL,
+    operator_username VARCHAR(64) NULL,
+    operator_role VARCHAR(32) NOT NULL,
+    operation_type VARCHAR(64) NOT NULL,
+    resource_type VARCHAR(64) NULL,
+    resource_id VARCHAR(64) NULL,
+    request_uri VARCHAR(255) NULL,
+    request_method VARCHAR(16) NULL,
+    request_params TEXT NULL,
+    operation_result VARCHAR(32) NOT NULL,
+    error_message VARCHAR(512) NULL,
+    client_ip VARCHAR(64) NULL,
+    trace_id VARCHAR(64) NULL,
+    created_at DATETIME NOT NULL,
+    KEY idx_admin_operation_operator_time (operator_user_id, created_at),
+    KEY idx_admin_operation_type_time (operation_type, created_at),
+    KEY idx_admin_operation_resource (resource_type, resource_id),
+    KEY idx_admin_operation_trace_id (trace_id)
+);
+
 CALL add_column_if_missing('ticket_category', 'status', 'varchar(32) NOT NULL DEFAULT ''PUBLISHED''', 'price');
 
 CALL add_column_if_missing('user_account', 'role_code', 'varchar(32) NOT NULL DEFAULT ''USER''', 'status');
