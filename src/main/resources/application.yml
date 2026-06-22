@@ -110,7 +110,7 @@ smart-ticket:
     porter-move-record-ttl-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_MOVE_RECORD_TTL_SECONDS:86400}
     porter-fixed-delay-seconds: ${SMART_TICKET_STOCK_BUCKET_PORTER_FIXED_DELAY_SECONDS:300}
   waiting-room:
-    enabled: ${SMART_TICKET_WAITING_ROOM_ENABLED:true}
+    enabled: ${SMART_TICKET_WAITING_ROOM_ENABLED:false}
     admission-token-expire-seconds: ${SMART_TICKET_WAITING_ROOM_ADMISSION_TOKEN_EXPIRE_SECONDS:120}
     default-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_DEFAULT_ADMISSION_TOKEN_BATCH_SIZE:10}
     max-admission-token-batch-size: ${SMART_TICKET_WAITING_ROOM_MAX_ADMISSION_TOKEN_BATCH_SIZE:100}
