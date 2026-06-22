@@ -9,6 +9,7 @@ import com.zewbby.smartticket.domain.dto.RedisStockDeductResponse;
 import com.zewbby.smartticket.enums.RedisStockDeductResult;
 import com.zewbby.smartticket.enums.RedisStockRepairResult;
 import com.zewbby.smartticket.enums.RedisStockReleaseResult;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -51,6 +52,7 @@ public class StockLuaService {
 
     private static final String SOLDOUT_MARKER_VALUE = "1";
 
+    @Autowired
     public StockLuaService(StringRedisTemplate stringRedisTemplate,
                            RateLimitProperties rateLimitProperties,
                            StockBucketProperties stockBucketProperties) {
