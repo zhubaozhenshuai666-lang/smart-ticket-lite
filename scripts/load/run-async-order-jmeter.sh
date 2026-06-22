@@ -4,7 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 JMETER_BIN="${JMETER_BIN:-jmeter}"
 TEST_PLAN="${TEST_PLAN:-$ROOT_DIR/scripts/jmeter/async-order-load-test.jmx}"
-DATA_FILE="${DATA_FILE:-$ROOT_DIR/scripts/jmeter/data/async-order-users.csv}"
+DEFAULT_DATA_FILE="$ROOT_DIR/scripts/jmeter/data/async-order-users.csv"
+if [[ -f /tmp/async-order-users.csv ]]; then
+  DEFAULT_DATA_FILE="/tmp/async-order-users.csv"
+fi
+DATA_FILE="${DATA_FILE:-$DEFAULT_DATA_FILE}"
 REPORT_ROOT="${REPORT_ROOT:-$ROOT_DIR/reports/jmeter}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
 RESULT_DIR="$REPORT_ROOT/$RUN_ID"
