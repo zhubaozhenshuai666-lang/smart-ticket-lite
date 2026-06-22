@@ -49,6 +49,8 @@ DELIMITER ;
 
 CALL add_column_if_missing('ticket_category', 'status', 'varchar(32) NOT NULL DEFAULT ''PUBLISHED''', 'price');
 
+CALL add_column_if_missing('user_account', 'role_code', 'varchar(32) NOT NULL DEFAULT ''USER''', 'status');
+
 CALL add_column_if_missing('local_message', 'confirmed_at', 'datetime NULL', 'sent_at');
 CALL add_column_if_missing('local_message', 'returned_at', 'datetime NULL', 'confirmed_at');
 CALL add_column_if_missing('local_message', 'dead_at', 'datetime NULL', 'returned_at');
@@ -68,6 +70,10 @@ CALL add_column_if_missing('ticket_order', 'version', 'int NOT NULL DEFAULT 0', 
 UPDATE ticket_category
 SET status = 'PUBLISHED'
 WHERE status IS NULL OR status = '';
+
+UPDATE user_account
+SET role_code = 'USER'
+WHERE role_code IS NULL OR role_code = '';
 
 UPDATE ticket_order
 SET version = 0
