@@ -44,6 +44,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/api/users/me",
                         "/api/users/me/orders",
                         "/api/users/*/orders",
+                        "/api/waiting-room/**",
                         "/api/admin/**"
                 )
                 .excludePathPatterns(
