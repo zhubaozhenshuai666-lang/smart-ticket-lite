@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
   <hashTree>
-    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="Smart Ticket 异步下单压测" enabled="true">
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="Smart Ticket 异步下单压测">
       <stringProp name="TestPlan.comments">异步下单专业压测计划：幂等 token 获取、/api/orders/async 提交、Kafka 消费结果轮询。</stringProp>
-      <boolProp name="TestPlan.functional_mode">false</boolProp>
       <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
-      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
-      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="用户变量" enabled="true">
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="用户变量">
         <collectionProp name="Arguments.arguments">
           <elementProp name="base_url" elementType="Argument">
             <stringProp name="Argument.name">base_url</stringProp>
@@ -15,7 +13,7 @@
           </elementProp>
           <elementProp name="data_file" elementType="Argument">
             <stringProp name="Argument.name">data_file</stringProp>
-            <stringProp name="Argument.value">${__P(data_file,scripts/jmeter/data/async-order-users.csv)}</stringProp>
+            <stringProp name="Argument.value">${__P(data_file,/tmp/async-order-users-formal.csv)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="risk_decision" elementType="Argument">
@@ -50,33 +48,31 @@
           </elementProp>
         </collectionProp>
       </elementProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
     </TestPlan>
     <hashTree>
-      <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP 默认配置" enabled="true">
-        <stringProp name="HTTPSampler.domain"></stringProp>
-        <stringProp name="HTTPSampler.port"></stringProp>
-        <stringProp name="HTTPSampler.protocol"></stringProp>
+      <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP 默认配置">
+        <intProp name="HTTPSampler.connect_timeout">3000</intProp>
+        <intProp name="HTTPSampler.response_timeout">10000</intProp>
         <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
-        <stringProp name="HTTPSampler.path"></stringProp>
-        <stringProp name="HTTPSampler.concurrentPool">6</stringProp>
-        <stringProp name="HTTPSampler.connect_timeout">3000</stringProp>
-        <stringProp name="HTTPSampler.response_timeout">10000</stringProp>
-        <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="用户定义的变量" enabled="true">
+        <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
           <collectionProp name="Arguments.arguments"/>
         </elementProp>
+        <stringProp name="HTTPSampler.implementation"></stringProp>
       </ConfigTestElement>
-      <hashTree/>
-      <CookieManager guiclass="CookiePanel" testclass="CookieManager" testname="HTTP Cookie 管理器" enabled="true">
-        <collectionProp name="CookieManager.cookies"/>
-        <boolProp name="CookieManager.clearEachIteration">false</boolProp>
-        <boolProp name="CookieManager.controlledByThreadGroup">false</boolProp>
-      </CookieManager>
       <hashTree/>
       <CacheManager guiclass="CacheManagerGui" testclass="CacheManager" testname="HTTP Cache 管理器" enabled="true">
         <boolProp name="clearEachIteration">false</boolProp>
         <boolProp name="useExpires">true</boolProp>
         <boolProp name="CacheManager.controlledByThread">false</boolProp>
       </CacheManager>
+      <hashTree/>
+      <CookieManager guiclass="CookiePanel" testclass="CookieManager" testname="HTTP Cookie 管理器" enabled="true">
+        <collectionProp name="CookieManager.cookies"/>
+        <boolProp name="CookieManager.clearEachIteration">false</boolProp>
+        <boolProp name="CookieManager.controlledByThreadGroup">false</boolProp>
+      </CookieManager>
       <hashTree/>
       <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="公共请求头" enabled="true">
         <collectionProp name="HeaderManager.headers">
@@ -91,38 +87,31 @@
         </collectionProp>
       </HeaderManager>
       <hashTree/>
-      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup" testname="可选预热：订单提交元数据" enabled="true">
+      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup" testname="可选预热：订单提交元数据">
+        <intProp name="ThreadGroup.num_threads">1</intProp>
+        <intProp name="ThreadGroup.ramp_time">1</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
         <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
-        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
-          <boolProp name="LoopController.continue_forever">false</boolProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器">
           <stringProp name="LoopController.loops">1</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
         </elementProp>
-        <stringProp name="ThreadGroup.num_threads">1</stringProp>
-        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
-        <boolProp name="ThreadGroup.scheduler">false</boolProp>
       </SetupThreadGroup>
       <hashTree>
         <IfController guiclass="IfControllerPanel" testclass="IfController" testname="仅 do_prewarm=true 时执行" enabled="true">
-          <stringProp name="IfController.condition">${__groovy(vars.get('do_prewarm') == 'true')}</stringProp>
+          <stringProp name="IfController.condition">${__groovy(vars.get(&apos;do_prewarm&apos;) == &apos;true&apos;)}</stringProp>
           <boolProp name="IfController.evaluateAll">false</boolProp>
           <boolProp name="IfController.useExpression">true</boolProp>
         </IfController>
         <hashTree>
           <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="ADMIN 预热订单提交元数据" enabled="true">
-            <stringProp name="HTTPSampler.domain"></stringProp>
             <stringProp name="HTTPSampler.path">${base_url}/api/admin/ops/metadata-prewarm/order-submit</stringProp>
             <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
             <stringProp name="HTTPSampler.method">POST</stringProp>
             <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
-            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
-            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
-              <collectionProp name="Arguments.arguments">
-                <elementProp name="" elementType="HTTPArgument">
-                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                  <stringProp name="Argument.value"></stringProp>
-                  <stringProp name="Argument.metadata">=</stringProp>
-                </elementProp>
-              </collectionProp>
+            <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
+              <collectionProp name="Arguments.arguments"/>
             </elementProp>
           </HTTPSamplerProxy>
           <hashTree>
@@ -138,50 +127,44 @@
           </hashTree>
         </hashTree>
       </hashTree>
-      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="异步下单压测线程组" enabled="true">
-        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
-        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器" enabled="true">
-          <boolProp name="LoopController.continue_forever">true</boolProp>
-          <stringProp name="LoopController.loops">-1</stringProp>
-        </elementProp>
-        <stringProp name="ThreadGroup.num_threads">${__P(threads,100)}</stringProp>
-        <stringProp name="ThreadGroup.ramp_time">${__P(ramp_seconds,60)}</stringProp>
-        <boolProp name="ThreadGroup.scheduler">true</boolProp>
-        <stringProp name="ThreadGroup.duration">${__P(duration_seconds,300)}</stringProp>
-        <stringProp name="ThreadGroup.delay">0</stringProp>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="异步下单压测线程组">
+        <stringProp name="ThreadGroup.num_threads">${__P(threads,10)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${__P(ramp_seconds,10)}</stringProp>
+        <stringProp name="ThreadGroup.duration">${__P(duration_seconds,60)}</stringProp>
+        <longProp name="ThreadGroup.delay">0</longProp>
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="循环控制器">
+          <intProp name="LoopController.loops">-1</intProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
       </ThreadGroup>
       <hashTree>
-        <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="用户与票档 CSV" enabled="true">
+        <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="用户与票档 CSV">
           <stringProp name="delimiter">,</stringProp>
           <stringProp name="fileEncoding">UTF-8</stringProp>
           <stringProp name="filename">${data_file}</stringProp>
           <boolProp name="ignoreFirstLine">true</boolProp>
           <boolProp name="quotedData">false</boolProp>
-          <boolProp name="recycle">true</boolProp>
+          <boolProp name="recycle">false</boolProp>
           <stringProp name="shareMode">shareMode.all</stringProp>
-          <boolProp name="stopThread">false</boolProp>
+          <boolProp name="stopThread">true</boolProp>
           <stringProp name="variableNames">authToken,showId,sessionId,ticketCategoryId,quantity,admissionToken</stringProp>
         </CSVDataSet>
         <hashTree/>
-        <ConstantThroughputTimer guiclass="TestBeanGUI" testclass="ConstantThroughputTimer" testname="目标入口吞吐控制" enabled="true">
-          <stringProp name="throughput">${__P(target_qpm,12000)}</stringProp>
-          <intProp name="calcMode">1</intProp>
-        </ConstantThroughputTimer>
-        <hashTree/>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="01 获取下单幂等 Token" enabled="true">
-          <stringProp name="HTTPSampler.domain"></stringProp>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="01 获取下单幂等 Token">
           <stringProp name="HTTPSampler.path">${base_url}/api/orders/idempotency-token</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
           <stringProp name="HTTPSampler.method">GET</stringProp>
           <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
           <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
-          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
             <collectionProp name="Arguments.arguments"/>
           </elementProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="用户 Authorization" enabled="true">
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="用户 Authorization">
             <collectionProp name="HeaderManager.headers">
               <elementProp name="" elementType="Header">
                 <stringProp name="Header.name">Authorization</stringProp>
@@ -190,16 +173,16 @@
             </collectionProp>
           </HeaderManager>
           <hashTree/>
-          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取幂等 Token" enabled="true">
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取幂等 Token">
             <stringProp name="JSONPostProcessor.referenceNames">idempotencyToken</stringProp>
             <stringProp name="JSONPostProcessor.jsonPathExprs">$.data.token</stringProp>
             <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
             <stringProp name="JSONPostProcessor.defaultValues">TOKEN_NOT_FOUND</stringProp>
           </JSONPostProcessor>
           <hashTree/>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="幂等 Token 接口成功" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="幂等 Token 接口成功">
             <collectionProp name="Asserion.test_strings">
-              <stringProp name="0">&quot;code&quot;:0</stringProp>
+              <stringProp name="67791721">&quot;code&quot;:0</stringProp>
             </collectionProp>
             <stringProp name="Assertion.custom_message">获取幂等 Token 失败</stringProp>
             <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
@@ -208,8 +191,7 @@
           </ResponseAssertion>
           <hashTree/>
         </hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="02 提交异步下单请求" enabled="true">
-          <stringProp name="HTTPSampler.domain"></stringProp>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="02 提交异步下单请求">
           <stringProp name="HTTPSampler.path">${base_url}/api/orders/async</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
           <stringProp name="HTTPSampler.method">POST</stringProp>
@@ -226,7 +208,12 @@
           </elementProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="提交请求头" enabled="true">
+          <ConstantThroughputTimer guiclass="TestBeanGUI" testclass="ConstantThroughputTimer" testname="目标入口吞吐控制">
+            <stringProp name="throughput">${__P(target_qpm,600)}</stringProp>
+            <intProp name="calcMode">1</intProp>
+          </ConstantThroughputTimer>
+          <hashTree/>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="提交请求头">
             <collectionProp name="HeaderManager.headers">
               <elementProp name="" elementType="Header">
                 <stringProp name="Header.name">Authorization</stringProp>
@@ -239,16 +226,15 @@
             </collectionProp>
           </HeaderManager>
           <hashTree/>
-          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取 requestId" enabled="true">
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取 requestId">
             <stringProp name="JSONPostProcessor.referenceNames">requestId</stringProp>
             <stringProp name="JSONPostProcessor.jsonPathExprs">$.data.requestId</stringProp>
             <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
-            <stringProp name="JSONPostProcessor.defaultValues"></stringProp>
           </JSONPostProcessor>
           <hashTree/>
           <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="异步提交成功" enabled="true">
             <collectionProp name="Asserion.test_strings">
-              <stringProp name="0">&quot;code&quot;:0</stringProp>
+              <stringProp name="67791721">&quot;code&quot;:0</stringProp>
             </collectionProp>
             <stringProp name="Assertion.custom_message">异步提交失败，检查限流、等待室、库存或幂等 Token</stringProp>
             <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
@@ -258,15 +244,17 @@
           <hashTree/>
           <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="初始化轮询状态" enabled="true">
             <stringProp name="scriptLanguage">groovy</stringProp>
-            <stringProp name="script">vars.putObject('pollCount', 0)
-vars.putObject('pollDone', false)
-vars.put('orderRequestStatus', '')</stringProp>
+            <stringProp name="script">vars.putObject(&apos;pollCount&apos;, 0)
+vars.putObject(&apos;pollDone&apos;, false)
+vars.put(&apos;orderRequestStatus&apos;, &apos;&apos;)</stringProp>
             <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
           </JSR223PostProcessor>
           <hashTree/>
         </hashTree>
-        <WhileController guiclass="WhileControllerGui" testclass="WhileController" testname="03 轮询 Kafka 创单结果" enabled="true">
-          <stringProp name="WhileController.condition">${__groovy(vars.get('poll_result') == 'true' &amp;&amp; vars.get('requestId') != null &amp;&amp; vars.get('requestId') != '' &amp;&amp; vars.getObject('pollDone') != true &amp;&amp; ((vars.getObject('pollCount') ?: 0) as int) &lt; Integer.parseInt(vars.get('poll_max_attempts') ?: '20'))}</stringProp>
+        <WhileController guiclass="WhileControllerGui" testclass="WhileController" testname="03 轮询 Kafka 创单结果">
+          <stringProp name="WhileController.condition">${__groovy(vars.get(&apos;poll_result&apos;) == &apos;true&apos; &amp;&amp; vars.get(&apos;requestId&apos;) != null &amp;&amp; vars.get(&apos;requestId&apos;) != &apos;&apos; &amp;&amp; vars.getObject(&apos;pollDone&apos;) != true &amp;&amp; ((vars.getObject(&apos;pollCount&apos;) ?: 0) as int) &lt; Integer.parseInt(vars.get(&apos;poll_max_attempts&apos;) ?: &apos;20&apos;))}</stringProp>
         </WhileController>
         <hashTree>
           <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="轮询间隔" enabled="true">
@@ -274,13 +262,12 @@ vars.put('orderRequestStatus', '')</stringProp>
           </ConstantTimer>
           <hashTree/>
           <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="03 查询异步请求结果" enabled="true">
-            <stringProp name="HTTPSampler.domain"></stringProp>
             <stringProp name="HTTPSampler.path">${base_url}/api/order-requests/${requestId}</stringProp>
             <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
             <stringProp name="HTTPSampler.method">GET</stringProp>
             <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
             <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
-            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
               <collectionProp name="Arguments.arguments"/>
             </elementProp>
           </HTTPSamplerProxy>
@@ -294,33 +281,54 @@ vars.put('orderRequestStatus', '')</stringProp>
               </collectionProp>
             </HeaderManager>
             <hashTree/>
-            <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取处理状态" enabled="true">
-              <stringProp name="JSONPostProcessor.referenceNames">orderRequestStatus,orderId,failReason</stringProp>
+            <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取处理状态" enabled="false">
+              <stringProp name="JSONPostProcessor.referenceNames">orderRequestStatus;orderId;failReason</stringProp>
               <stringProp name="JSONPostProcessor.jsonPathExprs">$.data.status;$.data.orderId;$.data.failReason</stringProp>
               <stringProp name="JSONPostProcessor.match_numbers">1;1;1</stringProp>
               <stringProp name="JSONPostProcessor.defaultValues">UNKNOWN;;</stringProp>
             </JSONPostProcessor>
             <hashTree/>
-            <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="判断是否终态" enabled="true">
+            <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="Groovy 提取处理状态" enabled="true">
               <stringProp name="scriptLanguage">groovy</stringProp>
-              <stringProp name="script">int count = (vars.getObject('pollCount') ?: 0) as int
-vars.putObject('pollCount', count + 1)
-def status = vars.get('orderRequestStatus')
-def terminal = ['SUCCESS', 'FAILED', 'COMPENSATED', 'CANCELLED']
-if (terminal.contains(status)) {
-    vars.putObject('pollDone', true)
-}
-if (status == 'FAILED' || status == 'COMPENSATED' || status == 'CANCELLED') {
-    prev.setSuccessful(false)
-    prev.setResponseMessage('订单请求进入失败终态：' + status + ', failReason=' + (vars.get('failReason') ?: ''))
+              <stringProp name="script">def body = prev.getResponseDataAsString()
+try {
+    def json = new groovy.json.JsonSlurper().parseText(body)
+    def data = json.data ?: [:]
+    vars.put(&apos;orderRequestStatus&apos;, data.status == null ? &apos;UNKNOWN&apos; : data.status.toString())
+    vars.put(&apos;orderId&apos;, data.orderId == null ? &apos;&apos; : data.orderId.toString())
+    vars.put(&apos;failReason&apos;, data.failReason == null ? &apos;&apos; : data.failReason.toString())
+} catch (Exception ignored) {
+    vars.put(&apos;orderRequestStatus&apos;, &apos;UNKNOWN&apos;)
+    vars.put(&apos;orderId&apos;, &apos;&apos;)
+    vars.put(&apos;failReason&apos;, &apos;响应不是合法JSON: &apos; + body)
 }</stringProp>
               <stringProp name="cacheKey">true</stringProp>
+              <stringProp name="parameters"></stringProp>
+              <stringProp name="filename"></stringProp>
+            </JSR223PostProcessor>
+            <hashTree/>
+            <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="判断是否终态" enabled="true">
+              <stringProp name="scriptLanguage">groovy</stringProp>
+              <stringProp name="script">int count = (vars.getObject(&apos;pollCount&apos;) ?: 0) as int
+vars.putObject(&apos;pollCount&apos;, count + 1)
+def status = vars.get(&apos;orderRequestStatus&apos;)
+def terminal = [&apos;SUCCESS&apos;, &apos;FAILED&apos;, &apos;COMPENSATED&apos;, &apos;CANCELLED&apos;]
+if (terminal.contains(status)) {
+    vars.putObject(&apos;pollDone&apos;, true)
+}
+if (status == &apos;FAILED&apos; || status == &apos;COMPENSATED&apos; || status == &apos;CANCELLED&apos;) {
+    prev.setSuccessful(false)
+    prev.setResponseMessage(&apos;订单请求进入失败终态：&apos; + status + &apos;, failReason=&apos; + (vars.get(&apos;failReason&apos;) ?: &apos;&apos;))
+}</stringProp>
+              <stringProp name="cacheKey">true</stringProp>
+              <stringProp name="parameters"></stringProp>
+              <stringProp name="filename"></stringProp>
             </JSR223PostProcessor>
             <hashTree/>
           </hashTree>
         </hashTree>
       </hashTree>
-      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="汇总报告" enabled="true">
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="汇总报告">
         <boolProp name="ResultCollector.error_logging">false</boolProp>
         <objProp>
           <name>saveConfig</name>
@@ -344,6 +352,43 @@ if (status == 'FAILED' || status == 'COMPENSATED' || status == 'CANCELLED') {
             <responseHeaders>false</responseHeaders>
             <requestHeaders>false</requestHeaders>
             <responseDataOnError>true</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <assertionsResultsToSave>0</assertionsResultsToSave>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <idleTime>true</idleTime>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename">/tmp/smart-ticket-jmeter-gui-result.jtl</stringProp>
+      </ResultCollector>
+      <hashTree/>
+      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="View Results Tree">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>false</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>false</responseDataOnError>
             <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
             <assertionsResultsToSave>0</assertionsResultsToSave>
             <bytes>true</bytes>

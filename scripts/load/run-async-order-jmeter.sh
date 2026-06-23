@@ -4,8 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 JMETER_BIN="${JMETER_BIN:-jmeter}"
 TEST_PLAN="${TEST_PLAN:-$ROOT_DIR/scripts/jmeter/async-order-load-test.jmx}"
+export HEAP="${HEAP:--Xms512m -Xmx2g -XX:MaxMetaspaceSize=256m}"
 DEFAULT_DATA_FILE="$ROOT_DIR/scripts/jmeter/data/async-order-users.csv"
-if [[ -f /tmp/async-order-users.csv ]]; then
+if [[ -f /tmp/async-order-users-formal.csv ]]; then
+  DEFAULT_DATA_FILE="/tmp/async-order-users-formal.csv"
+elif [[ -f /tmp/async-order-users.csv ]]; then
   DEFAULT_DATA_FILE="/tmp/async-order-users.csv"
 fi
 DATA_FILE="${DATA_FILE:-$DEFAULT_DATA_FILE}"
@@ -17,10 +20,10 @@ LOG_FILE="$RESULT_DIR/jmeter.log"
 HTML_DIR="$RESULT_DIR/html"
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:8081}"
-THREADS="${THREADS:-100}"
-RAMP_SECONDS="${RAMP_SECONDS:-60}"
-DURATION_SECONDS="${DURATION_SECONDS:-300}"
-TARGET_QPS="${TARGET_QPS:-200}"
+THREADS="${THREADS:-10}"
+RAMP_SECONDS="${RAMP_SECONDS:-10}"
+DURATION_SECONDS="${DURATION_SECONDS:-60}"
+TARGET_QPS="${TARGET_QPS:-10}"
 TARGET_QPM="$((TARGET_QPS * 60))"
 POLL_RESULT="${POLL_RESULT:-true}"
 POLL_MAX_ATTEMPTS="${POLL_MAX_ATTEMPTS:-20}"
@@ -46,6 +49,14 @@ if [[ ! -f "$DATA_FILE" ]]; then
   exit 1
 fi
 
+DATA_ROWS=$(($(wc -l < "$DATA_FILE") - 1))
+EXPECTED_REQUESTS=$((TARGET_QPS * DURATION_SECONDS))
+if [[ "$DATA_ROWS" -lt "$EXPECTED_REQUESTS" ]]; then
+  echo "CSV 数据行数不足：DATA_ROWS=$DATA_ROWS, 预计请求数=$EXPECTED_REQUESTS"
+  echo "请先执行：ROWS=$((EXPECTED_REQUESTS + EXPECTED_REQUESTS / 5)) ./scripts/load/prepare-async-order-jmeter-data.sh"
+  exit 1
+fi
+
 mkdir -p "$RESULT_DIR" "$HTML_DIR"
 
 cat <<CONFIG
@@ -62,6 +73,9 @@ POLL_RESULT=$POLL_RESULT
 POLL_MAX_ATTEMPTS=$POLL_MAX_ATTEMPTS
 POLL_INTERVAL_MS=$POLL_INTERVAL_MS
 DO_PREWARM=$DO_PREWARM
+HEAP=$HEAP
+DATA_ROWS=$DATA_ROWS
+EXPECTED_REQUESTS=$EXPECTED_REQUESTS
 RESULT_DIR=$RESULT_DIR
 CONFIG
 

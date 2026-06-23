@@ -133,6 +133,62 @@ ticketCategoryId=2
 quantity=1
 ```
 
+### 1.6 压测前必须预热 Redis 库存
+
+这一步不能省。MySQL 里有库存，只代表数据库有票；压测入口扣的是 Redis 里的库存，开启 flash-sale profile 后还会优先扣 Redis bucket 库存。如果没有预热，JMeter 一启动就可能看到库存不足、Redis 库存为空、bucket 未初始化这类错误。
+
+先获取后台 token：
+
+```bash
+read -s SMART_TICKET_ADMIN_PASSWORD
+export SMART_TICKET_ADMIN_PASSWORD
+
+ADMIN_TOKEN=$(curl -sS -X POST http://127.0.0.1:8081/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d "{\"phone\":\"13800000001\",\"password\":\"$SMART_TICKET_ADMIN_PASSWORD\"}" | /usr/bin/jq -r '.data.token')
+
+echo "$ADMIN_TOKEN"
+```
+
+如果 `echo "$ADMIN_TOKEN"` 打印出 `null` 或空字符串，先停下来，不要压测。说明管理员账号、密码或本地数据还没准备好。
+
+当前 CSV 默认压 `ticketCategoryId=2`，所以先只预热 2 号票档：
+
+```bash
+curl -sS -X POST http://127.0.0.1:8081/api/admin/ticket-categories/2/stock/preheat \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+如果你想把所有票档都预热：
+
+```bash
+curl -sS -X POST http://127.0.0.1:8081/api/admin/stocks/preheat-all \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+预热后立刻检查库存视图：
+
+```bash
+curl -sS http://127.0.0.1:8081/api/admin/stocks \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+重点确认压测票档，也就是 `ticketCategoryId=2`：
+
+```text
+redisAvailableStock > 0
+redisExpectedConsistent=true
+mysqlStockConsistent=true
+diff=0
+```
+
+如果 `redisAvailableStock` 是 `0`，先不要点 JMeter 启动。继续查 MySQL 里 2 号票档是否真的有可售库存：
+
+```bash
+mysql --protocol=TCP -h 127.0.0.1 -P 3306 -u root -p -D smart_ticket_lite \
+  -e "SELECT * FROM ticket_stock WHERE ticket_category_id = 2; SELECT * FROM ticket_stock_bucket WHERE ticket_category_id = 2 ORDER BY bucket_no;"
+```
+
 ## 2. JMeter 图形界面压测
 
 ### 2.1 打开 JMeter
@@ -311,6 +367,14 @@ Add -> Listener -> View Results Tree
 只用于 10 并发以内排错。正式压测要禁用或删除它，否则 JMeter 自己会拖慢压测。
 
 ### 2.8 点击启动
+
+点击前最后确认三件事：
+
+```text
+/tmp/async-order-users.csv 有 50 个用户和 admissionToken
+ticketCategoryId=2 已经完成 Redis 库存预热
+Kafka topic smart-ticket.async-order.create 存在并且应用已连接
+```
 
 点顶部绿色三角按钮。
 
@@ -512,9 +576,12 @@ ORDER BY COUNT(*) DESC;
 获取管理员 token 后看库存：
 
 ```bash
+read -s SMART_TICKET_ADMIN_PASSWORD
+export SMART_TICKET_ADMIN_PASSWORD
+
 ADMIN_TOKEN=$(curl -sS -X POST http://127.0.0.1:8081/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"phone":"13800000001","password":"Test123456"}' | /usr/bin/jq -r '.data.token')
+  -d "{\"phone\":\"13800000001\",\"password\":\"$SMART_TICKET_ADMIN_PASSWORD\"}" | /usr/bin/jq -r '.data.token')
 
 curl -sS http://127.0.0.1:8081/api/admin/stocks \
   -H "Authorization: Bearer $ADMIN_TOKEN"

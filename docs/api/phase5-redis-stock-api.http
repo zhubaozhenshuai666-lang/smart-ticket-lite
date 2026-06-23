@@ -10,7 +10,7 @@ Content-Type: application/json
 
 {
   "phone": "13800000001",
-  "password": "Test123456"
+  "password": "替换为本地admin密码"
 }
 
 > {%
