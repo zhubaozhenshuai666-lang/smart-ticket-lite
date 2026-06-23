@@ -3,13 +3,16 @@ set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:8081}"
 ROWS="${ROWS:-5000}"
-USER_COUNT="${USER_COUNT:-50}"
-USER_PHONE_PREFIX="${USER_PHONE_PREFIX:-139010000}"
+STOCK_QUANTITY="${STOCK_QUANTITY:-3000}"
+USER_MULTIPLIER="${USER_MULTIPLIER:-4}"
+USER_COUNT="${USER_COUNT:-$((STOCK_QUANTITY * USER_MULTIPLIER))}"
+USER_PHONE_PREFIX="${USER_PHONE_PREFIX:-139010}"
+USER_PHONE_WIDTH="${USER_PHONE_WIDTH:-5}"
 USER_PASSWORD="${USER_PASSWORD:-Test123456}"
 SHOW_ID="${SHOW_ID:-1}"
 SESSION_ID="${SESSION_ID:-1}"
 TICKET_CATEGORY_ID="${TICKET_CATEGORY_ID:-2}"
-QUANTITY="${QUANTITY:-1}"
+QUANTITY="${QUANTITY:-2}"
 ADMISSION_TTL_SECONDS="${ADMISSION_TTL_SECONDS:-7200}"
 OUT_FILE="${OUT_FILE:-/tmp/async-order-users-formal.csv}"
 
@@ -40,8 +43,9 @@ declare -a user_ids
 declare -a user_tokens
 
 echo "登录 $USER_COUNT 个压测用户，刷新 JWT..."
+echo "库存票数=$STOCK_QUANTITY，用户倍数=$USER_MULTIPLIER，单请求购票数=$QUANTITY"
 for n in $(seq 1 "$USER_COUNT"); do
-  phone=$(printf '%s%02d' "$USER_PHONE_PREFIX" "$n")
+  phone=$(printf "%s%0${USER_PHONE_WIDTH}d" "$USER_PHONE_PREFIX" "$n")
   redis-cli DEL "auth:login:fail:${phone}" "auth:login:lock:${phone}" >/dev/null
   response=$(curl -sS -X POST "${BASE_URL}/api/auth/login" \
     -H 'Content-Type: application/json' \

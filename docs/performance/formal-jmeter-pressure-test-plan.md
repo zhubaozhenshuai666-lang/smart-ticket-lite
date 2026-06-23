@@ -129,7 +129,7 @@ TARGET_QPS=200 \
 可售库存 >= 理论提交量
 ```
 
-当前 `ticketCategoryId=2` 初始库存是 1000，所以 10 QPS * 60 秒最稳。要跑 50 QPS * 120 秒这种 6000 单级别测试，需要先通过后台库存调整补足库存。
+当前 `ticketCategoryId=2` 初始库存是 1000，所以 10 QPS * 60 秒最稳。要跑更大提交量，先通过后台库存调整补足库存。
 
 ## 4. 当前电脑压测基线
 
@@ -202,31 +202,123 @@ Kafka 是否承接住消息堆积
 验证最终创单结果是否完整
 ```
 
-### 5.1 洪峰压测前准备
+### 5.1 售罄洪峰模型
 
-本机第一轮洪峰演练，建议先打 4 万库存、5 万 CSV，避免库存和 token 先成为瓶颈：
+大麦式洪峰不是“请求数等于库存数”。正确模型是：
 
-```bash
-CONFIRM_RESET=YES RESET_STOCK_QUANTITY=40000 ./scripts/load/reset-load-test-env.sh
-ROWS=50000 ./scripts/load/prepare-async-order-jmeter-data.sh
+```text
+少量真实库存
+大量用户同时点击
+同一用户可能重复点击
+入口快速拒绝重复、限流、无资格、售罄请求
+只有抢到 Redis 库存的请求进入 Kafka
+消费者异步创建订单
+最终成功订单数不能超过库存约束
 ```
 
-如果想尝试 10 万请求：
+当前系统还有两个硬约束：
+
+```text
+每个用户同一票档一次只能有一个并发下单请求
+一单最多 2 张票
+```
+
+先从 3000 张票起步：
+
+```text
+库存票数 = 3000
+当前压测脚本每单票数 = 2
+当前压测脚本理论成功订单上限 = 3000 / 2 = 1500 单
+压测用户数 = 库存票数的 3-5 倍，建议先用 4 倍 = 12000 个用户
+入口请求数 = 300000
+大部分请求失败是正常现象
+```
+
+这里说的 `1500 单` 不是业务永远只能创建 1500 单，而是本轮压测参数 `QUANTITY=2` 的结果。业务约束是“一单最多 2 张票”：
+
+```text
+如果 QUANTITY=2，3000 张票最多形成 1500 单
+如果 QUANTITY=1，3000 张票最多形成 3000 单
+如果 1 张和 2 张混合，成功订单数会落在 1500 到 3000 之间
+```
+
+这里失败不是系统坏了，而是削峰应该发生的结果。真正要看的是：
+
+```text
+是否只放入符合库存和 QUANTITY 约束的成功创单请求
+是否没有超卖
+Kafka lag 是否能回落
+ticket_order_request 是否没有大量卡在 QUEUED / PROCESSING
+当前 QUANTITY=2 时，ticket_order 最终订单数是否接近 1500 且不超过 1500
+库存是否一致
+```
+
+### 5.2 准备 3000 库存、12000 用户、300000 请求 CSV
+
+先设置密码环境变量：
 
 ```bash
-CONFIRM_RESET=YES RESET_STOCK_QUANTITY=120000 ./scripts/load/reset-load-test-env.sh
-ROWS=120000 ./scripts/load/prepare-async-order-jmeter-data.sh
+read -s SMART_TICKET_DB_PASSWORD
+export SMART_TICKET_DB_PASSWORD
+
+read -s SMART_TICKET_ADMIN_PASSWORD
+export SMART_TICKET_ADMIN_PASSWORD
+```
+
+推荐用一键准备脚本。它会同步更新 MySQL 和 Redis：
+
+```text
+清理本轮压测交易数据
+把 MySQL ticket_stock / ticket_stock_bucket 重置成 3000 张票
+创建或复用 12000 个压测用户，写入 MySQL user_account
+预热 Redis 库存
+生成 300000 行 JMeter CSV
+为每一行写入 Redis admissionToken
+最后查询 MySQL 用户数、库存表、bucket 汇总
+```
+
+执行：
+
+```bash
+STOCK_QUANTITY=3000 \
+USER_MULTIPLIER=4 \
+ROWS=300000 \
+QUANTITY=2 \
+./scripts/load/prepare-soldout-flood-env.sh
+```
+
+如果要拆开手动做，顺序必须是：
+
+```bash
+CONFIRM_RESET=YES RESET_STOCK_QUANTITY=3000 ./scripts/load/reset-load-test-env.sh
+
+STOCK_QUANTITY=3000 USER_MULTIPLIER=4 ./scripts/load/ensure-load-users.sh
+
+ROWS=300000 \
+STOCK_QUANTITY=3000 \
+USER_MULTIPLIER=4 \
+QUANTITY=2 \
+./scripts/load/prepare-async-order-jmeter-data.sh
+```
+
+检查 CSV：
+
+```bash
+wc -l /tmp/async-order-users-formal.csv
+head -2 /tmp/async-order-users-formal.csv
 ```
 
 注意：
 
 ```text
-ROWS >= 目标请求数
-库存 >= 目标成功创单数
+ROWS 要覆盖入口请求数，例如 300000 请求就准备 300000 行
+库存不需要覆盖请求数，库存就是 3000
+用户数按库存票数 3-5 倍准备，不按请求数准备
 admissionToken 每行一个，不能复用
+准备完成后必须看脚本最后输出的 MySQL 核验结果，不要只看 CSV 文件存在
 ```
 
-### 5.2 本机洪峰档位
+### 5.3 本机洪峰档位
 
 洪峰脚本：
 
@@ -269,6 +361,38 @@ BURST_LEVEL=extreme ./scripts/load/run-burst-order-jmeter.sh
 
 极限档失败不一定是系统不行，也可能是 MacBook Air 同机压测先到瓶颈。
 
+### 5.4 售罄洪峰脚本
+
+专门测“3000 张票、30 万入口请求、每单 2 张”的脚本：
+
+```bash
+REQUESTS=300000 \
+STOCK_QUANTITY=3000 \
+ORDER_QUANTITY=2 \
+USER_MULTIPLIER=4 \
+DURATION_SECONDS=60 \
+THREADS=800 \
+./scripts/load/run-soldout-flood-jmeter.sh
+```
+
+这代表目标入口吞吐大约是：
+
+```text
+300000 / 60 = 5000 QPS
+```
+
+本机跑不满 5000 QPS 也正常。JMeter、应用、MySQL、Redis、Kafka 都在一台 MacBook Air 上，压测机和服务端会互相抢资源。先用下面的小一档确认链路：
+
+```bash
+REQUESTS=30000 \
+STOCK_QUANTITY=3000 \
+ORDER_QUANTITY=2 \
+USER_MULTIPLIER=4 \
+DURATION_SECONDS=60 \
+THREADS=400 \
+./scripts/load/run-soldout-flood-jmeter.sh
+```
+
 这里 `POLL_RESULT=false` 是故意的。洪峰测试重点是“提交入口瞬时涌入”，如果每个请求后面再轮询结果，会把查询接口压力混进来，结论会乱。
 
 跑完后再看异步创单是否追平。
@@ -292,7 +416,7 @@ POLL_RESULT=false \
 
 脚本会检查 CSV 行数，不够会拒绝启动。
 
-### 5.3 本机观察指标
+### 5.5 本机观察指标
 
 压测时另开终端看本机资源：
 
@@ -311,7 +435,7 @@ redis-server CPU 是否打满
 
 如果 JMeter 所在 java 进程先打满 CPU，这轮结果主要说明压测机不够，不代表服务端真实上限。
 
-### 5.4 洪峰压测期间看 Kafka lag
+### 5.6 洪峰压测期间看 Kafka lag
 
 另开终端持续执行：
 
@@ -341,7 +465,7 @@ LAG 一直涨不回落：消费者或 MySQL 创单能力不足
 LAG 为 0 但入口大量失败：入口限流、等待室、库存、JWT、CSV 或 JMeter 本身有问题
 ```
 
-### 5.5 洪峰压测后看完整链路
+### 5.7 洪峰压测后看完整链路
 
 ```sql
 SELECT status, fail_reason, COUNT(*)
@@ -376,6 +500,7 @@ JMeter 错误主要是可解释的限流/等待室/库存拒绝，而不是 500 
 ticket_order_request 最终没有大量 QUEUED / PROCESSING 卡住
 Kafka lag 最终回到 0
 库存总和一致
+当前 QUANTITY=2 时，3000 张票的 ticket_order 成功订单数不能超过 1500
 ```
 
 如果你要真正模拟几十万瞬时请求，需要分布式压测：
