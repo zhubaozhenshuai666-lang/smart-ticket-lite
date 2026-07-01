@@ -99,6 +99,22 @@ public class LocalMessageServiceImpl implements LocalMessageService {
         return messageId;
     }
 
+    @Override
+    public String createDomainEventMessage(String businessType,
+                                           String businessKey,
+                                           String topic,
+                                           String routingKey,
+                                           Object payload) {
+        return createLocalMessage(
+                generateMessageId(),
+                businessType,
+                businessKey,
+                topic,
+                routingKey,
+                payload
+        );
+    }
+
     private String createLocalMessage(String messageId,
                                       String businessType,
                                       String businessKey,

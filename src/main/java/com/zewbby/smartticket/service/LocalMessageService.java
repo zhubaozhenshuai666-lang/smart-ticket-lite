@@ -15,6 +15,12 @@ public interface LocalMessageService {
 
     String createOrderTimeoutCloseMessage(OrderTimeoutMessage message);
 
+    String createDomainEventMessage(String businessType,
+                                    String businessKey,
+                                    String topic,
+                                    String routingKey,
+                                    Object payload);
+
     List<LocalMessage> selectPublishableMessages(LocalDateTime now, Integer limit);
 
     boolean tryMarkSending(LocalMessage message);

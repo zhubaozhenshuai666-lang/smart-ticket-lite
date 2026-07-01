@@ -38,10 +38,11 @@ public class AsyncOrderSubmitGuardrail implements InitializingBean {
     private void validatePublisherMode() {
         String publisherMode = properties.getPublisherMode();
         if (AsyncOrderSubmitProperties.PUBLISHER_MODE_OUTBOX.equalsIgnoreCase(publisherMode)
-                || AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA.equalsIgnoreCase(publisherMode)) {
+                || AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA.equalsIgnoreCase(publisherMode)
+                || AsyncOrderSubmitProperties.PUBLISHER_MODE_ROCKETMQ.equalsIgnoreCase(publisherMode)) {
             return;
         }
-        throw new IllegalStateException("smart-ticket.async-order-submit.publisher-mode 只允许 outbox 或 kafka");
+        throw new IllegalStateException("smart-ticket.async-order-submit.publisher-mode 只允许 outbox、kafka 或 rocketmq");
     }
 
     private boolean isFlashSaleProfileActive() {
@@ -50,8 +51,8 @@ public class AsyncOrderSubmitGuardrail implements InitializingBean {
     }
 
     private void validateFlashSaleProfile() {
-        if (!properties.isKafkaPublisherMode()) {
-            throw new IllegalStateException("flash-sale profile 必须使用 kafka 发布模式，不能继续走 Outbox 写放大路径");
+        if (!properties.isRocketMqPublisherMode()) {
+            throw new IllegalStateException("flash-sale profile 必须使用 rocketmq 发布模式，不能继续走 Outbox/Kafka 交易命令路径");
         }
         if (properties.isPersistRequestBeforePublish()) {
             throw new IllegalStateException("flash-sale profile 必须关闭入口 ticket_order_request 预落库");
@@ -63,8 +64,11 @@ public class AsyncOrderSubmitGuardrail implements InitializingBean {
             throw new IllegalStateException("flash-sale profile 单票档 in-flight 上限不能低于 "
                     + FLASH_SALE_MIN_IN_FLIGHT_PER_TICKET_CATEGORY);
         }
-        if (orderTimeoutProperties.isDelayMessageEnabled()) {
-            throw new IllegalStateException("flash-sale profile 必须关闭订单超时延迟消息写入，避免成功创单链路 Outbox 写放大");
+        if (!orderTimeoutProperties.isDelayMessageEnabled()) {
+            throw new IllegalStateException("flash-sale profile 必须开启 RocketMQ 订单超时延迟消息，扫描任务只能作为兜底");
+        }
+        if (!orderTimeoutProperties.isRocketMqPublisherMode()) {
+            throw new IllegalStateException("flash-sale profile 订单超时消息必须使用 rocketmq 发布模式");
         }
     }
 }

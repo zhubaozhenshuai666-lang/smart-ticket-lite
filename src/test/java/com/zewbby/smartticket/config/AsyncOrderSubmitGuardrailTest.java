@@ -38,7 +38,7 @@ class AsyncOrderSubmitGuardrailTest {
 
         assertThatThrownBy(() -> new AsyncOrderSubmitGuardrail(properties, flashSaleOrderTimeoutProperties(), environment).afterPropertiesSet())
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("kafka");
+                .hasMessageContaining("rocketmq");
     }
 
     @Test
@@ -72,10 +72,11 @@ class AsyncOrderSubmitGuardrailTest {
     }
 
     @Test
-    void flashSaleProfileRejectsOrderTimeoutOutboxWriteAmplification() {
+    void flashSaleProfileRejectsDisabledOrderTimeoutDelayMessage() {
         AsyncOrderSubmitProperties properties = flashSaleProperties();
         OrderTimeoutProperties orderTimeoutProperties = new OrderTimeoutProperties();
-        orderTimeoutProperties.setDelayMessageEnabled(true);
+        orderTimeoutProperties.setPublisherMode(OrderTimeoutProperties.PUBLISHER_MODE_ROCKETMQ);
+        orderTimeoutProperties.setDelayMessageEnabled(false);
 
         assertThatThrownBy(() -> new AsyncOrderSubmitGuardrail(properties, orderTimeoutProperties, flashSaleEnvironment()).afterPropertiesSet())
                 .isInstanceOf(IllegalStateException.class)
@@ -91,17 +92,18 @@ class AsyncOrderSubmitGuardrailTest {
     }
 
     @Test
-    void flashSaleProfileAllowsKafkaEventPipeline() {
+    void flashSaleProfileRejectsKafkaCommandPipeline() {
         AsyncOrderSubmitProperties properties = flashSaleProperties();
         properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA);
 
-        assertThatCode(() -> newGuardrail(properties).afterPropertiesSet())
-                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> newGuardrail(properties).afterPropertiesSet())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("rocketmq");
     }
 
     private AsyncOrderSubmitProperties flashSaleProperties() {
         AsyncOrderSubmitProperties properties = new AsyncOrderSubmitProperties();
-        properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_KAFKA);
+        properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_ROCKETMQ);
         properties.setPersistRequestBeforePublish(false);
         properties.setInFlightControlEnabled(true);
         properties.setMaxInFlightPerTicketCategory(100_000L);
@@ -116,7 +118,8 @@ class AsyncOrderSubmitGuardrailTest {
 
     private OrderTimeoutProperties flashSaleOrderTimeoutProperties() {
         OrderTimeoutProperties orderTimeoutProperties = new OrderTimeoutProperties();
-        orderTimeoutProperties.setDelayMessageEnabled(false);
+        orderTimeoutProperties.setPublisherMode(OrderTimeoutProperties.PUBLISHER_MODE_ROCKETMQ);
+        orderTimeoutProperties.setDelayMessageEnabled(true);
         return orderTimeoutProperties;
     }
 

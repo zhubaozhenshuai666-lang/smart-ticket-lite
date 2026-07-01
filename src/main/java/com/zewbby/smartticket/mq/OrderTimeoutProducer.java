@@ -1,33 +1,19 @@
 package com.zewbby.smartticket.mq;
 
 import com.zewbby.smartticket.config.OrderTimeoutProperties;
-import com.zewbby.smartticket.service.LocalMessageService;
-import com.zewbby.smartticket.task.LocalMessagePublishTask;
-import org.springframework.kafka.core.KafkaTemplate;
+import com.zewbby.smartticket.service.OrderTimeoutMessagePublisher;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
-
-import java.util.UUID;
 
 @Component
 public class OrderTimeoutProducer {
 
-    private final LocalMessageService localMessageService;
-
-    private final LocalMessagePublishTask localMessagePublishTask;
-
-    private final KafkaTemplate<String, OrderTimeoutMessage> kafkaTemplate;
+    private final OrderTimeoutMessagePublisher orderTimeoutMessagePublisher;
 
     private final OrderTimeoutProperties orderTimeoutProperties;
 
-    public OrderTimeoutProducer(LocalMessageService localMessageService,
-                                LocalMessagePublishTask localMessagePublishTask,
-                                KafkaTemplate<String, OrderTimeoutMessage> kafkaTemplate,
+    public OrderTimeoutProducer(OrderTimeoutMessagePublisher orderTimeoutMessagePublisher,
                                 OrderTimeoutProperties orderTimeoutProperties) {
-        this.localMessageService = localMessageService;
-        this.localMessagePublishTask = localMessagePublishTask;
-        this.kafkaTemplate = kafkaTemplate;
+        this.orderTimeoutMessagePublisher = orderTimeoutMessagePublisher;
         this.orderTimeoutProperties = orderTimeoutProperties;
     }
 
@@ -41,70 +27,10 @@ public class OrderTimeoutProducer {
         if (!orderTimeoutProperties.isDelayMessageEnabled()) {
             return null;
         }
-        if (!orderTimeoutProperties.isOutboxPublisherMode()) {
-            String messageId = ensureMessageId(message);
-            publishKafkaAfterCommit(message);
-            return messageId;
-        }
-        //在本地数据库插入一条消息记录，状态为 SENDING（发送中），并返回这笔消息的唯一身份证 messageId
-        String messageId = localMessageService.createOrderTimeoutCloseMessage(message);
-        publishAfterCommit(messageId);
-        return messageId;
+        return orderTimeoutMessagePublisher.publish(message);
     }
 
     public String sendOrderTimeoutMessage(Long orderId, String orderNo) {
         return sendOrderTimeoutMessage(new OrderTimeoutMessage(orderId, orderNo));
-    }
-
-    /**
-     * 确保只有在当前的数据库事务成功提交（Commit）之后，才真正把消息通过网络送给 Kafka。
-     * @param messageId
-     */
-    private void publishAfterCommit(String messageId) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            localMessagePublishTask.publishByMessageId(messageId);
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                localMessagePublishTask.publishByMessageId(messageId);
-            }
-        });
-    }
-
-    private void publishKafkaAfterCommit(OrderTimeoutMessage message) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            publishKafka(message);
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                publishKafka(message);
-            }
-        });
-    }
-
-    private void publishKafka(OrderTimeoutMessage message) {
-        kafkaTemplate.send(
-                orderTimeoutProperties.getKafkaOrderTimeoutTopic(),
-                orderTimeoutKey(message),
-                message
-        );
-    }
-
-    private String ensureMessageId(OrderTimeoutMessage message) {
-        if (message.getMessageId() == null || message.getMessageId().isBlank()) {
-            message.setMessageId("OT" + UUID.randomUUID().toString().replace("-", ""));
-        }
-        return message.getMessageId();
-    }
-
-    private String orderTimeoutKey(OrderTimeoutMessage message) {
-        if (message == null || message.getOrderId() == null) {
-            return "order:unknown";
-        }
-        return "order:" + message.getOrderId();
     }
 }

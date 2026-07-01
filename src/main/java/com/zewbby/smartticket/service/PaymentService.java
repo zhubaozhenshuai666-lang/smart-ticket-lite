@@ -16,4 +16,6 @@ public interface PaymentService {
 
     PaymentVO mockPay(MockPaymentRequest request, String rawBody, Map<String, String> headers);
 
+    void compensateMockPay(String paymentNo, Long userId, boolean success);
+
 }

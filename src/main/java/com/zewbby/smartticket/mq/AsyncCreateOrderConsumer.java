@@ -26,6 +26,7 @@ import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.AsyncOrderRequestResultCacheService;
 import com.zewbby.smartticket.service.DeadLetterMessageService;
+import com.zewbby.smartticket.service.DomainEventPublisher;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.OrderSnapshotCacheService;
 import com.zewbby.smartticket.service.ShowRelationCacheService;
@@ -87,6 +88,9 @@ public class AsyncCreateOrderConsumer {
 
     @Autowired(required = false)
     private AsyncOrderRequestResultCacheService asyncOrderRequestResultCacheService;
+
+    @Autowired(required = false)
+    private DomainEventPublisher domainEventPublisher;
 
     @Autowired
     public AsyncCreateOrderConsumer(OrderRequestMapper orderRequestMapper,
@@ -356,6 +360,7 @@ public class AsyncCreateOrderConsumer {
             }
             //非功能性需求（NFR）中的可观测性（Observability）建设，其直接作用对象并非普通用户或数据库，而是运维监控体系
             observabilityMetricsService.recordOrderCreated();
+            publishOrderCreatedEvents(order);
             LOGGER.info("Created order for async request, requestId={}, orderId={}, orderNo={}",
                     orderRequest.getRequestId(), order.getId(), order.getOrderNo());
 
@@ -534,6 +539,19 @@ public class AsyncCreateOrderConsumer {
         message.setTraceId("order-timeout-" + order.getId());
         message.setMessageId(null);
         return message;
+    }
+
+    private void publishOrderCreatedEvents(TicketOrder order) {
+        if (domainEventPublisher == null || order == null) {
+            return;
+        }
+        domainEventPublisher.publishOrderCreated(order);
+        domainEventPublisher.publishStockChanged(
+                order.getTicketCategoryId(),
+                order.getId(),
+                "ORDER_CREATED_LOCKED",
+                order.getQuantity()
+        );
     }
 
     /**

@@ -22,8 +22,11 @@ import com.zewbby.smartticket.mapper.OrderRequestMapper;
 import com.zewbby.smartticket.mapper.PaymentMapper;
 import com.zewbby.smartticket.mapper.TicketStockBucketMapper;
 import com.zewbby.smartticket.mapper.TicketStockMapper;
+import com.zewbby.smartticket.mq.PaymentCompensationMessage;
+import com.zewbby.smartticket.service.DomainEventPublisher;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
 import com.zewbby.smartticket.service.PaymentAuditService;
+import com.zewbby.smartticket.service.PaymentCompensationPublisher;
 import com.zewbby.smartticket.service.PaymentService;
 import com.zewbby.smartticket.service.PaymentSignatureService;
 import org.springframework.beans.BeanUtils;
@@ -62,6 +65,12 @@ public class PaymentServiceImpl implements PaymentService {
     private final ObservabilityMetricsService observabilityMetricsService;
 
     private final StockBucketProperties stockBucketProperties;
+
+    @Autowired(required = false)
+    private PaymentCompensationPublisher paymentCompensationPublisher;
+
+    @Autowired(required = false)
+    private DomainEventPublisher domainEventPublisher;
 
     @Autowired
     public PaymentServiceImpl(PaymentMapper paymentMapper,
@@ -242,9 +251,33 @@ public class PaymentServiceImpl implements PaymentService {
             return result;
         } catch (RuntimeException exception) {
             errorMessage = exception.getMessage();
+            publishPaymentCompensationIfNecessary(request, paymentForLog, verifySuccess, errorMessage);
             throw exception;
         } finally {
             recordCallbackLog(request, paymentForLog, rawBody, headers, verifySuccess, processResult, errorMessage, callbackTime);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void compensateMockPay(String paymentNo, Long userId, boolean success) {
+        if (paymentNo == null || paymentNo.isBlank() || userId == null) {
+            return;
+        }
+        Long previousUserId = UserContext.getUserId();
+        try {
+            UserContext.setUserId(userId);
+            PaymentOrder paymentOrder = paymentMapper.selectByPaymentNoAndUserId(paymentNo, userId);
+            if (paymentOrder == null) {
+                return;
+            }
+            handleMockCallback(paymentNo, success);
+        } finally {
+            if (previousUserId == null) {
+                UserContext.clear();
+            } else {
+                UserContext.setUserId(previousUserId);
+            }
         }
     }
 
@@ -333,6 +366,7 @@ public class PaymentServiceImpl implements PaymentService {
             }
         }
         observabilityMetricsService.recordOrderPaid();
+        publishPaymentPaidEvents(paymentOrder, order);
 
         /*
          * 支付流水描述 payment_order 的状态变化，不负责证明库存已经售出；库存流转仍以 ticket_stock 条件更新为准。
@@ -418,6 +452,38 @@ public class PaymentServiceImpl implements PaymentService {
             throw new BusinessException(ErrorMessageConstant.STOCK_CONFIRM_FAILED);
         }
         return true;
+    }
+
+    private void publishPaymentCompensationIfNecessary(MockPaymentRequest request,
+                                                       PaymentOrder paymentOrder,
+                                                       boolean verifySuccess,
+                                                       String errorMessage) {
+        if (paymentCompensationPublisher == null
+                || !verifySuccess
+                || request == null
+                || paymentOrder == null) {
+            return;
+        }
+        PaymentCompensationMessage message = new PaymentCompensationMessage();
+        message.setPaymentNo(paymentOrder.getPaymentNo());
+        message.setOrderId(paymentOrder.getOrderId());
+        message.setUserId(paymentOrder.getUserId());
+        message.setSuccess(Boolean.TRUE.equals(request.getSuccess()));
+        message.setReason(truncate(errorMessage, 512));
+        paymentCompensationPublisher.publish(message);
+    }
+
+    private void publishPaymentPaidEvents(PaymentOrder paymentOrder, TicketOrder order) {
+        if (domainEventPublisher == null || paymentOrder == null || order == null) {
+            return;
+        }
+        domainEventPublisher.publishPaymentPaid(paymentOrder);
+        domainEventPublisher.publishStockChanged(
+                order.getTicketCategoryId(),
+                order.getId(),
+                "PAYMENT_PAID_SOLD",
+                order.getQuantity()
+        );
     }
 
     /**

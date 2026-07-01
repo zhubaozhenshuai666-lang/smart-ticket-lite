@@ -3,6 +3,7 @@ package com.zewbby.smartticket.task;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zewbby.smartticket.config.LocalMessageProperties;
 import com.zewbby.smartticket.domain.entity.LocalMessage;
+import com.zewbby.smartticket.domain.event.OrderCreatedEvent;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
 import com.zewbby.smartticket.mq.OrderTimeoutMessage;
 import com.zewbby.smartticket.service.LocalMessageService;
@@ -79,6 +80,19 @@ class LocalMessagePublishTaskTest {
         verify(kafkaTemplate).send(eq("smart-ticket.order.timeout"), eq("order:100"), any(OrderTimeoutMessage.class));
         verify(localMessageService).markConfirmed("MSG_TIMEOUT");
         verify(localMessageService, never()).markSent(2L);
+    }
+
+    @Test
+    void senderCanPublishOrderCreatedDomainEventThroughOutbox() {
+        LocalMessage message = orderCreatedEventMessage();
+        when(localMessageService.selectPublishableMessages(any(LocalDateTime.class), eq(100)))
+                .thenReturn(List.of(message));
+        when(localMessageService.tryMarkSending(message)).thenReturn(true);
+
+        publishTask.publishPendingMessages();
+
+        verify(kafkaTemplate).send(eq("smart-ticket.event.order-created"), eq("order:100"), any(OrderCreatedEvent.class));
+        verify(localMessageService).markConfirmed("MSG_EVENT");
     }
 
     @Test
@@ -164,6 +178,20 @@ class LocalMessagePublishTaskTest {
         message.setExchangeName("smart-ticket.order.timeout");
         message.setRoutingKey("order:100");
         message.setPayload("{\"orderId\":100,\"orderNo\":\"ST100\",\"userId\":1,\"expireTime\":\"2026-06-02T16:00:00\",\"traceId\":null,\"messageId\":null}");
+        message.setRetryCount(0);
+        message.setMaxRetryCount(5);
+        return message;
+    }
+
+    private LocalMessage orderCreatedEventMessage() {
+        LocalMessage message = new LocalMessage();
+        message.setId(3L);
+        message.setMessageId("MSG_EVENT");
+        message.setBusinessType("ORDER_CREATED_EVENT");
+        message.setBusinessKey("100");
+        message.setExchangeName("smart-ticket.event.order-created");
+        message.setRoutingKey("order:100");
+        message.setPayload("{\"eventId\":\"EVT1\",\"eventType\":\"ORDER_CREATED\",\"orderId\":100,\"orderNo\":\"ST100\",\"userId\":1,\"showId\":1,\"sessionId\":1,\"ticketCategoryId\":2,\"quantity\":1,\"totalAmount\":880.00,\"occurredAt\":\"2026-06-02T16:00:00\"}");
         message.setRetryCount(0);
         message.setMaxRetryCount(5);
         return message;

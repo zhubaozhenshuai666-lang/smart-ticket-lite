@@ -13,6 +13,8 @@ public class AsyncOrderSubmitProperties {
 
     public static final String PUBLISHER_MODE_KAFKA = "kafka";
 
+    public static final String PUBLISHER_MODE_ROCKETMQ = "rocketmq";
+
     /**
      * 是否在入口发布消息前先写 ticket_order_request。
      *
@@ -27,6 +29,7 @@ public class AsyncOrderSubmitProperties {
      * outbox: 写 local_message 后由本地消息发送器可靠投递 Kafka，可靠性强但 DB 写放大明显。
      * redis-stream: 历史本地事件流模式，不作为抢票主链路。
      * kafka: 入口写 Kafka topic，由 Kafka 消费者复用异步创单处理器创建正式订单。
+     * rocketmq: 入口写 RocketMQ topic，由 RocketMQ 消费者复用异步创单处理器创建正式订单。
      */
     private String publisherMode = PUBLISHER_MODE_OUTBOX;
 
@@ -62,6 +65,10 @@ public class AsyncOrderSubmitProperties {
 
     private String kafkaAsyncCreateOrderConsumerGroup = "smart-ticket-async-order-create";
 
+    private String rocketMqAsyncCreateOrderTopic = "smart-ticket.async-order.create";
+
+    private String rocketMqAsyncCreateOrderConsumerGroup = "smart-ticket-async-order-create";
+
     public boolean isPersistRequestBeforePublish() {
         return persistRequestBeforePublish;
     }
@@ -84,6 +91,10 @@ public class AsyncOrderSubmitProperties {
 
     public boolean isKafkaPublisherMode() {
         return PUBLISHER_MODE_KAFKA.equalsIgnoreCase(getPublisherMode());
+    }
+
+    public boolean isRocketMqPublisherMode() {
+        return PUBLISHER_MODE_ROCKETMQ.equalsIgnoreCase(getPublisherMode());
     }
 
     public boolean isInFlightControlEnabled() {
@@ -200,6 +211,26 @@ public class AsyncOrderSubmitProperties {
 
     public void setKafkaAsyncCreateOrderConsumerGroup(String kafkaAsyncCreateOrderConsumerGroup) {
         this.kafkaAsyncCreateOrderConsumerGroup = kafkaAsyncCreateOrderConsumerGroup;
+    }
+
+    public String getRocketMqAsyncCreateOrderTopic() {
+        return rocketMqAsyncCreateOrderTopic == null || rocketMqAsyncCreateOrderTopic.isBlank()
+                ? "smart-ticket.async-order.create"
+                : rocketMqAsyncCreateOrderTopic.trim();
+    }
+
+    public void setRocketMqAsyncCreateOrderTopic(String rocketMqAsyncCreateOrderTopic) {
+        this.rocketMqAsyncCreateOrderTopic = rocketMqAsyncCreateOrderTopic;
+    }
+
+    public String getRocketMqAsyncCreateOrderConsumerGroup() {
+        return rocketMqAsyncCreateOrderConsumerGroup == null || rocketMqAsyncCreateOrderConsumerGroup.isBlank()
+                ? "smart-ticket-async-order-create"
+                : rocketMqAsyncCreateOrderConsumerGroup.trim();
+    }
+
+    public void setRocketMqAsyncCreateOrderConsumerGroup(String rocketMqAsyncCreateOrderConsumerGroup) {
+        this.rocketMqAsyncCreateOrderConsumerGroup = rocketMqAsyncCreateOrderConsumerGroup;
     }
 
 }

@@ -11,6 +11,8 @@ public class OrderTimeoutProperties {
 
     public static final String PUBLISHER_MODE_KAFKA = "kafka";
 
+    public static final String PUBLISHER_MODE_ROCKETMQ = "rocketmq";
+
     private boolean delayMessageEnabled = false;
 
     private String publisherMode = PUBLISHER_MODE_KAFKA;
@@ -22,6 +24,14 @@ public class OrderTimeoutProperties {
     private String kafkaOrderTimeoutTopic = "smart-ticket.order.timeout";
 
     private String kafkaOrderTimeoutConsumerGroup = "smart-ticket-order-timeout";
+
+    private String rocketMqOrderTimeoutTopic = "smart-ticket.order.timeout";
+
+    private String rocketMqOrderTimeoutConsumerGroup = "smart-ticket-order-timeout";
+
+    private int rocketMqDelayLevel = 16;
+
+    private long rocketMqSendTimeoutMillis = 3000L;
 
     public boolean isDelayMessageEnabled() {
         return delayMessageEnabled;
@@ -47,6 +57,10 @@ public class OrderTimeoutProperties {
 
     public boolean isKafkaPublisherMode() {
         return PUBLISHER_MODE_KAFKA.equalsIgnoreCase(getPublisherMode());
+    }
+
+    public boolean isRocketMqPublisherMode() {
+        return PUBLISHER_MODE_ROCKETMQ.equalsIgnoreCase(getPublisherMode());
     }
 
     public int getScanBatchSize() {
@@ -83,5 +97,41 @@ public class OrderTimeoutProperties {
 
     public void setKafkaOrderTimeoutConsumerGroup(String kafkaOrderTimeoutConsumerGroup) {
         this.kafkaOrderTimeoutConsumerGroup = kafkaOrderTimeoutConsumerGroup;
+    }
+
+    public String getRocketMqOrderTimeoutTopic() {
+        return rocketMqOrderTimeoutTopic == null || rocketMqOrderTimeoutTopic.isBlank()
+                ? "smart-ticket.order.timeout"
+                : rocketMqOrderTimeoutTopic.trim();
+    }
+
+    public void setRocketMqOrderTimeoutTopic(String rocketMqOrderTimeoutTopic) {
+        this.rocketMqOrderTimeoutTopic = rocketMqOrderTimeoutTopic;
+    }
+
+    public String getRocketMqOrderTimeoutConsumerGroup() {
+        return rocketMqOrderTimeoutConsumerGroup == null || rocketMqOrderTimeoutConsumerGroup.isBlank()
+                ? "smart-ticket-order-timeout"
+                : rocketMqOrderTimeoutConsumerGroup.trim();
+    }
+
+    public void setRocketMqOrderTimeoutConsumerGroup(String rocketMqOrderTimeoutConsumerGroup) {
+        this.rocketMqOrderTimeoutConsumerGroup = rocketMqOrderTimeoutConsumerGroup;
+    }
+
+    public int getRocketMqDelayLevel() {
+        return Math.max(1, rocketMqDelayLevel);
+    }
+
+    public void setRocketMqDelayLevel(int rocketMqDelayLevel) {
+        this.rocketMqDelayLevel = rocketMqDelayLevel;
+    }
+
+    public long getRocketMqSendTimeoutMillis() {
+        return Math.max(100L, rocketMqSendTimeoutMillis);
+    }
+
+    public void setRocketMqSendTimeoutMillis(long rocketMqSendTimeoutMillis) {
+        this.rocketMqSendTimeoutMillis = rocketMqSendTimeoutMillis;
     }
 }

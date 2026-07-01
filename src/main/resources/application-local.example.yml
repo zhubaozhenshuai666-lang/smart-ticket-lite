@@ -21,6 +21,11 @@ spring:
   kafka:
     bootstrap-servers: ${SMART_TICKET_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
+rocketmq:
+  name-server: ${SMART_TICKET_ROCKETMQ_NAME_SERVER:localhost:9876}
+  producer:
+    group: ${SMART_TICKET_ROCKETMQ_PRODUCER_GROUP:smart-ticket-command-producer}
+
 management:
   endpoints:
     web:
@@ -44,10 +49,12 @@ smart-ticket:
     default-max-retry-count: ${SMART_TICKET_LOCAL_MESSAGE_MAX_RETRY_COUNT:5}
   async-order-submit:
     persist-request-before-publish: ${SMART_TICKET_ASYNC_ORDER_PERSIST_REQUEST_BEFORE_PUBLISH:false}
-    publisher-mode: ${SMART_TICKET_ASYNC_ORDER_PUBLISHER_MODE:kafka}
+    publisher-mode: ${SMART_TICKET_ASYNC_ORDER_PUBLISHER_MODE:rocketmq}
     kafka-async-create-order-topic: ${SMART_TICKET_ASYNC_ORDER_KAFKA_TOPIC:smart-ticket.async-order.create}
     kafka-async-create-order-dead-letter-topic: ${SMART_TICKET_ASYNC_ORDER_KAFKA_DLT_TOPIC:smart-ticket.async-order.create.DLT}
     kafka-async-create-order-consumer-group: ${SMART_TICKET_ASYNC_ORDER_KAFKA_CONSUMER_GROUP:smart-ticket-async-order-create}
+    rocket-mq-async-create-order-topic: ${SMART_TICKET_ASYNC_ORDER_ROCKETMQ_TOPIC:smart-ticket.async-order.create}
+    rocket-mq-async-create-order-consumer-group: ${SMART_TICKET_ASYNC_ORDER_ROCKETMQ_CONSUMER_GROUP:smart-ticket-async-order-create}
   mq-consumer:
     max-retry-count: ${SMART_TICKET_MQ_CONSUMER_MAX_RETRY_COUNT:3}
     retry-interval-seconds: ${SMART_TICKET_MQ_CONSUMER_RETRY_INTERVAL_SECONDS:10}
@@ -56,12 +63,16 @@ smart-ticket:
     prefetch-count: ${SMART_TICKET_MQ_CONSUMER_PREFETCH_COUNT:20}
     async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_ASYNC_QUEUE_SHARD_COUNT:32}
   order-timeout:
-    delay-message-enabled: ${SMART_TICKET_ORDER_TIMEOUT_DELAY_MESSAGE_ENABLED:false}
-    publisher-mode: ${SMART_TICKET_ORDER_TIMEOUT_PUBLISHER_MODE:kafka}
+    delay-message-enabled: ${SMART_TICKET_ORDER_TIMEOUT_DELAY_MESSAGE_ENABLED:true}
+    publisher-mode: ${SMART_TICKET_ORDER_TIMEOUT_PUBLISHER_MODE:rocketmq}
     scan-batch-size: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_BATCH_SIZE:5000}
     scan-fixed-delay-millis: ${SMART_TICKET_ORDER_TIMEOUT_SCAN_FIXED_DELAY_MILLIS:500}
     kafka-order-timeout-topic: ${SMART_TICKET_ORDER_TIMEOUT_KAFKA_TOPIC:smart-ticket.order.timeout}
     kafka-order-timeout-consumer-group: ${SMART_TICKET_ORDER_TIMEOUT_KAFKA_CONSUMER_GROUP:smart-ticket-order-timeout}
+    rocket-mq-order-timeout-topic: ${SMART_TICKET_ORDER_TIMEOUT_ROCKETMQ_TOPIC:smart-ticket.order.timeout}
+    rocket-mq-order-timeout-consumer-group: ${SMART_TICKET_ORDER_TIMEOUT_ROCKETMQ_CONSUMER_GROUP:smart-ticket-order-timeout}
+    rocket-mq-delay-level: ${SMART_TICKET_ORDER_TIMEOUT_ROCKETMQ_DELAY_LEVEL:16}
+    rocket-mq-send-timeout-millis: ${SMART_TICKET_ORDER_TIMEOUT_ROCKETMQ_SEND_TIMEOUT_MILLIS:3000}
   stock-consistency:
     enabled: ${SMART_TICKET_STOCK_CONSISTENCY_ENABLED:false}
     fixed-delay-seconds: ${SMART_TICKET_STOCK_CONSISTENCY_FIXED_DELAY_SECONDS:300}
@@ -97,3 +108,12 @@ smart-ticket:
     mock-callback-secret: ${SMART_TICKET_PAYMENT_MOCK_CALLBACK_SECRET:smart-ticket-mock-payment-secret-at-least-32-bytes}
     callback-timestamp-tolerance-seconds: ${SMART_TICKET_PAYMENT_CALLBACK_TIMESTAMP_TOLERANCE_SECONDS:300}
     callback-nonce-ttl-seconds: ${SMART_TICKET_PAYMENT_CALLBACK_NONCE_TTL_SECONDS:600}
+  payment-compensation:
+    enabled: ${SMART_TICKET_PAYMENT_COMPENSATION_ENABLED:true}
+    rocket-mq-topic: ${SMART_TICKET_PAYMENT_COMPENSATION_ROCKETMQ_TOPIC:smart-ticket.payment.compensation}
+    rocket-mq-consumer-group: ${SMART_TICKET_PAYMENT_COMPENSATION_ROCKETMQ_CONSUMER_GROUP:smart-ticket-payment-compensation}
+  domain-event:
+    enabled: ${SMART_TICKET_DOMAIN_EVENT_ENABLED:true}
+    order-created-topic: ${SMART_TICKET_DOMAIN_EVENT_ORDER_CREATED_TOPIC:smart-ticket.event.order-created}
+    payment-paid-topic: ${SMART_TICKET_DOMAIN_EVENT_PAYMENT_PAID_TOPIC:smart-ticket.event.payment-paid}
+    stock-changed-topic: ${SMART_TICKET_DOMAIN_EVENT_STOCK_CHANGED_TOPIC:smart-ticket.event.stock-changed}

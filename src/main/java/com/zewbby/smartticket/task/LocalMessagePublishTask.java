@@ -3,6 +3,9 @@ package com.zewbby.smartticket.task;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zewbby.smartticket.config.LocalMessageProperties;
 import com.zewbby.smartticket.domain.entity.LocalMessage;
+import com.zewbby.smartticket.domain.event.OrderCreatedEvent;
+import com.zewbby.smartticket.domain.event.PaymentPaidEvent;
+import com.zewbby.smartticket.domain.event.StockChangedEvent;
 import com.zewbby.smartticket.enums.LocalMessageBusinessTypeEnum;
 import com.zewbby.smartticket.mq.AsyncCreateOrderMessage;
 import com.zewbby.smartticket.mq.OrderTimeoutMessage;
@@ -181,6 +184,15 @@ public class LocalMessagePublishTask {
         }
         if (LocalMessageBusinessTypeEnum.ORDER_TIMEOUT_CLOSE.getCode().equals(localMessage.getBusinessType())) {
             return objectMapper.readValue(localMessage.getPayload(), OrderTimeoutMessage.class);
+        }
+        if (LocalMessageBusinessTypeEnum.ORDER_CREATED_EVENT.getCode().equals(localMessage.getBusinessType())) {
+            return objectMapper.readValue(localMessage.getPayload(), OrderCreatedEvent.class);
+        }
+        if (LocalMessageBusinessTypeEnum.PAYMENT_PAID_EVENT.getCode().equals(localMessage.getBusinessType())) {
+            return objectMapper.readValue(localMessage.getPayload(), PaymentPaidEvent.class);
+        }
+        if (LocalMessageBusinessTypeEnum.STOCK_CHANGED_EVENT.getCode().equals(localMessage.getBusinessType())) {
+            return objectMapper.readValue(localMessage.getPayload(), StockChangedEvent.class);
         }
         throw new IllegalArgumentException("不支持的本地消息业务类型：" + localMessage.getBusinessType());
     }
