@@ -1,9 +1,15 @@
 package com.zewbby.smartticket.mq;
 
+import com.zewbby.smartticket.config.MqConsumerProperties;
+import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
+import org.apache.rocketmq.spring.annotation.ConsumeMode;
+import org.apache.rocketmq.spring.annotation.MessageModel;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
+import org.apache.rocketmq.spring.core.RocketMQPushConsumerLifecycleListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -11,16 +17,36 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(prefix = "smart-ticket.async-order-submit", name = "publisher-mode", havingValue = "rocketmq")
 @RocketMQMessageListener(
         topic = "${smart-ticket.async-order-submit.rocket-mq-async-create-order-topic}",
-        consumerGroup = "${smart-ticket.async-order-submit.rocket-mq-async-create-order-consumer-group}"
+        consumerGroup = "${smart-ticket.async-order-submit.rocket-mq-async-create-order-consumer-group}",
+        consumeMode = ConsumeMode.ORDERLY,
+        messageModel = MessageModel.CLUSTERING,
+        consumeThreadNumber = 24,
+        consumeThreadMax = 96,
+        maxReconsumeTimes = 3
 )
-public class RocketMqAsyncCreateOrderConsumer implements RocketMQListener<AsyncCreateOrderMessage> {
+public class RocketMqAsyncCreateOrderConsumer implements RocketMQListener<AsyncCreateOrderMessage>,
+        RocketMQPushConsumerLifecycleListener {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RocketMqAsyncCreateOrderConsumer.class);
 
     private final AsyncCreateOrderConsumer asyncCreateOrderConsumer;
 
+    private final MqConsumerProperties mqConsumerProperties;
+
     public RocketMqAsyncCreateOrderConsumer(AsyncCreateOrderConsumer asyncCreateOrderConsumer) {
+        this(asyncCreateOrderConsumer, new MqConsumerProperties());
+    }
+
+    @Autowired
+    public RocketMqAsyncCreateOrderConsumer(AsyncCreateOrderConsumer asyncCreateOrderConsumer,
+                                            MqConsumerProperties mqConsumerProperties) {
         this.asyncCreateOrderConsumer = asyncCreateOrderConsumer;
+        this.mqConsumerProperties = mqConsumerProperties;
+    }
+
+    @Override
+    public void prepareStart(DefaultMQPushConsumer consumer) {
+        RocketMqConsumerTuningSupport.apply(consumer, mqConsumerProperties);
     }
 
     @Override

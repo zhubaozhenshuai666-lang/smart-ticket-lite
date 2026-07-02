@@ -1,10 +1,16 @@
 package com.zewbby.smartticket.mq;
 
+import com.zewbby.smartticket.config.MqConsumerProperties;
 import com.zewbby.smartticket.service.OrderService;
+import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
+import org.apache.rocketmq.spring.annotation.ConsumeMode;
+import org.apache.rocketmq.spring.annotation.MessageModel;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
+import org.apache.rocketmq.spring.core.RocketMQPushConsumerLifecycleListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -14,16 +20,36 @@ import java.time.LocalDateTime;
 @ConditionalOnProperty(prefix = "smart-ticket.order-timeout", name = "publisher-mode", havingValue = "rocketmq")
 @RocketMQMessageListener(
         topic = "${smart-ticket.order-timeout.rocket-mq-order-timeout-topic}",
-        consumerGroup = "${smart-ticket.order-timeout.rocket-mq-order-timeout-consumer-group}"
+        consumerGroup = "${smart-ticket.order-timeout.rocket-mq-order-timeout-consumer-group}",
+        consumeMode = ConsumeMode.CONCURRENTLY,
+        messageModel = MessageModel.CLUSTERING,
+        consumeThreadNumber = 24,
+        consumeThreadMax = 96,
+        maxReconsumeTimes = 3
 )
-public class RocketMqOrderTimeoutConsumer implements RocketMQListener<OrderTimeoutMessage> {
+public class RocketMqOrderTimeoutConsumer implements RocketMQListener<OrderTimeoutMessage>,
+        RocketMQPushConsumerLifecycleListener {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RocketMqOrderTimeoutConsumer.class);
 
     private final OrderService orderService;
 
+    private final MqConsumerProperties mqConsumerProperties;
+
     public RocketMqOrderTimeoutConsumer(OrderService orderService) {
+        this(orderService, new MqConsumerProperties());
+    }
+
+    @Autowired
+    public RocketMqOrderTimeoutConsumer(OrderService orderService,
+                                        MqConsumerProperties mqConsumerProperties) {
         this.orderService = orderService;
+        this.mqConsumerProperties = mqConsumerProperties;
+    }
+
+    @Override
+    public void prepareStart(DefaultMQPushConsumer consumer) {
+        RocketMqConsumerTuningSupport.apply(consumer, mqConsumerProperties);
     }
 
     @Override

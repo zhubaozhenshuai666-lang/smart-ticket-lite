@@ -29,6 +29,16 @@ public class MqConsumerProperties {
 
     private int maxAsyncQueueShardCount = 64;
 
+    private int rocketMqConsumeThreadNumber = 24;
+
+    private int rocketMqConsumeThreadMax = 96;
+
+    private int rocketMqPullBatchSize = 64;
+
+    private int rocketMqConsumeMessageBatchMaxSize = 16;
+
+    private int rocketMqPullThresholdForQueue = 1000;
+
     public int getMaxRetryCount() {
         return maxRetryCount;
     }
@@ -117,5 +127,45 @@ public class MqConsumerProperties {
 
     public void setMaxAsyncQueueShardCount(int maxAsyncQueueShardCount) {
         this.maxAsyncQueueShardCount = maxAsyncQueueShardCount;
+    }
+
+    public int getRocketMqConsumeThreadNumber() {
+        return Math.min(Math.max(1, rocketMqConsumeThreadNumber), getMaxConcurrentConsumerCap());
+    }
+
+    public void setRocketMqConsumeThreadNumber(int rocketMqConsumeThreadNumber) {
+        this.rocketMqConsumeThreadNumber = rocketMqConsumeThreadNumber;
+    }
+
+    public int getRocketMqConsumeThreadMax() {
+        return Math.min(Math.max(getRocketMqConsumeThreadNumber(), rocketMqConsumeThreadMax), getMaxConcurrentConsumerCap());
+    }
+
+    public void setRocketMqConsumeThreadMax(int rocketMqConsumeThreadMax) {
+        this.rocketMqConsumeThreadMax = rocketMqConsumeThreadMax;
+    }
+
+    public int getRocketMqPullBatchSize() {
+        return Math.min(Math.max(1, rocketMqPullBatchSize), 256);
+    }
+
+    public void setRocketMqPullBatchSize(int rocketMqPullBatchSize) {
+        this.rocketMqPullBatchSize = rocketMqPullBatchSize;
+    }
+
+    public int getRocketMqConsumeMessageBatchMaxSize() {
+        return Math.min(Math.max(1, rocketMqConsumeMessageBatchMaxSize), 64);
+    }
+
+    public void setRocketMqConsumeMessageBatchMaxSize(int rocketMqConsumeMessageBatchMaxSize) {
+        this.rocketMqConsumeMessageBatchMaxSize = rocketMqConsumeMessageBatchMaxSize;
+    }
+
+    public int getRocketMqPullThresholdForQueue() {
+        return Math.min(Math.max(1, rocketMqPullThresholdForQueue), 10_000);
+    }
+
+    public void setRocketMqPullThresholdForQueue(int rocketMqPullThresholdForQueue) {
+        this.rocketMqPullThresholdForQueue = rocketMqPullThresholdForQueue;
     }
 }

@@ -23,19 +23,22 @@ curl -sS http://127.0.0.1:8081/actuator/health
 
 正常应该看到 `status` 是 `UP`，并且 `db`、`redis` 都是 `UP`。
 
-### 1.2 Kafka 必须可用
+### 1.2 RocketMQ 必须可用
 
 终端执行：
 
 ```bash
-kafka-topics --bootstrap-server 127.0.0.1:9092 --describe --topic smart-ticket.async-order.create
+mqadmin clusterList -n 127.0.0.1:9876
+mqadmin topicStatus -n 127.0.0.1:9876 -t smart-ticket.async-order.create
 ```
 
 正常重点看：
 
 ```text
-PartitionCount: 64
+broker 可见，smart-ticket.async-order.create 有队列状态
 ```
+
+Kafka 当前只作为领域事件和指标流链路，不是异步抢票交易命令主链路。
 
 ### 1.3 压测 CSV 必须是 50 个用户
 

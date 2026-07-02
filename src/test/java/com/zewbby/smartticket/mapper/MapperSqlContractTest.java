@@ -204,13 +204,12 @@ class MapperSqlContractTest {
     }
 
     @Test
-    void phase6PorterAssetsContainAtomicMoveLockAndCrossVersionPressureScripts() throws Exception {
+    void phase6PorterAssetsContainAtomicMoveLockAndVersionedBucketSql() throws Exception {
         String porterLua = Files.readString(Path.of("src/main/resources/lua/stock_bucket_porter_move.lua"));
         String lockReleaseLua = Files.readString(Path.of("src/main/resources/lua/redis_lock_release.lua"));
         String stockBucketProperties = Files.readString(Path.of("src/main/java/com/zewbby/smartticket/config/StockBucketProperties.java"));
-        String k6 = Files.readString(Path.of("docs/performance/phase6-cross-version-lifecycle-k6.js"));
-        String beforeSql = Files.readString(Path.of("docs/sql/phase6-cross-version-before.sql"));
-        String afterSql = Files.readString(Path.of("docs/sql/phase6-cross-version-after.sql"));
+        String bucketXml = Files.readString(Path.of("src/main/resources/mapper/TicketStockBucketMapper.xml"));
+        String orderRequestXml = Files.readString(Path.of("src/main/resources/mapper/OrderRequestMapper.xml"));
 
         assertThat(porterLua).contains("DECRBY");
         assertThat(porterLua).contains("INCRBY");
@@ -218,10 +217,8 @@ class MapperSqlContractTest {
         assertThat(lockReleaseLua).contains("redis.call('GET', KEYS[1]) == ARGV[1]");
         assertThat(stockBucketProperties).contains("porterEnabled");
         assertThat(stockBucketProperties).contains("porterMoveRecordTtlSeconds");
-        assertThat(k6).contains("phase6_probe_miss");
-        assertThat(k6).contains("抢票人数过多");
-        assertThat(beforeSql).contains("bucket_version");
-        assertThat(afterSql).contains("bucket_version_summary");
+        assertThat(bucketXml).contains("bucket_version");
+        assertThat(orderRequestXml).contains("stock_bucket_version");
     }
 
     @Test
@@ -230,6 +227,7 @@ class MapperSqlContractTest {
         String localMessageXml = Files.readString(Path.of("src/main/resources/mapper/LocalMessageMapper.xml"));
         String businessTypeEnum = Files.readString(Path.of("src/main/java/com/zewbby/smartticket/enums/LocalMessageBusinessTypeEnum.java"));
         String timeoutProducer = Files.readString(Path.of("src/main/java/com/zewbby/smartticket/mq/OrderTimeoutProducer.java"));
+        String rocketMqAsyncConsumer = Files.readString(Path.of("src/main/java/com/zewbby/smartticket/mq/RocketMqAsyncCreateOrderConsumer.java"));
 
         assertThat(schema).contains("confirmed_at DATETIME NULL");
         assertThat(schema).contains("returned_at DATETIME NULL");
@@ -242,21 +240,23 @@ class MapperSqlContractTest {
         assertThat(localMessageXml).contains("status IN ('SENDING', 'SENT')");
         assertThat(localMessageXml).contains("retry_count = retry_count + 1");
         assertThat(businessTypeEnum).contains("ORDER_TIMEOUT_CLOSE");
-        assertThat(timeoutProducer).contains("createOrderTimeoutCloseMessage");
-        assertThat(timeoutProducer).contains("import org.springframework.kafka.core.KafkaTemplate");
-        assertThat(timeoutProducer).contains("publishKafkaAfterCommit");
+        assertThat(timeoutProducer).contains("OrderTimeoutMessagePublisher");
+        assertThat(timeoutProducer).contains("orderTimeoutMessagePublisher.publish(message)");
+        assertThat(timeoutProducer).doesNotContain("KafkaTemplate");
+        assertThat(rocketMqAsyncConsumer).contains("consumeMode = ConsumeMode.ORDERLY");
+        assertThat(rocketMqAsyncConsumer).contains("RocketMqConsumerTuningSupport.apply");
     }
 
     @Test
-    void documentationMarksSyncOrderDeprecatedAndPressureScriptsUseAsyncOnly() throws Exception {
+    void documentationMarksSyncOrderDeprecatedAndJmeterGuideUsesAsyncOnly() throws Exception {
         String readme = Files.readString(Path.of("README.md"));
-        String k6 = Files.readString(Path.of("docs/performance/phase2-async-order-rate-limit-k6.js"));
+        String jmeterGuide = Files.readString(Path.of("docs/performance/async-order-jmeter-load-test-guide.md"));
         String pressureTemplate = Files.readString(Path.of("docs/phase2-pressure-test-report.md"));
 
         assertThat(readme).contains("高并发购票主链路只走异步下单");
         assertThat(readme).contains("`POST /api/orders`").contains("已废弃");
-        assertThat(k6).contains("/api/orders/async");
-        assertThat(k6).doesNotContain("/api/orders\"");
+        assertThat(jmeterGuide).contains("`POST /api/orders/async`");
+        assertThat(jmeterGuide).doesNotContain("`POST /api/orders`");
         assertThat(pressureTemplate).contains("`POST /api/orders/async`");
     }
 

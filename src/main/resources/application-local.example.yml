@@ -62,6 +62,11 @@ smart-ticket:
     concurrent-consumers: ${SMART_TICKET_MQ_CONSUMER_CONCURRENT_CONSUMERS:16}
     prefetch-count: ${SMART_TICKET_MQ_CONSUMER_PREFETCH_COUNT:20}
     async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_ASYNC_QUEUE_SHARD_COUNT:32}
+    rocket-mq-consume-thread-number: ${SMART_TICKET_ROCKETMQ_CONSUME_THREAD_NUMBER:16}
+    rocket-mq-consume-thread-max: ${SMART_TICKET_ROCKETMQ_CONSUME_THREAD_MAX:64}
+    rocket-mq-pull-batch-size: ${SMART_TICKET_ROCKETMQ_PULL_BATCH_SIZE:64}
+    rocket-mq-consume-message-batch-max-size: ${SMART_TICKET_ROCKETMQ_CONSUME_MESSAGE_BATCH_MAX_SIZE:8}
+    rocket-mq-pull-threshold-for-queue: ${SMART_TICKET_ROCKETMQ_PULL_THRESHOLD_FOR_QUEUE:1000}
   order-timeout:
     delay-message-enabled: ${SMART_TICKET_ORDER_TIMEOUT_DELAY_MESSAGE_ENABLED:true}
     publisher-mode: ${SMART_TICKET_ORDER_TIMEOUT_PUBLISHER_MODE:rocketmq}

@@ -25,6 +25,11 @@ smart-ticket:
     max-prefetch-count: ${SMART_TICKET_MQ_CONSUMER_MAX_PREFETCH_COUNT:100}
     max-unacked-messages: ${SMART_TICKET_MQ_CONSUMER_MAX_UNACKED_MESSAGES:8192}
     max-async-queue-shard-count: ${SMART_TICKET_MQ_CONSUMER_MAX_ASYNC_QUEUE_SHARD_COUNT:256}
+    rocket-mq-consume-thread-number: ${SMART_TICKET_ROCKETMQ_CONSUME_THREAD_NUMBER:48}
+    rocket-mq-consume-thread-max: ${SMART_TICKET_ROCKETMQ_CONSUME_THREAD_MAX:160}
+    rocket-mq-pull-batch-size: ${SMART_TICKET_ROCKETMQ_PULL_BATCH_SIZE:128}
+    rocket-mq-consume-message-batch-max-size: ${SMART_TICKET_ROCKETMQ_CONSUME_MESSAGE_BATCH_MAX_SIZE:32}
+    rocket-mq-pull-threshold-for-queue: ${SMART_TICKET_ROCKETMQ_PULL_THRESHOLD_FOR_QUEUE:4096}
 
   order-timeout:
     delay-message-enabled: ${SMART_TICKET_ORDER_TIMEOUT_DELAY_MESSAGE_ENABLED:true}

@@ -50,4 +50,21 @@ class MqConsumerPropertiesTest {
 
         assertThat(properties.getPrefetchCount()).isEqualTo(10);
     }
+
+    @Test
+    void rocketMqConsumerSettingsAreBounded() {
+        MqConsumerProperties properties = new MqConsumerProperties();
+        properties.setMaxConcurrentConsumerCap(64);
+        properties.setRocketMqConsumeThreadNumber(128);
+        properties.setRocketMqConsumeThreadMax(256);
+        properties.setRocketMqPullBatchSize(1000);
+        properties.setRocketMqConsumeMessageBatchMaxSize(1000);
+        properties.setRocketMqPullThresholdForQueue(100000);
+
+        assertThat(properties.getRocketMqConsumeThreadNumber()).isEqualTo(64);
+        assertThat(properties.getRocketMqConsumeThreadMax()).isEqualTo(64);
+        assertThat(properties.getRocketMqPullBatchSize()).isEqualTo(256);
+        assertThat(properties.getRocketMqConsumeMessageBatchMaxSize()).isEqualTo(64);
+        assertThat(properties.getRocketMqPullThresholdForQueue()).isEqualTo(10_000);
+    }
 }
