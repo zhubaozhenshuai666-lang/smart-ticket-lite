@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.mq;
 
+import com.zewbby.smartticket.aop.MqConsumeTrace;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -22,6 +23,12 @@ public class KafkaAsyncCreateOrderConsumer {
             topics = "#{@asyncOrderSubmitProperties.kafkaAsyncCreateOrderTopic}",
             groupId = "#{@asyncOrderSubmitProperties.kafkaAsyncCreateOrderConsumerGroup}",
             containerFactory = "asyncOrderKafkaListenerContainerFactory"
+    )
+    @MqConsumeTrace(
+            topic = "async-create-order",
+            consumerGroup = "kafka-async-create-order",
+            messageId = "#p0?.messageId",
+            businessKey = "#p0?.requestId"
     )
     public void consume(AsyncCreateOrderMessage message) {
         if (message == null) {

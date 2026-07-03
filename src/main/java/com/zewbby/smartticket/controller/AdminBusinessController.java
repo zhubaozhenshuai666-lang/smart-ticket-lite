@@ -10,10 +10,7 @@ import com.zewbby.smartticket.domain.dto.AdminUpdateTicketCategoryRequest;
 import com.zewbby.smartticket.domain.entity.PerformanceSession;
 import com.zewbby.smartticket.domain.entity.ShowInfo;
 import com.zewbby.smartticket.domain.entity.TicketCategory;
-import com.zewbby.smartticket.enums.AdminOperationTypeEnum;
 import com.zewbby.smartticket.service.AdminBusinessService;
-import com.zewbby.smartticket.service.AdminOperationLogService;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,8 +22,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.function.Function;
-import java.util.function.Supplier;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -34,12 +29,8 @@ public class AdminBusinessController {
 
     private final AdminBusinessService adminBusinessService;
 
-    private final AdminOperationLogService adminOperationLogService;
-
-    public AdminBusinessController(AdminBusinessService adminBusinessService,
-                                   AdminOperationLogService adminOperationLogService) {
+    public AdminBusinessController(AdminBusinessService adminBusinessService) {
         this.adminBusinessService = adminBusinessService;
-        this.adminOperationLogService = adminOperationLogService;
     }
 
     @GetMapping("/shows")
@@ -58,31 +49,26 @@ public class AdminBusinessController {
     }
 
     @PostMapping("/shows")
-    public ApiResponse<ShowInfo> createShow(@Valid @RequestBody AdminCreateShowRequest body,
-                                            HttpServletRequest request) {
-        return audited(AdminOperationTypeEnum.SHOW_CREATE, "SHOW", null, request,
-                () -> adminBusinessService.createShow(body),
-                show -> String.valueOf(show.getId()));
+    public ApiResponse<ShowInfo> createShow(@Valid @RequestBody AdminCreateShowRequest body) {
+        return ApiResponse.successZero(adminBusinessService.createShow(body));
     }
 
     @PutMapping("/shows/{showId}")
     public ApiResponse<ShowInfo> updateShow(@PathVariable Long showId,
-                                            @Valid @RequestBody AdminUpdateShowRequest body,
-                                            HttpServletRequest request) {
-        return audited(AdminOperationTypeEnum.SHOW_UPDATE, "SHOW", String.valueOf(showId), request,
-                () -> adminBusinessService.updateShow(showId, body));
+                                            @Valid @RequestBody AdminUpdateShowRequest body) {
+        return ApiResponse.successZero(adminBusinessService.updateShow(showId, body));
     }
 
     @PostMapping("/shows/{showId}/publish")
-    public ApiResponse<Void> publishShow(@PathVariable Long showId, HttpServletRequest request) {
-        return auditedVoid(AdminOperationTypeEnum.SHOW_PUBLISH, "SHOW", String.valueOf(showId), request,
-                () -> adminBusinessService.publishShow(showId));
+    public ApiResponse<Void> publishShow(@PathVariable Long showId) {
+        adminBusinessService.publishShow(showId);
+        return ApiResponse.success();
     }
 
     @PostMapping("/shows/{showId}/offline")
-    public ApiResponse<Void> offlineShow(@PathVariable Long showId, HttpServletRequest request) {
-        return auditedVoid(AdminOperationTypeEnum.SHOW_OFFLINE, "SHOW", String.valueOf(showId), request,
-                () -> adminBusinessService.offlineShow(showId));
+    public ApiResponse<Void> offlineShow(@PathVariable Long showId) {
+        adminBusinessService.offlineShow(showId);
+        return ApiResponse.success();
     }
 
     @GetMapping("/shows/{showId}/sessions")
@@ -92,31 +78,26 @@ public class AdminBusinessController {
 
     @PostMapping("/shows/{showId}/sessions")
     public ApiResponse<PerformanceSession> createSession(@PathVariable Long showId,
-                                                         @Valid @RequestBody AdminCreateSessionRequest body,
-                                                         HttpServletRequest request) {
-        return audited(AdminOperationTypeEnum.SESSION_CREATE, "SESSION", null, request,
-                () -> adminBusinessService.createSession(showId, body),
-                session -> String.valueOf(session.getId()));
+                                                         @Valid @RequestBody AdminCreateSessionRequest body) {
+        return ApiResponse.successZero(adminBusinessService.createSession(showId, body));
     }
 
     @PutMapping("/sessions/{sessionId}")
     public ApiResponse<PerformanceSession> updateSession(@PathVariable Long sessionId,
-                                                         @Valid @RequestBody AdminUpdateSessionRequest body,
-                                                         HttpServletRequest request) {
-        return audited(AdminOperationTypeEnum.SESSION_UPDATE, "SESSION", String.valueOf(sessionId), request,
-                () -> adminBusinessService.updateSession(sessionId, body));
+                                                         @Valid @RequestBody AdminUpdateSessionRequest body) {
+        return ApiResponse.successZero(adminBusinessService.updateSession(sessionId, body));
     }
 
     @PostMapping("/sessions/{sessionId}/publish")
-    public ApiResponse<Void> publishSession(@PathVariable Long sessionId, HttpServletRequest request) {
-        return auditedVoid(AdminOperationTypeEnum.SESSION_PUBLISH, "SESSION", String.valueOf(sessionId), request,
-                () -> adminBusinessService.publishSession(sessionId));
+    public ApiResponse<Void> publishSession(@PathVariable Long sessionId) {
+        adminBusinessService.publishSession(sessionId);
+        return ApiResponse.success();
     }
 
     @PostMapping("/sessions/{sessionId}/offline")
-    public ApiResponse<Void> offlineSession(@PathVariable Long sessionId, HttpServletRequest request) {
-        return auditedVoid(AdminOperationTypeEnum.SESSION_OFFLINE, "SESSION", String.valueOf(sessionId), request,
-                () -> adminBusinessService.offlineSession(sessionId));
+    public ApiResponse<Void> offlineSession(@PathVariable Long sessionId) {
+        adminBusinessService.offlineSession(sessionId);
+        return ApiResponse.success();
     }
 
     @GetMapping("/sessions/{sessionId}/ticket-categories")
@@ -126,75 +107,25 @@ public class AdminBusinessController {
 
     @PostMapping("/sessions/{sessionId}/ticket-categories")
     public ApiResponse<TicketCategory> createTicketCategory(@PathVariable Long sessionId,
-                                                            @Valid @RequestBody AdminCreateTicketCategoryRequest body,
-                                                            HttpServletRequest request) {
-        return audited(AdminOperationTypeEnum.TICKET_CATEGORY_CREATE, "TICKET_CATEGORY", null, request,
-                () -> adminBusinessService.createTicketCategory(sessionId, body),
-                ticketCategory -> String.valueOf(ticketCategory.getId()));
+                                                            @Valid @RequestBody AdminCreateTicketCategoryRequest body) {
+        return ApiResponse.successZero(adminBusinessService.createTicketCategory(sessionId, body));
     }
 
     @PutMapping("/ticket-categories/{ticketCategoryId}")
     public ApiResponse<TicketCategory> updateTicketCategory(@PathVariable Long ticketCategoryId,
-                                                            @Valid @RequestBody AdminUpdateTicketCategoryRequest body,
-                                                            HttpServletRequest request) {
-        return audited(AdminOperationTypeEnum.TICKET_CATEGORY_UPDATE, "TICKET_CATEGORY",
-                String.valueOf(ticketCategoryId), request,
-                () -> adminBusinessService.updateTicketCategory(ticketCategoryId, body));
+                                                            @Valid @RequestBody AdminUpdateTicketCategoryRequest body) {
+        return ApiResponse.successZero(adminBusinessService.updateTicketCategory(ticketCategoryId, body));
     }
 
     @PostMapping("/ticket-categories/{ticketCategoryId}/publish")
-    public ApiResponse<Void> publishTicketCategory(@PathVariable Long ticketCategoryId,
-                                                   HttpServletRequest request) {
-        return auditedVoid(AdminOperationTypeEnum.TICKET_CATEGORY_PUBLISH, "TICKET_CATEGORY",
-                String.valueOf(ticketCategoryId), request,
-                () -> adminBusinessService.publishTicketCategory(ticketCategoryId));
+    public ApiResponse<Void> publishTicketCategory(@PathVariable Long ticketCategoryId) {
+        adminBusinessService.publishTicketCategory(ticketCategoryId);
+        return ApiResponse.success();
     }
 
     @PostMapping("/ticket-categories/{ticketCategoryId}/offline")
-    public ApiResponse<Void> offlineTicketCategory(@PathVariable Long ticketCategoryId,
-                                                   HttpServletRequest request) {
-        return auditedVoid(AdminOperationTypeEnum.TICKET_CATEGORY_OFFLINE, "TICKET_CATEGORY",
-                String.valueOf(ticketCategoryId), request,
-                () -> adminBusinessService.offlineTicketCategory(ticketCategoryId));
-    }
-
-    private <T> ApiResponse<T> audited(AdminOperationTypeEnum operationType,
-                                       String resourceType,
-                                       String resourceId,
-                                       HttpServletRequest request,
-                                       Supplier<T> action) {
-        return audited(operationType, resourceType, resourceId, request, action, ignored -> resourceId);
-    }
-
-    private <T> ApiResponse<T> audited(AdminOperationTypeEnum operationType,
-                                       String resourceType,
-                                       String fallbackResourceId,
-                                       HttpServletRequest request,
-                                       Supplier<T> action,
-                                       Function<T, String> successResourceIdResolver) {
-        try {
-            T result = action.get();
-            String resourceId = successResourceIdResolver == null ? fallbackResourceId : successResourceIdResolver.apply(result);
-            adminOperationLogService.recordSuccess(operationType, resourceType, resourceId, request);
-            return ApiResponse.successZero(result);
-        } catch (RuntimeException exception) {
-            adminOperationLogService.recordFailure(operationType, resourceType, fallbackResourceId, exception, request);
-            throw exception;
-        }
-    }
-
-    private ApiResponse<Void> auditedVoid(AdminOperationTypeEnum operationType,
-                                          String resourceType,
-                                          String resourceId,
-                                          HttpServletRequest request,
-                                          Runnable action) {
-        try {
-            action.run();
-            adminOperationLogService.recordSuccess(operationType, resourceType, resourceId, request);
-            return ApiResponse.success();
-        } catch (RuntimeException exception) {
-            adminOperationLogService.recordFailure(operationType, resourceType, resourceId, exception, request);
-            throw exception;
-        }
+    public ApiResponse<Void> offlineTicketCategory(@PathVariable Long ticketCategoryId) {
+        adminBusinessService.offlineTicketCategory(ticketCategoryId);
+        return ApiResponse.success();
     }
 }

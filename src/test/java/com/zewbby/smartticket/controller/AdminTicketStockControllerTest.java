@@ -33,7 +33,7 @@ class AdminTicketStockControllerTest {
     private HttpServletRequest request;
 
     @Test
-    void initStockSuccessWritesAuditLog() {
+    void initStockDelegatesToService() {
         AdminTicketStockController controller = new AdminTicketStockController(
                 adminBusinessService,
                 adminOperationLogService
@@ -42,14 +42,9 @@ class AdminTicketStockControllerTest {
         body.setAvailableStock(100);
         when(adminBusinessService.initStock(2L, body)).thenReturn(new AdminStockVO());
 
-        controller.initStock(2L, body, request);
+        controller.initStock(2L, body);
 
-        verify(adminOperationLogService).recordSuccess(
-                AdminOperationTypeEnum.STOCK_INIT,
-                "TICKET_STOCK",
-                "2",
-                request
-        );
+        verify(adminBusinessService).initStock(2L, body);
     }
 
     @Test

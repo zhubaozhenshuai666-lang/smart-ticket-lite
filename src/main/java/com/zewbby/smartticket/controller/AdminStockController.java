@@ -4,11 +4,8 @@ import com.zewbby.smartticket.service.StockCacheService;
 import com.zewbby.smartticket.common.ApiResponse;
 import com.zewbby.smartticket.domain.entity.StockConsistencyRecord;
 import com.zewbby.smartticket.domain.vo.StockConsistencyVO;
-import com.zewbby.smartticket.enums.AdminOperationTypeEnum;
 import com.zewbby.smartticket.service.AdminBusinessService;
-import com.zewbby.smartticket.service.AdminOperationLogService;
 import com.zewbby.smartticket.service.StockConsistencyService;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,16 +25,12 @@ public class AdminStockController {
 
     private final AdminBusinessService adminBusinessService;
 
-    private final AdminOperationLogService adminOperationLogService;
-
     public AdminStockController(StockCacheService stockCacheService,
                                 StockConsistencyService stockConsistencyService,
-                                AdminBusinessService adminBusinessService,
-                                AdminOperationLogService adminOperationLogService) {
+                                AdminBusinessService adminBusinessService) {
         this.stockCacheService = stockCacheService;
         this.stockConsistencyService = stockConsistencyService;
         this.adminBusinessService = adminBusinessService;
-        this.adminOperationLogService = adminOperationLogService;
     }
 
     /**
@@ -45,17 +38,9 @@ public class AdminStockController {
      * @return
      */
     @PostMapping("/preload")
-    public ApiResponse<Void> preloadAllStock(HttpServletRequest request) {
-        try {
-            adminBusinessService.preheatAllStock();
-            adminOperationLogService.recordSuccess(AdminOperationTypeEnum.STOCK_PREHEAT,
-                    "TICKET_STOCK", "ALL", request);
-            return ApiResponse.success();
-        } catch (RuntimeException exception) {
-            adminOperationLogService.recordFailure(AdminOperationTypeEnum.STOCK_PREHEAT,
-                    "TICKET_STOCK", "ALL", exception, request);
-            throw exception;
-        }
+    public ApiResponse<Void> preloadAllStock() {
+        adminBusinessService.preheatAllStock();
+        return ApiResponse.success();
     }
 
     /**
@@ -64,17 +49,9 @@ public class AdminStockController {
      * @return
      */
     @PostMapping("/{ticketCategoryId}/preload")
-    public ApiResponse<Integer> preloadStock(@PathVariable Long ticketCategoryId, HttpServletRequest request) {
-        try {
-            Integer stock = adminBusinessService.preheatStock(ticketCategoryId).getRedisAvailableStock();
-            adminOperationLogService.recordSuccess(AdminOperationTypeEnum.STOCK_PREHEAT,
-                    "TICKET_STOCK", String.valueOf(ticketCategoryId), request);
-            return ApiResponse.successZero(stock);
-        } catch (RuntimeException exception) {
-            adminOperationLogService.recordFailure(AdminOperationTypeEnum.STOCK_PREHEAT,
-                    "TICKET_STOCK", String.valueOf(ticketCategoryId), exception, request);
-            throw exception;
-        }
+    public ApiResponse<Integer> preloadStock(@PathVariable Long ticketCategoryId) {
+        Integer stock = adminBusinessService.preheatStock(ticketCategoryId).getRedisAvailableStock();
+        return ApiResponse.successZero(stock);
     }
 
     /**
@@ -120,45 +97,20 @@ public class AdminStockController {
      * 如果 Redis 在检查和修复之间被并发下单修改，Lua 会拒绝修复，要求重新 check。
      */
     @PostMapping("/consistency-records/{id}/repair")
-    public ApiResponse<Void> repairConsistencyRecord(@PathVariable Long id, HttpServletRequest request) {
-        try {
-            stockConsistencyService.repairRecord(id);
-            adminOperationLogService.recordSuccess(AdminOperationTypeEnum.STOCK_REPAIR,
-                    "STOCK_CONSISTENCY_RECORD", String.valueOf(id), request);
-            return ApiResponse.success();
-        } catch (RuntimeException exception) {
-            adminOperationLogService.recordFailure(AdminOperationTypeEnum.STOCK_REPAIR,
-                    "STOCK_CONSISTENCY_RECORD", String.valueOf(id), exception, request);
-            throw exception;
-        }
+    public ApiResponse<Void> repairConsistencyRecord(@PathVariable Long id) {
+        stockConsistencyService.repairRecord(id);
+        return ApiResponse.success();
     }
 
     @PostMapping("/consistency-records/{id}/ignore")
-    public ApiResponse<Void> ignoreConsistencyRecord(@PathVariable Long id, HttpServletRequest request) {
-        try {
-            stockConsistencyService.ignoreRecord(id);
-            adminOperationLogService.recordSuccess(AdminOperationTypeEnum.STOCK_CONSISTENCY_IGNORE,
-                    "STOCK_CONSISTENCY_RECORD", String.valueOf(id), request);
-            return ApiResponse.success();
-        } catch (RuntimeException exception) {
-            adminOperationLogService.recordFailure(AdminOperationTypeEnum.STOCK_CONSISTENCY_IGNORE,
-                    "STOCK_CONSISTENCY_RECORD", String.valueOf(id), exception, request);
-            throw exception;
-        }
+    public ApiResponse<Void> ignoreConsistencyRecord(@PathVariable Long id) {
+        stockConsistencyService.ignoreRecord(id);
+        return ApiResponse.success();
     }
 
     @PostMapping("/failed-requests/compensate")
-    public ApiResponse<Integer> compensateFailedRequests(@RequestParam(required = false) Integer batchSize,
-                                                         HttpServletRequest request) {
-        try {
-            Integer count = stockConsistencyService.compensateFailedRequests(batchSize);
-            adminOperationLogService.recordSuccess(AdminOperationTypeEnum.ORDER_REQUEST_COMPENSATE,
-                    "TICKET_ORDER_REQUEST", "BATCH", request);
-            return ApiResponse.successZero(count);
-        } catch (RuntimeException exception) {
-            adminOperationLogService.recordFailure(AdminOperationTypeEnum.ORDER_REQUEST_COMPENSATE,
-                    "TICKET_ORDER_REQUEST", "BATCH", exception, request);
-            throw exception;
-        }
+    public ApiResponse<Integer> compensateFailedRequests(@RequestParam(required = false) Integer batchSize) {
+        Integer count = stockConsistencyService.compensateFailedRequests(batchSize);
+        return ApiResponse.successZero(count);
     }
 }

@@ -2,11 +2,13 @@ package com.zewbby.smartticket.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zewbby.smartticket.aop.AdminAudit;
 import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.config.LocalMessageProperties;
 import com.zewbby.smartticket.config.OrderTimeoutProperties;
 import com.zewbby.smartticket.domain.entity.LocalMessage;
+import com.zewbby.smartticket.enums.AdminOperationTypeEnum;
 import com.zewbby.smartticket.enums.LocalMessageBusinessTypeEnum;
 import com.zewbby.smartticket.enums.LocalMessageStatusEnum;
 import com.zewbby.smartticket.mapper.LocalMessageMapper;
@@ -235,6 +237,7 @@ public class LocalMessageServiceImpl implements LocalMessageService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.LOCAL_MESSAGE_RETRY, resourceType = "LOCAL_MESSAGE", resourceId = "#p0")
     public void retryManually(String messageId) {
         int rows = localMessageMapper.resetForManualRetry(messageId);
         if (rows != 1) {
@@ -243,6 +246,7 @@ public class LocalMessageServiceImpl implements LocalMessageService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.LOCAL_MESSAGE_MARK_DEAD, resourceType = "LOCAL_MESSAGE", resourceId = "#p0")
     public void markDeadManually(String messageId) {
         int rows = localMessageMapper.markDeadByMessageId(messageId, "人工标记为DEAD", LocalDateTime.now());
         if (rows != 1) {

@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.mq;
 
+import com.zewbby.smartticket.aop.MqConsumeTrace;
 import com.zewbby.smartticket.config.MqConsumerProperties;
 import com.zewbby.smartticket.service.PaymentService;
 import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
@@ -51,6 +52,12 @@ public class RocketMqPaymentCompensationConsumer implements RocketMQListener<Pay
     }
 
     @Override
+    @MqConsumeTrace(
+            topic = "payment-compensation",
+            consumerGroup = "rocketmq-payment-compensation",
+            messageId = "#p0?.messageId",
+            businessKey = "#p0?.paymentNo"
+    )
     public void onMessage(PaymentCompensationMessage message) {
         if (message == null) {
             LOGGER.warn("Ignored empty RocketMQ payment compensation message");

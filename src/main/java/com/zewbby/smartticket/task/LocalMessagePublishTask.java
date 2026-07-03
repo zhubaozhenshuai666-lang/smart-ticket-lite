@@ -1,6 +1,7 @@
 package com.zewbby.smartticket.task;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zewbby.smartticket.aop.MonitoredOperation;
 import com.zewbby.smartticket.config.LocalMessageProperties;
 import com.zewbby.smartticket.domain.entity.LocalMessage;
 import com.zewbby.smartticket.domain.event.OrderCreatedEvent;
@@ -52,6 +53,7 @@ public class LocalMessagePublishTask {
      * 只有抢到 SENDING 的实例才允许发送，抢占失败说明别的实例已经在处理。
      */
     @Scheduled(fixedDelay = 3000)
+    @MonitoredOperation(value = "local_message.publish_pending", slowThresholdMs = 1000L)
     public void publishPendingMessages() {
         // 开关校验
         if (!localMessageProperties.isSenderEnabled()) {
@@ -80,6 +82,7 @@ public class LocalMessagePublishTask {
      * 通过这个方法，在事务成功后立刻投递，99.9% 的消息在毫秒级就进入了 Kafka。定时任务只负责捞取那 0.1% 失败的残余。
      * @param messageId
      */
+    @MonitoredOperation(value = "local_message.publish_by_message_id", slowThresholdMs = 500L)
     public void publishByMessageId(String messageId) {
         if (!localMessageProperties.isSenderEnabled()) {
             return;
@@ -152,6 +155,7 @@ public class LocalMessagePublishTask {
      * schema 中对应索引是 idx_status_updated_at(status, updated_at)。
      */
     @Scheduled(fixedDelay = 10000)
+    @MonitoredOperation(value = "local_message.scan_confirm_timeout", slowThresholdMs = 1000L)
     public void scanConfirmTimeoutMessages() {
         //开关校验
         if (!localMessageProperties.isSenderEnabled()) {

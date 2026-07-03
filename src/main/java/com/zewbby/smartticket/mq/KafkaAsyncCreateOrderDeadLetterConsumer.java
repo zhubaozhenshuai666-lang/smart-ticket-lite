@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.mq;
 
+import com.zewbby.smartticket.aop.MqConsumeTrace;
 import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.enums.ConsumerExceptionTypeEnum;
 import com.zewbby.smartticket.service.AsyncOrderPartitionService;
@@ -33,6 +34,12 @@ public class KafkaAsyncCreateOrderDeadLetterConsumer {
     @KafkaListener(
             topics = "#{@asyncOrderSubmitProperties.kafkaAsyncCreateOrderDeadLetterTopic}",
             groupId = "#{@asyncOrderSubmitProperties.kafkaAsyncCreateOrderConsumerGroup + '-dlt'}"
+    )
+    @MqConsumeTrace(
+            topic = "async-create-order-dlt",
+            consumerGroup = "kafka-async-create-order-dlt",
+            messageId = "#p0?.messageId",
+            businessKey = "#p0?.requestId"
     )
     public void consume(AsyncCreateOrderMessage message) {
         if (message == null) {

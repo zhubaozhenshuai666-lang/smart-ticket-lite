@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.service.impl;
 
+import com.zewbby.smartticket.aop.AdminAudit;
 import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.config.StockBucketProperties;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
@@ -8,6 +9,7 @@ import com.zewbby.smartticket.domain.entity.StockConsistencyRecord;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
 import com.zewbby.smartticket.domain.entity.TicketStock;
 import com.zewbby.smartticket.domain.vo.StockConsistencyVO;
+import com.zewbby.smartticket.enums.AdminOperationTypeEnum;
 import com.zewbby.smartticket.enums.RedisStockReleaseResult;
 import com.zewbby.smartticket.enums.RedisStockRepairResult;
 import com.zewbby.smartticket.enums.StockCheckTypeEnum;
@@ -155,6 +157,7 @@ public class StockConsistencyServiceImpl implements StockConsistencyService {
      * Lua CAS 会确认 Redis 当前值仍等于 beforeRedisStock 才 INCRBY delta，否则返回并发修改，要求重新 check。
      */
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.STOCK_REPAIR, resourceType = "STOCK_CONSISTENCY_RECORD", resourceId = "#p0")
     @Transactional
     public void repairRecord(Long recordId) {
         StockConsistencyRecord record = consistencyRecordMapper.selectById(recordId);
@@ -237,6 +240,7 @@ public class StockConsistencyServiceImpl implements StockConsistencyService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.STOCK_CONSISTENCY_IGNORE, resourceType = "STOCK_CONSISTENCY_RECORD", resourceId = "#p0")
     public void ignoreRecord(Long recordId) {
         int rows = consistencyRecordMapper.markIgnored(recordId, "人工忽略");
         if (rows != 1) {
@@ -252,6 +256,7 @@ public class StockConsistencyServiceImpl implements StockConsistencyService {
      * release Lua 再用 requestId 的 deducted/compensated key 防止重复 INCR Redis，双层保护避免库存多加。
      */
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.ORDER_REQUEST_COMPENSATE, resourceType = "TICKET_ORDER_REQUEST", resourceId = "BATCH")
     @Transactional
     public int compensateFailedRequests(Integer batchSize) {
         List<TicketOrderRequest> requests = orderRequestMapper.selectFailedRequestsNeedCompensation(

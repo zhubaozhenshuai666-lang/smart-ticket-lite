@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.service.impl;
 
+import com.zewbby.smartticket.aop.AdminAudit;
 import com.zewbby.smartticket.auth.UserContext;
 import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.domain.dto.AdjustStockRequest;
@@ -8,6 +9,7 @@ import com.zewbby.smartticket.domain.dto.CreateStockAdjustmentRequest;
 import com.zewbby.smartticket.domain.entity.StockAdjustmentRecord;
 import com.zewbby.smartticket.domain.vo.AdminStockVO;
 import com.zewbby.smartticket.domain.vo.StockAdjustmentRecordVO;
+import com.zewbby.smartticket.enums.AdminOperationTypeEnum;
 import com.zewbby.smartticket.enums.StockAdjustmentStatusEnum;
 import com.zewbby.smartticket.mapper.StockAdjustmentRecordMapper;
 import com.zewbby.smartticket.service.AdminBusinessService;
@@ -48,6 +50,12 @@ public class StockAdjustmentServiceImpl implements StockAdjustmentService {
      * 方法成功只代表申请已记录，失败代表参数或当前库存视图不允许创建申请；成功不会改变 MySQL/Redis 库存。
      */
     @Override
+    @AdminAudit(
+            operation = AdminOperationTypeEnum.STOCK_ADJUST,
+            resourceType = "STOCK_ADJUSTMENT",
+            resourceId = "#p0 == null ? null : #p0.ticketCategoryId",
+            resultId = "#result.id"
+    )
     @Transactional
     public StockAdjustmentRecordVO createAdjustment(CreateStockAdjustmentRequest request) {
         validateCreateRequest(request);
@@ -80,6 +88,7 @@ public class StockAdjustmentServiceImpl implements StockAdjustmentService {
      * 因为确认后可能已经有新的下单、预扣或支付流转；所以这里只生成反向调整建议记录，真正回滚仍需再次确认。
      */
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.STOCK_ADJUST, resourceType = "STOCK_ADJUSTMENT", resourceId = "#p0")
     @Transactional
     public StockAdjustmentRecordVO confirmAdjustment(Long id, ConfirmStockAdjustmentRequest request) {
         if (id == null) {

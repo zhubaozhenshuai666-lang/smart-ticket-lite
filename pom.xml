@@ -32,6 +32,12 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
+        <!-- AOP：用于后台审计、关键链路耗时和 MQ 消费追踪 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <!-- 参数校验：用于 DTO 入参字段校验 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.mq;
 
+import com.zewbby.smartticket.aop.MonitoredOperation;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
 import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
@@ -254,6 +255,7 @@ public class AsyncCreateOrderConsumer {
      * 将前端积压的异步流量，平滑且安全地转化为真实的数据库订单。
      * @param message
      */
+    @MonitoredOperation(value = "async_create_order.consume", slowThresholdMs = 800L)
     @Transactional
     public void consume(AsyncCreateOrderMessage message) {
         LOGGER.info("Received async create order message, requestId={}", message.getRequestId());

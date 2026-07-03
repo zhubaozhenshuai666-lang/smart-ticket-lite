@@ -2,10 +2,12 @@ package com.zewbby.smartticket.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zewbby.smartticket.aop.AdminAudit;
 import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.domain.entity.DeadLetterMessage;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
+import com.zewbby.smartticket.enums.AdminOperationTypeEnum;
 import com.zewbby.smartticket.enums.CompensationStatusEnum;
 import com.zewbby.smartticket.enums.ConsumerExceptionTypeEnum;
 import com.zewbby.smartticket.enums.DeadLetterStatusEnum;
@@ -142,6 +144,7 @@ public class DeadLetterMessageServiceImpl implements DeadLetterMessageService {
      * 此时直接重投会绕过入口预扣语义，所以当前阶段拒绝重试，留给后续人工补偿流程处理。
      */
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.DEAD_LETTER_RETRY, resourceType = "DEAD_LETTER_MESSAGE", resourceId = "#p0")
     @Transactional
     public void retry(Long id) {
         DeadLetterMessage deadLetterMessage = getById(id);
@@ -186,6 +189,7 @@ public class DeadLetterMessageServiceImpl implements DeadLetterMessageService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.DEAD_LETTER_IGNORE, resourceType = "DEAD_LETTER_MESSAGE", resourceId = "#p0")
     public void ignore(Long id) {
         int rows = deadLetterMessageMapper.markIgnored(id, LocalDateTime.now());
         if (rows != 1) {
@@ -194,6 +198,7 @@ public class DeadLetterMessageServiceImpl implements DeadLetterMessageService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.DEAD_LETTER_RESOLVE, resourceType = "DEAD_LETTER_MESSAGE", resourceId = "#p0")
     public void resolve(Long id) {
         int rows = deadLetterMessageMapper.markResolved(id, LocalDateTime.now());
         if (rows != 1) {

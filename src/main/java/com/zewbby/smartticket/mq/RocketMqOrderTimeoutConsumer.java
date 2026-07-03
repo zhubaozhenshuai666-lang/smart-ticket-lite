@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.mq;
 
+import com.zewbby.smartticket.aop.MqConsumeTrace;
 import com.zewbby.smartticket.config.MqConsumerProperties;
 import com.zewbby.smartticket.service.OrderService;
 import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
@@ -53,6 +54,12 @@ public class RocketMqOrderTimeoutConsumer implements RocketMQListener<OrderTimeo
     }
 
     @Override
+    @MqConsumeTrace(
+            topic = "order-timeout",
+            consumerGroup = "rocketmq-order-timeout",
+            messageId = "#p0?.messageId",
+            businessKey = "#p0?.orderId"
+    )
     public void onMessage(OrderTimeoutMessage message) {
         if (message == null) {
             LOGGER.warn("Ignored empty order timeout RocketMQ message");

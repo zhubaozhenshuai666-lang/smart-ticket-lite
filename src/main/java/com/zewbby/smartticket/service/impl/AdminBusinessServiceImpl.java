@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.service.impl;
 
+import com.zewbby.smartticket.aop.AdminAudit;
 import com.zewbby.smartticket.common.BusinessException;
 import com.zewbby.smartticket.config.StockBucketProperties;
 import com.zewbby.smartticket.constant.ErrorMessageConstant;
@@ -18,6 +19,7 @@ import com.zewbby.smartticket.domain.entity.TicketStock;
 import com.zewbby.smartticket.domain.entity.TicketStockBucket;
 import com.zewbby.smartticket.domain.entity.Venue;
 import com.zewbby.smartticket.domain.vo.AdminStockVO;
+import com.zewbby.smartticket.enums.AdminOperationTypeEnum;
 import com.zewbby.smartticket.enums.RedisStockRepairResult;
 import com.zewbby.smartticket.enums.ShowStatusEnum;
 import com.zewbby.smartticket.enums.TicketCategoryStatusEnum;
@@ -134,6 +136,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.SHOW_CREATE, resourceType = "SHOW", resultId = "#result.id")
     @Transactional
     public ShowInfo createShow(AdminCreateShowRequest request) {
         requireVenue(request.getVenueId());
@@ -151,6 +154,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.SHOW_UPDATE, resourceType = "SHOW", resourceId = "#p0")
     @Transactional
     public ShowInfo updateShow(Long showId, AdminUpdateShowRequest request) {
         ShowInfo existing = requireShow(showId);
@@ -167,6 +171,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.SHOW_PUBLISH, resourceType = "SHOW", resourceId = "#p0")
     @Transactional
     public void publishShow(Long showId) {
         requireShow(showId);
@@ -176,6 +181,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.SHOW_OFFLINE, resourceType = "SHOW", resourceId = "#p0")
     @Transactional
     public void offlineShow(Long showId) {
         ShowInfo existing = requireShow(showId);
@@ -194,6 +200,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.SESSION_CREATE, resourceType = "SESSION", resultId = "#result.id")
     @Transactional
     public PerformanceSession createSession(Long showId, AdminCreateSessionRequest request) {
         ShowInfo showInfo = requireShow(showId);
@@ -212,6 +219,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.SESSION_UPDATE, resourceType = "SESSION", resourceId = "#p0")
     @Transactional
     public PerformanceSession updateSession(Long sessionId, AdminUpdateSessionRequest request) {
         PerformanceSession existing = requireSession(sessionId);
@@ -226,6 +234,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.SESSION_PUBLISH, resourceType = "SESSION", resourceId = "#p0")
     @Transactional
     public void publishSession(Long sessionId) {
         PerformanceSession session = requireSession(sessionId);
@@ -236,6 +245,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.SESSION_OFFLINE, resourceType = "SESSION", resourceId = "#p0")
     @Transactional
     public void offlineSession(Long sessionId) {
         PerformanceSession existing = requireSession(sessionId);
@@ -254,6 +264,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.TICKET_CATEGORY_CREATE, resourceType = "TICKET_CATEGORY", resultId = "#result.id")
     @Transactional
     public TicketCategory createTicketCategory(Long sessionId, AdminCreateTicketCategoryRequest request) {
         PerformanceSession session = requireSession(sessionId);
@@ -272,6 +283,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.TICKET_CATEGORY_UPDATE, resourceType = "TICKET_CATEGORY", resourceId = "#p0")
     @Transactional
     public TicketCategory updateTicketCategory(Long ticketCategoryId, AdminUpdateTicketCategoryRequest request) {
         TicketCategory existing = requireTicketCategory(ticketCategoryId);
@@ -296,6 +308,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.TICKET_CATEGORY_PUBLISH, resourceType = "TICKET_CATEGORY", resourceId = "#p0")
     @Transactional
     public void publishTicketCategory(Long ticketCategoryId) {
         TicketCategory ticketCategory = requireTicketCategory(ticketCategoryId);
@@ -305,6 +318,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.TICKET_CATEGORY_OFFLINE, resourceType = "TICKET_CATEGORY", resourceId = "#p0")
     @Transactional
     public void offlineTicketCategory(Long ticketCategoryId) {
         TicketCategory existing = requireTicketCategory(ticketCategoryId);
@@ -317,6 +331,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.STOCK_INIT, resourceType = "TICKET_STOCK", resourceId = "#p0")
     @Transactional
     public AdminStockVO initStock(Long ticketCategoryId, InitStockRequest request) {
         requireTicketCategory(ticketCategoryId);
@@ -360,6 +375,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.STOCK_ADJUST, resourceType = "TICKET_STOCK", resourceId = "#p0")
     @Transactional
     public AdminStockVO adjustStock(Long ticketCategoryId, AdjustStockRequest request) {
         requireTicketCategory(ticketCategoryId);
@@ -389,6 +405,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.STOCK_PREHEAT, resourceType = "TICKET_STOCK", resourceId = "#p0")
     public AdminStockVO preheatStock(Long ticketCategoryId) {
         TicketStock stock = requireStock(ticketCategoryId);
         int inFlight = getInFlightDeductedQuantity(ticketCategoryId);
@@ -433,6 +450,7 @@ public class AdminBusinessServiceImpl implements AdminBusinessService {
     }
 
     @Override
+    @AdminAudit(operation = AdminOperationTypeEnum.STOCK_PREHEAT, resourceType = "TICKET_STOCK", resourceId = "ALL")
     public List<AdminStockVO> preheatAllStock() {
         List<TicketStock> stocks = ticketStockMapper.selectAll();
         List<AdminStockVO> result = new ArrayList<>();

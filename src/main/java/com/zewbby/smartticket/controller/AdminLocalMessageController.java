@@ -2,10 +2,7 @@ package com.zewbby.smartticket.controller;
 
 import com.zewbby.smartticket.common.ApiResponse;
 import com.zewbby.smartticket.domain.entity.LocalMessage;
-import com.zewbby.smartticket.enums.AdminOperationTypeEnum;
-import com.zewbby.smartticket.service.AdminOperationLogService;
 import com.zewbby.smartticket.service.LocalMessageService;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,12 +20,8 @@ public class AdminLocalMessageController {
 
     private final LocalMessageService localMessageService;
 
-    private final AdminOperationLogService adminOperationLogService;
-
-    public AdminLocalMessageController(LocalMessageService localMessageService,
-                                       AdminOperationLogService adminOperationLogService) {
+    public AdminLocalMessageController(LocalMessageService localMessageService) {
         this.localMessageService = localMessageService;
-        this.adminOperationLogService = adminOperationLogService;
     }
 
     @GetMapping
@@ -49,31 +42,15 @@ public class AdminLocalMessageController {
      * 避免人工接口绕过可靠投递状态机。
      */
     @PostMapping("/{messageId}/retry")
-    public ApiResponse<Void> retry(@PathVariable String messageId, HttpServletRequest request) {
-        try {
-            localMessageService.retryManually(messageId);
-            adminOperationLogService.recordSuccess(AdminOperationTypeEnum.LOCAL_MESSAGE_RETRY,
-                    "LOCAL_MESSAGE", messageId, request);
-            return ApiResponse.success();
-        } catch (RuntimeException exception) {
-            adminOperationLogService.recordFailure(AdminOperationTypeEnum.LOCAL_MESSAGE_RETRY,
-                    "LOCAL_MESSAGE", messageId, exception, request);
-            throw exception;
-        }
+    public ApiResponse<Void> retry(@PathVariable String messageId) {
+        localMessageService.retryManually(messageId);
+        return ApiResponse.success();
     }
 
     @PostMapping("/{messageId}/mark-dead")
-    public ApiResponse<Void> markDead(@PathVariable String messageId, HttpServletRequest request) {
-        try {
-            localMessageService.markDeadManually(messageId);
-            adminOperationLogService.recordSuccess(AdminOperationTypeEnum.LOCAL_MESSAGE_MARK_DEAD,
-                    "LOCAL_MESSAGE", messageId, request);
-            return ApiResponse.success();
-        } catch (RuntimeException exception) {
-            adminOperationLogService.recordFailure(AdminOperationTypeEnum.LOCAL_MESSAGE_MARK_DEAD,
-                    "LOCAL_MESSAGE", messageId, exception, request);
-            throw exception;
-        }
+    public ApiResponse<Void> markDead(@PathVariable String messageId) {
+        localMessageService.markDeadManually(messageId);
+        return ApiResponse.success();
     }
 
     private Integer normalizeLimit(Integer limit) {

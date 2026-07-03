@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.mq;
 
+import com.zewbby.smartticket.aop.MqConsumeTrace;
 import com.zewbby.smartticket.config.MqConsumerProperties;
 import org.apache.rocketmq.client.consumer.DefaultMQPushConsumer;
 import org.apache.rocketmq.spring.annotation.ConsumeMode;
@@ -50,6 +51,12 @@ public class RocketMqAsyncCreateOrderConsumer implements RocketMQListener<AsyncC
     }
 
     @Override
+    @MqConsumeTrace(
+            topic = "async-create-order",
+            consumerGroup = "rocketmq-async-create-order",
+            messageId = "#p0?.messageId",
+            businessKey = "#p0?.requestId"
+    )
     public void onMessage(AsyncCreateOrderMessage message) {
         if (message == null) {
             LOGGER.warn("Ignored empty RocketMQ async create order message");

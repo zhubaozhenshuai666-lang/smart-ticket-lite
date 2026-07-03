@@ -1,14 +1,11 @@
 package com.zewbby.smartticket.controller;
 
 import com.zewbby.smartticket.common.BusinessException;
-import com.zewbby.smartticket.enums.AdminOperationTypeEnum;
-import com.zewbby.smartticket.service.AdminOperationLogService;
 import com.zewbby.smartticket.service.LocalMessageService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.mock.web.MockHttpServletRequest;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
@@ -20,38 +17,24 @@ class AdminLocalMessageControllerTest {
     @Mock
     private LocalMessageService localMessageService;
 
-    @Mock
-    private AdminOperationLogService adminOperationLogService;
-
     @Test
-    void retryWritesSuccessAuditLog() {
-        AdminLocalMessageController controller = new AdminLocalMessageController(
-                localMessageService,
-                adminOperationLogService
-        );
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/admin/local-messages/MSG1/retry");
+    void retryDelegatesToService() {
+        AdminLocalMessageController controller = new AdminLocalMessageController(localMessageService);
 
-        controller.retry("MSG1", request);
+        controller.retry("MSG1");
 
         verify(localMessageService).retryManually("MSG1");
-        verify(adminOperationLogService).recordSuccess(AdminOperationTypeEnum.LOCAL_MESSAGE_RETRY,
-                "LOCAL_MESSAGE", "MSG1", request);
     }
 
     @Test
-    void retryWritesFailureAuditLogWhenOperationFails() {
-        AdminLocalMessageController controller = new AdminLocalMessageController(
-                localMessageService,
-                adminOperationLogService
-        );
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/admin/local-messages/MSG1/retry");
+    void retryRethrowsServiceException() {
+        AdminLocalMessageController controller = new AdminLocalMessageController(localMessageService);
         BusinessException exception = new BusinessException("retry failed");
         doThrow(exception).when(localMessageService).retryManually("MSG1");
 
-        assertThatThrownBy(() -> controller.retry("MSG1", request))
+        assertThatThrownBy(() -> controller.retry("MSG1"))
                 .isSameAs(exception);
 
-        verify(adminOperationLogService).recordFailure(AdminOperationTypeEnum.LOCAL_MESSAGE_RETRY,
-                "LOCAL_MESSAGE", "MSG1", exception, request);
+        verify(localMessageService).retryManually("MSG1");
     }
 }

@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.mq;
 
+import com.zewbby.smartticket.aop.MqConsumeTrace;
 import com.zewbby.smartticket.service.OrderService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -24,6 +25,12 @@ public class OrderTimeoutConsumer {
     @KafkaListener(
             topics = "#{@orderTimeoutProperties.kafkaOrderTimeoutTopic}",
             groupId = "#{@orderTimeoutProperties.kafkaOrderTimeoutConsumerGroup}"
+    )
+    @MqConsumeTrace(
+            topic = "order-timeout",
+            consumerGroup = "kafka-order-timeout",
+            messageId = "#p0?.messageId",
+            businessKey = "#p0?.orderId"
     )
     public void consume(OrderTimeoutMessage message) {
         /*
