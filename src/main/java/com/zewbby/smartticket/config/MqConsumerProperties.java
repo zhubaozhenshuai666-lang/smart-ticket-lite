@@ -39,6 +39,16 @@ public class MqConsumerProperties {
 
     private int rocketMqPullThresholdForQueue = 1000;
 
+    private boolean asyncOrderBatchEnabled = false;
+
+    private int asyncOrderBatchSize = 32;
+
+    private long asyncOrderBatchMaxWaitMillis = 20L;
+
+    private int asyncOrderBatchQueueCapacity = 4096;
+
+    private long asyncOrderBatchOfferTimeoutMillis = 50L;
+
     public int getMaxRetryCount() {
         return maxRetryCount;
     }
@@ -167,5 +177,45 @@ public class MqConsumerProperties {
 
     public void setRocketMqPullThresholdForQueue(int rocketMqPullThresholdForQueue) {
         this.rocketMqPullThresholdForQueue = rocketMqPullThresholdForQueue;
+    }
+
+    public boolean isAsyncOrderBatchEnabled() {
+        return asyncOrderBatchEnabled;
+    }
+
+    public void setAsyncOrderBatchEnabled(boolean asyncOrderBatchEnabled) {
+        this.asyncOrderBatchEnabled = asyncOrderBatchEnabled;
+    }
+
+    public int getAsyncOrderBatchSize() {
+        return Math.min(Math.max(1, asyncOrderBatchSize), 256);
+    }
+
+    public void setAsyncOrderBatchSize(int asyncOrderBatchSize) {
+        this.asyncOrderBatchSize = asyncOrderBatchSize;
+    }
+
+    public long getAsyncOrderBatchMaxWaitMillis() {
+        return Math.min(Math.max(1L, asyncOrderBatchMaxWaitMillis), 1000L);
+    }
+
+    public void setAsyncOrderBatchMaxWaitMillis(long asyncOrderBatchMaxWaitMillis) {
+        this.asyncOrderBatchMaxWaitMillis = asyncOrderBatchMaxWaitMillis;
+    }
+
+    public int getAsyncOrderBatchQueueCapacity() {
+        return Math.min(Math.max(1, asyncOrderBatchQueueCapacity), 100_000);
+    }
+
+    public void setAsyncOrderBatchQueueCapacity(int asyncOrderBatchQueueCapacity) {
+        this.asyncOrderBatchQueueCapacity = asyncOrderBatchQueueCapacity;
+    }
+
+    public long getAsyncOrderBatchOfferTimeoutMillis() {
+        return Math.min(Math.max(1L, asyncOrderBatchOfferTimeoutMillis), 1000L);
+    }
+
+    public void setAsyncOrderBatchOfferTimeoutMillis(long asyncOrderBatchOfferTimeoutMillis) {
+        this.asyncOrderBatchOfferTimeoutMillis = asyncOrderBatchOfferTimeoutMillis;
     }
 }

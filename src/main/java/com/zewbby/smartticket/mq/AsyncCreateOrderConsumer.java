@@ -42,6 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Component
@@ -262,7 +263,28 @@ public class AsyncCreateOrderConsumer {
     @MonitoredOperation(value = "async_create_order.consume", slowThresholdMs = 800L)
     @Transactional
     public void consume(AsyncCreateOrderMessage message) {
-        message = enrichAsyncCreateOrderMessage(message);
+        if (message == null) {
+            return;
+        }
+        consumeOne(enrichAsyncCreateOrderMessage(message));
+    }
+
+    @MonitoredOperation(value = "async_create_order.consume_batch", slowThresholdMs = 1500L)
+    @Transactional
+    public void consumeBatch(List<AsyncCreateOrderMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        LOGGER.info("Received async create order message batch, size={}", messages.size());
+        for (AsyncCreateOrderMessage message : messages) {
+            if (message == null) {
+                continue;
+            }
+            consumeOne(enrichAsyncCreateOrderMessage(message));
+        }
+    }
+
+    private void consumeOne(AsyncCreateOrderMessage message) {
         LOGGER.info("Received async create order message, requestId={}", message.getRequestId());
 
         //检验message的状态是否合法，抛弃重复,超时消息。不重复加乐观锁后返回对应实体

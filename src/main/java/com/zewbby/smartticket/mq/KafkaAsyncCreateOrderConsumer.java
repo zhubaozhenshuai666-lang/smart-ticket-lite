@@ -13,10 +13,14 @@ public class KafkaAsyncCreateOrderConsumer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(KafkaAsyncCreateOrderConsumer.class);
 
-    private final AsyncCreateOrderConsumer asyncCreateOrderConsumer;
+    private final AsyncCreateOrderBatchDispatcher asyncCreateOrderBatchDispatcher;
 
     public KafkaAsyncCreateOrderConsumer(AsyncCreateOrderConsumer asyncCreateOrderConsumer) {
-        this.asyncCreateOrderConsumer = asyncCreateOrderConsumer;
+        this(new AsyncCreateOrderBatchDispatcher(asyncCreateOrderConsumer));
+    }
+
+    public KafkaAsyncCreateOrderConsumer(AsyncCreateOrderBatchDispatcher asyncCreateOrderBatchDispatcher) {
+        this.asyncCreateOrderBatchDispatcher = asyncCreateOrderBatchDispatcher;
     }
 
     @KafkaListener(
@@ -37,6 +41,6 @@ public class KafkaAsyncCreateOrderConsumer {
         }
         LOGGER.info("Received Kafka async create order message, requestId={}, messageId={}",
                 message.getRequestId(), message.getMessageId());
-        asyncCreateOrderConsumer.consume(message);
+        asyncCreateOrderBatchDispatcher.consume(message);
     }
 }

@@ -30,18 +30,18 @@ public class RocketMqAsyncCreateOrderConsumer implements RocketMQListener<AsyncC
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RocketMqAsyncCreateOrderConsumer.class);
 
-    private final AsyncCreateOrderConsumer asyncCreateOrderConsumer;
+    private final AsyncCreateOrderBatchDispatcher asyncCreateOrderBatchDispatcher;
 
     private final MqConsumerProperties mqConsumerProperties;
 
     public RocketMqAsyncCreateOrderConsumer(AsyncCreateOrderConsumer asyncCreateOrderConsumer) {
-        this(asyncCreateOrderConsumer, new MqConsumerProperties());
+        this(new AsyncCreateOrderBatchDispatcher(asyncCreateOrderConsumer), new MqConsumerProperties());
     }
 
     @Autowired
-    public RocketMqAsyncCreateOrderConsumer(AsyncCreateOrderConsumer asyncCreateOrderConsumer,
+    public RocketMqAsyncCreateOrderConsumer(AsyncCreateOrderBatchDispatcher asyncCreateOrderBatchDispatcher,
                                             MqConsumerProperties mqConsumerProperties) {
-        this.asyncCreateOrderConsumer = asyncCreateOrderConsumer;
+        this.asyncCreateOrderBatchDispatcher = asyncCreateOrderBatchDispatcher;
         this.mqConsumerProperties = mqConsumerProperties;
     }
 
@@ -64,6 +64,6 @@ public class RocketMqAsyncCreateOrderConsumer implements RocketMQListener<AsyncC
         }
         LOGGER.info("Received RocketMQ async create order message, requestId={}, messageId={}",
                 message.getRequestId(), message.getMessageId());
-        asyncCreateOrderConsumer.consume(message);
+        asyncCreateOrderBatchDispatcher.consume(message);
     }
 }
