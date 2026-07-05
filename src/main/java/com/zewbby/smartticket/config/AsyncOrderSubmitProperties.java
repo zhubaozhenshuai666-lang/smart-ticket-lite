@@ -69,6 +69,14 @@ public class AsyncOrderSubmitProperties {
 
     private String rocketMqAsyncCreateOrderConsumerGroup = "smart-ticket-async-order-create";
 
+    /**
+     * RocketMQ 命令链路是否使用事务消息。
+     *
+     * 开启后，入口会先发送半消息，再在 RocketMQ 本地事务中执行 Redis 预扣。
+     * 这样可以避免“Redis 已扣，但普通消息还没发到 Broker”时进程崩溃造成的无消息、无请求记录中间态。
+     */
+    private boolean rocketMqTransactionMessageEnabled = true;
+
     public boolean isPersistRequestBeforePublish() {
         return persistRequestBeforePublish;
     }
@@ -95,6 +103,14 @@ public class AsyncOrderSubmitProperties {
 
     public boolean isRocketMqPublisherMode() {
         return PUBLISHER_MODE_ROCKETMQ.equalsIgnoreCase(getPublisherMode());
+    }
+
+    public boolean isRocketMqTransactionMessageEnabled() {
+        return rocketMqTransactionMessageEnabled;
+    }
+
+    public void setRocketMqTransactionMessageEnabled(boolean rocketMqTransactionMessageEnabled) {
+        this.rocketMqTransactionMessageEnabled = rocketMqTransactionMessageEnabled;
     }
 
     public boolean isInFlightControlEnabled() {

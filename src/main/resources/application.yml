@@ -64,6 +64,7 @@ smart-ticket:
   async-order-submit:
     persist-request-before-publish: ${SMART_TICKET_ASYNC_ORDER_PERSIST_REQUEST_BEFORE_PUBLISH:false}
     publisher-mode: ${SMART_TICKET_ASYNC_ORDER_PUBLISHER_MODE:rocketmq}
+    rocket-mq-transaction-message-enabled: ${SMART_TICKET_ASYNC_ORDER_ROCKETMQ_TRANSACTION_MESSAGE_ENABLED:true}
     in-flight-control-enabled: ${SMART_TICKET_ASYNC_ORDER_IN_FLIGHT_CONTROL_ENABLED:true}
     max-in-flight-per-ticket-category: ${SMART_TICKET_ASYNC_ORDER_MAX_IN_FLIGHT_PER_TICKET_CATEGORY:20000}
     in-flight-counter-ttl-seconds: ${SMART_TICKET_ASYNC_ORDER_IN_FLIGHT_COUNTER_TTL_SECONDS:600}

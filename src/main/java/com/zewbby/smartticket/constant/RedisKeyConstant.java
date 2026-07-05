@@ -26,6 +26,8 @@ public final class RedisKeyConstant {
 
     private static final String ASYNC_ORDER_RESULT_PREFIX = "order:async:result:";
 
+    private static final String ASYNC_ORDER_TRANSACTION_MARKER_PREFIX = "order:async:tx-marker:";
+
     private static final String RATE_LIMIT_IP_PREFIX = "rate:ip:";
 
     private static final String RATE_LIMIT_USER_PREFIX = "rate:user:";
@@ -126,6 +128,10 @@ public final class RedisKeyConstant {
         return ASYNC_ORDER_RESULT_PREFIX
                 + "user:" + userId
                 + ":request:" + normalize(requestId);
+    }
+
+    public static String asyncOrderTransactionMarkerKey(String requestId) {
+        return ASYNC_ORDER_TRANSACTION_MARKER_PREFIX + normalize(requestId);
     }
 
     public static String rateLimitIpKey(String ip, String uri) {

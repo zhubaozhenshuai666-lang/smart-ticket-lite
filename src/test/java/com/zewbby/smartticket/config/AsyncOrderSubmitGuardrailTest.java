@@ -52,6 +52,16 @@ class AsyncOrderSubmitGuardrailTest {
     }
 
     @Test
+    void flashSaleProfileRejectsDisabledRocketMqTransactionMessage() {
+        AsyncOrderSubmitProperties properties = flashSaleProperties();
+        properties.setRocketMqTransactionMessageEnabled(false);
+
+        assertThatThrownBy(() -> newGuardrail(properties).afterPropertiesSet())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("事务消息");
+    }
+
+    @Test
     void normalProfileRejectsRedisStreamMode() {
         AsyncOrderSubmitProperties properties = flashSaleProperties();
         properties.setPublisherMode(AsyncOrderSubmitProperties.PUBLISHER_MODE_REDIS_STREAM);

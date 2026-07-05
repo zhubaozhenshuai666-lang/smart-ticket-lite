@@ -25,4 +25,17 @@ public interface AsyncOrderMessagePublisher {
     default String publish(String messageId, AsyncCreateOrderMessage message) {
         return publish(message);
     }
+
+    /**
+     * 使用消息系统的事务发布能力提交异步创单消息。
+     *
+     * 默认实现用于非 RocketMQ 事务链路：先执行本地事务，再走普通发布。
+     * RocketMQ 实现会覆盖为“先发半消息，再执行本地事务”，关闭 Redis 预扣成功但 MQ 消息未进入 Broker 的崩溃窗口。
+     */
+    default String publishInTransaction(String messageId,
+                                        AsyncCreateOrderMessage message,
+                                        AsyncOrderPublishLocalTransaction localTransaction) {
+        localTransaction.execute();
+        return publish(messageId, message);
+    }
 }

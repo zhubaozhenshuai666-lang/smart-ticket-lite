@@ -54,6 +54,9 @@ public class AsyncOrderSubmitGuardrail implements InitializingBean {
         if (!properties.isRocketMqPublisherMode()) {
             throw new IllegalStateException("flash-sale profile 必须使用 rocketmq 发布模式，不能继续走 Outbox/Kafka 交易命令路径");
         }
+        if (!properties.isRocketMqTransactionMessageEnabled()) {
+            throw new IllegalStateException("flash-sale profile 必须开启 RocketMQ 事务消息，不能退回普通消息发布");
+        }
         if (properties.isPersistRequestBeforePublish()) {
             throw new IllegalStateException("flash-sale profile 必须关闭入口 ticket_order_request 预落库");
         }

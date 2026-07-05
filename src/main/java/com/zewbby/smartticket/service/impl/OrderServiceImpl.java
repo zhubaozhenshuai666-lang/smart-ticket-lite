@@ -44,6 +44,7 @@ import com.zewbby.smartticket.ratelimit.RateLimitService;
 import com.zewbby.smartticket.service.AsyncOrderMessagePublisher;
 import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.AsyncOrderRequestResultCacheService;
+import com.zewbby.smartticket.service.AsyncOrderTransactionMarkerService;
 import com.zewbby.smartticket.service.ActivityDegradeService;
 import com.zewbby.smartticket.service.ActivityIsolationService;
 import com.zewbby.smartticket.service.BucketRouteService;
@@ -138,6 +139,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Autowired(required = false)
     private AsyncOrderRequestResultCacheService asyncOrderRequestResultCacheService;
+
+    @Autowired(required = false)
+    private AsyncOrderTransactionMarkerService asyncOrderTransactionMarkerService;
 
     @Autowired(required = false)
     private StockBucketSizingService stockBucketSizingService;
@@ -438,7 +442,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         TicketOrderRequest orderRequest = null;
-        boolean redisPreDeducted = false;
+        AsyncOrderSubmitState submitState = new AsyncOrderSubmitState();
         boolean inFlightAcquired = false;
         ActivityScope activityScope = null;
         try {
@@ -459,24 +463,16 @@ public class OrderServiceImpl implements OrderService {
             acquireAsyncOrderInFlight(activityScope, request.getTicketCategoryId());
             inFlightAcquired = true;
             checkWaitingRoomAdmission(currentUserId, request);
+            if (shouldPublishAsyncOrderInRocketMqTransaction()) {
+                ensureAsyncOrderTransactionMarkerAvailable();
+            }
             //用lua消耗token
             idempotencyTokenService.consumeOrderToken(currentUserId, request.getIdempotencyToken());
 
             //redis预扣
             String requestId = generateRequestId(currentUserId, request.getTicketCategoryId(), request.getIdempotencyToken());
             Integer stockBucketVersion = stockBucketProperties.getActiveVersion();
-
-            RedisStockDeductResponse deductResponse = preDeductRedisStock(
-                    requestId,
-                    request,
-                    stockBucketVersion
-            );
-            RedisStockDeductResult deductResult = deductResponse.getResult();
-            if (!deductResult.isSuccess()) {
-                observabilityMetricsService.recordAsyncOrderRequestFailed();
-                throw new BusinessException(toPreDeductFailMessage(deductResult));
-            }
-            redisPreDeducted = true;
+            RedisStockDeductPlan deductPlan = buildRedisStockDeductPlan(requestId, request, stockBucketVersion);
 
             LocalDateTime now = LocalDateTime.now();
             String messageId = generateAsyncCreateOrderMessageId(requestId);
@@ -486,26 +482,42 @@ public class OrderServiceImpl implements OrderService {
                     currentUserId,
                     request,
                     stockBucketVersion,
-                    deductResponse.getBucketNo(),
+                    deductPlan.initialBucketNo(),
                     messageId,
                     now
             );
             AsyncCreateOrderMessage message = buildAsyncCreateOrderMessage(orderRequest, activityScope);
 
-            if (asyncOrderSubmitProperties.isPersistRequestBeforePublish()) {
-                // Redis 预扣成功后才落库，请求首次插入即进入 QUEUED，避免额外一次状态更新放大写压力。
-                int insertRows = orderRequestMapper.insert(orderRequest);
-                if (insertRows != 1) {
-                    throw new BusinessException("异步下单请求创建失败");
-                }
+            if (shouldPublishAsyncOrderInRocketMqTransaction()) {
+                TicketOrderRequest finalOrderRequest = orderRequest;
+                ActivityScope finalActivityScope = activityScope;
+                asyncOrderMessagePublisher.publishInTransaction(messageId, message, () ->
+                        executeAsyncOrderSubmitLocalTransaction(
+                                finalOrderRequest,
+                                message,
+                                request,
+                                finalActivityScope,
+                                deductPlan,
+                                submitState
+                        )
+                );
+            } else {
+                executeAsyncOrderSubmitLocalTransaction(
+                        orderRequest,
+                        message,
+                        request,
+                        activityScope,
+                        deductPlan,
+                        submitState
+                );
+                asyncOrderMessagePublisher.publish(messageId, message);
             }
-            asyncOrderMessagePublisher.publish(messageId, message);
             cacheFastPipelineQueuedResult(currentUserId, orderRequest);
 
             return toOrderRequestVO(orderRequest);
         } catch (RuntimeException exception) {
             //回滚redis预扣
-            releaseRedisPreDeductedStockAfterSubmitFailure(orderRequest, redisPreDeducted, "异步下单提交失败");
+            releaseRedisPreDeductedStockAfterSubmitFailure(orderRequest, submitState.redisPreDeducted, "异步下单提交失败");
             releaseAsyncOrderInFlightAfterSubmitFailure(activityScope, request.getTicketCategoryId(), inFlightAcquired);
             //发生其他意外就释放锁
             orderSubmitGuard.release(currentUserId, request.getTicketCategoryId());
@@ -575,6 +587,71 @@ public class OrderServiceImpl implements OrderService {
                 ? "unknown"
                 : String.valueOf(orderRequest.getStockBucketVersion());
         return baseKey + ":v" + bucketVersion + ":bucket:" + orderRequest.getStockBucketNo();
+    }
+
+    private void executeAsyncOrderSubmitLocalTransaction(TicketOrderRequest orderRequest,
+                                                         AsyncCreateOrderMessage message,
+                                                         CreateOrderRequest request,
+                                                         ActivityScope activityScope,
+                                                         RedisStockDeductPlan deductPlan,
+                                                         AsyncOrderSubmitState submitState) {
+        RedisStockDeductResponse deductResponse = preDeductRedisStock(
+                orderRequest.getRequestId(),
+                request,
+                deductPlan
+        );
+        RedisStockDeductResult deductResult = deductResponse.getResult();
+        if (!deductResult.isSuccess()) {
+            observabilityMetricsService.recordAsyncOrderRequestFailed();
+            throw new BusinessException(toPreDeductFailMessage(deductResult));
+        }
+        submitState.redisPreDeducted = true;
+        applyRedisPreDeductResult(orderRequest, message, deductResponse, activityScope);
+        if (asyncOrderSubmitProperties.isPersistRequestBeforePublish()) {
+            // Redis 预扣成功后才落库，请求首次插入即进入 QUEUED，避免额外一次状态更新放大写压力。
+            int insertRows = orderRequestMapper.insert(orderRequest);
+            if (insertRows != 1) {
+                throw new BusinessException("异步下单请求创建失败");
+            }
+        }
+        saveAsyncOrderTransactionMarkerIfNeeded(orderRequest, message);
+    }
+
+    private void applyRedisPreDeductResult(TicketOrderRequest orderRequest,
+                                           AsyncCreateOrderMessage message,
+                                           RedisStockDeductResponse deductResponse,
+                                           ActivityScope activityScope) {
+        LocalDateTime deductedAt = LocalDateTime.now();
+        orderRequest.setStockBucketNo(deductResponse.getBucketNo());
+        orderRequest.setRedisDeducted(true);
+        orderRequest.setDeductedQuantity(orderRequest.getQuantity());
+        orderRequest.setDeductedAt(deductedAt);
+        orderRequest.setUpdatedAt(deductedAt);
+
+        message.setStockBucketNo(orderRequest.getStockBucketNo());
+        message.setRedisDeducted(orderRequest.getRedisDeducted());
+        message.setDeductedQuantity(orderRequest.getDeductedQuantity());
+        message.setDeductedAt(orderRequest.getDeductedAt());
+        message.setRoutingPartitionKey(buildRoutingPartitionKey(orderRequest, activityScope));
+    }
+
+    private void saveAsyncOrderTransactionMarkerIfNeeded(TicketOrderRequest orderRequest,
+                                                         AsyncCreateOrderMessage message) {
+        if (!shouldPublishAsyncOrderInRocketMqTransaction()) {
+            return;
+        }
+        asyncOrderTransactionMarkerService.save(orderRequest, message);
+    }
+
+    private boolean shouldPublishAsyncOrderInRocketMqTransaction() {
+        return asyncOrderSubmitProperties.isRocketMqPublisherMode()
+                && asyncOrderSubmitProperties.isRocketMqTransactionMessageEnabled();
+    }
+
+    private void ensureAsyncOrderTransactionMarkerAvailable() {
+        if (asyncOrderTransactionMarkerService == null) {
+            throw new IllegalStateException("RocketMQ事务消息需要 AsyncOrderTransactionMarkerService");
+        }
     }
 
     @Override
@@ -1034,9 +1111,20 @@ public class OrderServiceImpl implements OrderService {
      * @param bucketVersion 当前请求进入队列时绑定的库存桶版本。
      * @return Redis库存扣减响应结果（包含扣减状态、命中桶号等信息）
      */
+    private RedisStockDeductPlan buildRedisStockDeductPlan(String requestId,
+                                                           CreateOrderRequest request,
+                                                           Integer bucketVersion) {
+        if (!stockBucketProperties.isEnabled()) {
+            return new RedisStockDeductPlan(bucketVersion, null, null);
+        }
+        int bucketCount = resolveStockBucketCount(request.getTicketCategoryId(), bucketVersion);
+        int initialBucketNo = bucketRouteService.route(requestId, bucketCount);
+        return new RedisStockDeductPlan(bucketVersion, initialBucketNo, bucketCount);
+    }
+
     private RedisStockDeductResponse preDeductRedisStock(String requestId,
                                                         CreateOrderRequest request,
-                                                        Integer bucketVersion) {
+                                                        RedisStockDeductPlan deductPlan) {
 
         // 1. 如果分桶配置关闭，直接回退到单Key使用Lua原子扣减库存。
         if (!stockBucketProperties.isEnabled()) {
@@ -1048,22 +1136,15 @@ public class OrderServiceImpl implements OrderService {
             return new RedisStockDeductResponse(legacyResult, null);
         }
 
-        // 2. 获取当前票档配置的总分桶数。热门活动可在预热时写入 Redis 覆盖值，避免所有票档只能使用同一个静态桶数。
-        // 实现了打散热点！高并发核心
-        int bucketCount = resolveStockBucketCount(request.getTicketCategoryId(), bucketVersion);
-
-        // 3. 分桶路由算法：基于请求ID（或其他分流因子）计算出该订单应该优先尝试扣减的“初始桶号”
-        int initialBucketNo = bucketRouteService.route(requestId, bucketCount);
-
         // 4. 执行分桶 Lua 脚本：从 initialBucketNo 开始只探测 activeProbeCount 个 bucket。
         //    小窗口没命中返回 PROBE_MISS，入口快速失败，不在 Java 层二次重试。
         return stockLuaService.preDeductBucketStock(
                 requestId,
                 request.getTicketCategoryId(),
                 request.getQuantity(),
-                bucketVersion,
-                initialBucketNo,
-                bucketCount,
+                deductPlan.bucketVersion(),
+                deductPlan.initialBucketNo(),
+                deductPlan.bucketCount(),
                 stockBucketProperties.getActiveProbeCount()
         );
     }
@@ -1288,5 +1369,13 @@ public class OrderServiceImpl implements OrderService {
             return;
         }
         asyncOrderRequestResultCacheService.cacheQueuedResult(userId, orderRequestVO);
+    }
+
+    private static class AsyncOrderSubmitState {
+
+        private boolean redisPreDeducted;
+    }
+
+    private record RedisStockDeductPlan(Integer bucketVersion, Integer initialBucketNo, Integer bucketCount) {
     }
 }

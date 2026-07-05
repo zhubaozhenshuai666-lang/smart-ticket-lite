@@ -26,6 +26,7 @@ import com.zewbby.smartticket.mapper.TicketStockMapper;
 import com.zewbby.smartticket.mapper.UserMapper;
 import com.zewbby.smartticket.service.AsyncOrderInFlightService;
 import com.zewbby.smartticket.service.AsyncOrderRequestResultCacheService;
+import com.zewbby.smartticket.service.AsyncOrderTransactionMarkerService;
 import com.zewbby.smartticket.service.DeadLetterMessageService;
 import com.zewbby.smartticket.service.DomainEventPublisher;
 import com.zewbby.smartticket.service.ObservabilityMetricsService;
@@ -89,6 +90,9 @@ public class AsyncCreateOrderConsumer {
 
     @Autowired(required = false)
     private AsyncOrderRequestResultCacheService asyncOrderRequestResultCacheService;
+
+    @Autowired(required = false)
+    private AsyncOrderTransactionMarkerService asyncOrderTransactionMarkerService;
 
     @Autowired(required = false)
     private DomainEventPublisher domainEventPublisher;
@@ -258,6 +262,7 @@ public class AsyncCreateOrderConsumer {
     @MonitoredOperation(value = "async_create_order.consume", slowThresholdMs = 800L)
     @Transactional
     public void consume(AsyncCreateOrderMessage message) {
+        message = enrichAsyncCreateOrderMessage(message);
         LOGGER.info("Received async create order message, requestId={}", message.getRequestId());
 
         //检验message的状态是否合法，抛弃重复,超时消息。不重复加乐观锁后返回对应实体
@@ -396,6 +401,13 @@ public class AsyncCreateOrderConsumer {
                     exception
             );
         }
+    }
+
+    private AsyncCreateOrderMessage enrichAsyncCreateOrderMessage(AsyncCreateOrderMessage message) {
+        if (asyncOrderTransactionMarkerService == null) {
+            return message;
+        }
+        return asyncOrderTransactionMarkerService.enrichMessage(message);
     }
 
     /**
