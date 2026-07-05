@@ -7,7 +7,9 @@ import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.config.MqConsumerProperties;
 import com.zewbby.smartticket.config.StockBucketProperties;
 import com.zewbby.smartticket.domain.dto.ActivityScope;
+import com.zewbby.smartticket.domain.dto.OrderRequestSuccessBind;
 import com.zewbby.smartticket.domain.dto.OrderSnapshot;
+import com.zewbby.smartticket.domain.dto.StockDecreaseCommand;
 import com.zewbby.smartticket.service.StockLuaService;
 import com.zewbby.smartticket.domain.entity.TicketOrder;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
@@ -42,7 +44,14 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Component
@@ -275,12 +284,96 @@ public class AsyncCreateOrderConsumer {
         if (messages == null || messages.isEmpty()) {
             return;
         }
-        LOGGER.info("Received async create order message batch, size={}", messages.size());
+        List<AsyncCreateOrderMessage> batchMessages = prepareBatchMessages(messages);
+        if (batchMessages.isEmpty()) {
+            return;
+        }
+        LOGGER.info("Received async create order message batch, rawSize={}, distinctSize={}",
+                messages.size(), batchMessages.size());
+        consumeBatchWithSql(batchMessages);
+    }
+
+    private List<AsyncCreateOrderMessage> prepareBatchMessages(List<AsyncCreateOrderMessage> messages) {
+        Map<String, AsyncCreateOrderMessage> messageMap = new LinkedHashMap<>();
         for (AsyncCreateOrderMessage message : messages) {
             if (message == null) {
                 continue;
             }
-            consumeOne(enrichAsyncCreateOrderMessage(message));
+            AsyncCreateOrderMessage enrichedMessage = enrichAsyncCreateOrderMessage(message);
+            if (enrichedMessage.getRequestId() == null || enrichedMessage.getRequestId().isBlank()) {
+                throw new ConsumerRetryableException(
+                        ConsumerExceptionTypeEnum.DATA_INCONSISTENCY,
+                        "异步下单批量消息缺少requestId",
+                        new IllegalArgumentException("requestId is blank")
+                );
+            }
+            messageMap.putIfAbsent(enrichedMessage.getRequestId(), enrichedMessage);
+        }
+        return new ArrayList<>(messageMap.values());
+    }
+
+    private void consumeBatchWithSql(List<AsyncCreateOrderMessage> messages) {
+        LocalDateTime claimTime = LocalDateTime.now().withNano(0);
+        List<String> requestIds = messages.stream()
+                .map(AsyncCreateOrderMessage::getRequestId)
+                .toList();
+        List<TicketOrderRequest> queuedRequests = messages.stream()
+                .map(message -> buildQueuedOrderRequest(message, claimTime))
+                .toList();
+
+        orderRequestMapper.insertIgnoreBatch(queuedRequests);
+        orderRequestMapper.tryMarkProcessingBatch(requestIds, claimTime);
+
+        List<TicketOrderRequest> claimedRequests =
+                orderRequestMapper.selectProcessingByRequestIdsForUpdate(requestIds, claimTime);
+        if (claimedRequests == null || claimedRequests.isEmpty()) {
+            consumeUnclaimedMessages(messages, Set.of());
+            return;
+        }
+
+        Map<String, AsyncCreateOrderMessage> messageMap = new HashMap<>();
+        for (AsyncCreateOrderMessage message : messages) {
+            messageMap.put(message.getRequestId(), message);
+        }
+
+        List<BatchOrderCandidate> candidates = new ArrayList<>(claimedRequests.size());
+        for (TicketOrderRequest orderRequest : claimedRequests) {
+            AsyncCreateOrderMessage message = messageMap.get(orderRequest.getRequestId());
+            if (message == null) {
+                continue;
+            }
+            if (!isNormalUser(orderRequest.getUserId())) {
+                throwBatchFallback(message, USER_NOT_FOUND);
+            }
+            OrderSnapshot snapshot = selectOrderSnapshot(orderRequest);
+            if (snapshot == null) {
+                String failReason = existsPublishedRelation(orderRequest)
+                        ? ErrorMessageConstant.TICKET_CATEGORY_NOT_FOUND
+                        : ErrorMessageConstant.SHOW_SESSION_TICKET_CATEGORY_NOT_MATCH;
+                throwBatchFallback(message, failReason);
+            }
+            candidates.add(new BatchOrderCandidate(orderRequest, snapshot));
+        }
+
+        if (!candidates.isEmpty()) {
+            decreaseBatchStock(candidates);
+            insertBatchOrders(candidates);
+            markBatchSuccess(candidates);
+            completeBatchSuccess(candidates);
+        }
+
+        Set<String> claimedRequestIds = new HashSet<>();
+        for (TicketOrderRequest claimedRequest : claimedRequests) {
+            claimedRequestIds.add(claimedRequest.getRequestId());
+        }
+        consumeUnclaimedMessages(messages, claimedRequestIds);
+    }
+
+    private void consumeUnclaimedMessages(List<AsyncCreateOrderMessage> messages, Set<String> claimedRequestIds) {
+        for (AsyncCreateOrderMessage message : messages) {
+            if (!claimedRequestIds.contains(message.getRequestId())) {
+                consumeOne(message);
+            }
         }
     }
 
@@ -552,6 +645,200 @@ public class AsyncCreateOrderConsumer {
         orderRequest.setCreatedAt(now);
         orderRequest.setUpdatedAt(now);
         return orderRequest;
+    }
+
+    private TicketOrderRequest buildQueuedOrderRequest(AsyncCreateOrderMessage message, LocalDateTime now) {
+        TicketOrderRequest orderRequest = buildProcessingOrderRequest(message);
+        orderRequest.setStatus(OrderRequestStatusEnum.QUEUED.getCode());
+        orderRequest.setProcessingAt(null);
+        orderRequest.setCreatedAt(now);
+        orderRequest.setUpdatedAt(now);
+        return orderRequest;
+    }
+
+    private void throwBatchFallback(AsyncCreateOrderMessage message, String reason) {
+        throw new ConsumerRetryableException(
+                ConsumerExceptionTypeEnum.BUSINESS_REJECT,
+                "异步创单批量主路径无法处理，回退单条处理: requestId=" + message.getRequestId() + ", reason=" + reason,
+                new IllegalStateException(reason)
+        );
+    }
+
+    private void decreaseBatchStock(List<BatchOrderCandidate> candidates) {
+        Map<Long, Integer> normalStockGroups = new HashMap<>();
+        Map<BucketStockKey, Integer> bucketStockGroups = new HashMap<>();
+        Map<BucketStockKey, Integer> bucketStockVersionGroups = new HashMap<>();
+
+        for (BatchOrderCandidate candidate : candidates) {
+            TicketOrderRequest request = candidate.orderRequest;
+            if (stockBucketProperties.isEnabled() && request.getStockBucketNo() != null) {
+                BucketStockKey key = new BucketStockKey(
+                        request.getTicketCategoryId(),
+                        request.getStockBucketVersion(),
+                        request.getStockBucketNo()
+                );
+                if (request.getStockBucketVersion() == null) {
+                    bucketStockGroups.merge(key, request.getQuantity(), Integer::sum);
+                } else {
+                    bucketStockVersionGroups.merge(key, request.getQuantity(), Integer::sum);
+                }
+            } else {
+                normalStockGroups.merge(request.getTicketCategoryId(), request.getQuantity(), Integer::sum);
+            }
+        }
+
+        List<StockDecreaseCommand> normalCommands = toNormalStockCommands(normalStockGroups);
+        if (!normalCommands.isEmpty()) {
+            int rows = ticketStockMapper.decreaseStockBatch(normalCommands);
+            assertBatchStockRows(rows, normalCommands.size(), "普通库存");
+        }
+
+        List<StockDecreaseCommand> bucketCommands = toBucketStockCommands(bucketStockGroups);
+        if (!bucketCommands.isEmpty()) {
+            int rows = ticketStockBucketMapper.decreaseStockBatch(bucketCommands);
+            assertBatchStockRows(rows, bucketCommands.size(), "分桶库存");
+        }
+
+        List<StockDecreaseCommand> bucketVersionCommands = toBucketStockCommands(bucketStockVersionGroups);
+        if (!bucketVersionCommands.isEmpty()) {
+            int rows = ticketStockBucketMapper.decreaseStockByVersionBatch(bucketVersionCommands);
+            assertBatchStockRows(rows, bucketVersionCommands.size(), "分桶版本库存");
+        }
+    }
+
+    private List<StockDecreaseCommand> toNormalStockCommands(Map<Long, Integer> stockGroups) {
+        return stockGroups.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> new StockDecreaseCommand(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private List<StockDecreaseCommand> toBucketStockCommands(Map<BucketStockKey, Integer> stockGroups) {
+        return stockGroups.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator
+                        .comparing(BucketStockKey::ticketCategoryId)
+                        .thenComparing(key -> key.bucketVersion() == null ? 0 : key.bucketVersion())
+                        .thenComparing(BucketStockKey::bucketNo)))
+                .map(entry -> new StockDecreaseCommand(
+                        entry.getKey().ticketCategoryId(),
+                        entry.getKey().bucketVersion(),
+                        entry.getKey().bucketNo(),
+                        entry.getValue()
+                ))
+                .toList();
+    }
+
+    private void assertBatchStockRows(int rows, int expectedRows, String stockType) {
+        if (rows != expectedRows) {
+            throw new ConsumerRetryableException(
+                    ConsumerExceptionTypeEnum.BUSINESS_REJECT,
+                    "异步创单批量扣减" + stockType + "失败，回退单条处理",
+                    new IllegalStateException("expectedRows=" + expectedRows + ", actualRows=" + rows)
+            );
+        }
+    }
+
+    private void insertBatchOrders(List<BatchOrderCandidate> candidates) {
+        LocalDateTime now = LocalDateTime.now();
+        List<TicketOrder> orders = new ArrayList<>(candidates.size());
+        for (BatchOrderCandidate candidate : candidates) {
+            TicketOrder order = buildPendingPaymentOrder(candidate.orderRequest, candidate.snapshot, now);
+            candidate.order = order;
+            orders.add(order);
+        }
+
+        int insertRows = orderMapper.insertBatch(orders);
+        if (insertRows != orders.size()) {
+            throw new ConsumerRetryableException(
+                    ConsumerExceptionTypeEnum.UNKNOWN_ERROR,
+                    "异步创单批量插入订单失败",
+                    new IllegalStateException("expectedRows=" + orders.size() + ", actualRows=" + insertRows)
+            );
+        }
+        resolveBatchOrderIds(orders);
+    }
+
+    private TicketOrder buildPendingPaymentOrder(TicketOrderRequest orderRequest,
+                                                 OrderSnapshot snapshot,
+                                                 LocalDateTime now) {
+        TicketOrder order = new TicketOrder();
+        order.setOrderNo(generateOrderNo());
+        order.setUserId(orderRequest.getUserId());
+        order.setShowId(orderRequest.getShowId());
+        order.setSessionId(orderRequest.getSessionId());
+        order.setTicketCategoryId(orderRequest.getTicketCategoryId());
+        order.setQuantity(orderRequest.getQuantity());
+        fillOrderSnapshot(order, snapshot);
+        order.setTotalAmount(calculateTotalAmount(snapshot.getTicketPrice(), orderRequest.getQuantity()));
+        order.setStatus(OrderStatusEnum.PENDING_PAYMENT.getCode());
+        order.setExpireTime(now.plusMinutes(OrderConstant.ORDER_TIMEOUT_MINUTES));
+        order.setPayTime(null);
+        order.setCancelTime(null);
+        order.setCloseTime(null);
+        order.setCancelReason(null);
+        order.setCreatedAt(now);
+        order.setUpdatedAt(now);
+        return order;
+    }
+
+    private void resolveBatchOrderIds(List<TicketOrder> orders) {
+        boolean missingGeneratedId = orders.stream().anyMatch(order -> order.getId() == null);
+        if (missingGeneratedId) {
+            List<String> orderNos = orders.stream()
+                    .map(TicketOrder::getOrderNo)
+                    .toList();
+            List<TicketOrder> savedOrders = orderMapper.selectByOrderNos(orderNos);
+            Map<String, Long> orderIdMap = new HashMap<>();
+            for (TicketOrder savedOrder : savedOrders) {
+                orderIdMap.put(savedOrder.getOrderNo(), savedOrder.getId());
+            }
+            for (TicketOrder order : orders) {
+                if (order.getId() == null) {
+                    order.setId(orderIdMap.get(order.getOrderNo()));
+                }
+            }
+        }
+        for (TicketOrder order : orders) {
+            if (order.getId() == null) {
+                throw new ConsumerRetryableException(
+                        ConsumerExceptionTypeEnum.DATA_INCONSISTENCY,
+                        "异步创单批量插入后无法解析订单ID",
+                        new IllegalStateException("orderNo=" + order.getOrderNo())
+                );
+            }
+        }
+    }
+
+    private void markBatchSuccess(List<BatchOrderCandidate> candidates) {
+        List<OrderRequestSuccessBind> binds = new ArrayList<>(candidates.size());
+        for (BatchOrderCandidate candidate : candidates) {
+            binds.add(new OrderRequestSuccessBind(candidate.orderRequest.getId(), candidate.order.getId()));
+        }
+        int successRows = orderRequestMapper.markSuccessBatch(binds);
+        if (successRows != binds.size()) {
+            throw new ConsumerRetryableException(
+                    ConsumerExceptionTypeEnum.DATA_INCONSISTENCY,
+                    "异步创单批量更新请求成功状态失败",
+                    new IllegalStateException("expectedRows=" + binds.size() + ", actualRows=" + successRows)
+            );
+        }
+    }
+
+    private void completeBatchSuccess(List<BatchOrderCandidate> candidates) {
+        for (BatchOrderCandidate candidate : candidates) {
+            TicketOrderRequest orderRequest = candidate.orderRequest;
+            TicketOrder order = candidate.order;
+            observabilityMetricsService.recordOrderCreated();
+            publishOrderCreatedEvents(order);
+            orderTimeoutProducer.sendOrderTimeoutMessage(buildOrderTimeoutMessage(order));
+            orderRequest.setStatus(OrderRequestStatusEnum.SUCCESS.getCode());
+            orderRequest.setOrderId(order.getId());
+            cacheAsyncOrderResult(orderRequest);
+            releaseAsyncOrderInFlight(orderRequest);
+            observabilityMetricsService.recordAsyncOrderRequestSuccess();
+            LOGGER.info("Batch created order for async request, requestId={}, orderId={}, orderNo={}",
+                    orderRequest.getRequestId(), order.getId(), order.getOrderNo());
+        }
     }
 
     private boolean isNormalUser(Long userId) {
@@ -916,5 +1203,23 @@ public class AsyncCreateOrderConsumer {
      */
     private String generateOrderNo() {
         return "ST" + System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(100000, 1000000);
+    }
+
+    private static class BatchOrderCandidate {
+
+        private final TicketOrderRequest orderRequest;
+
+        private final OrderSnapshot snapshot;
+
+        private TicketOrder order;
+
+        private BatchOrderCandidate(TicketOrderRequest orderRequest,
+                                    OrderSnapshot snapshot) {
+            this.orderRequest = orderRequest;
+            this.snapshot = snapshot;
+        }
+    }
+
+    private record BucketStockKey(Long ticketCategoryId, Integer bucketVersion, Integer bucketNo) {
     }
 }

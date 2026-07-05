@@ -77,6 +77,57 @@
         )
     </insert>
 
+    <insert id="insertBatch"
+            useGeneratedKeys="true"
+            keyProperty="orders.id">
+        INSERT INTO ticket_order (
+            order_no,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            show_title,
+            session_start_time,
+            ticket_category_name,
+            ticket_price,
+            total_amount,
+            status,
+            expire_time,
+            pay_time,
+            cancel_time,
+            close_time,
+            cancel_reason,
+            version,
+            created_at,
+            updated_at
+        ) VALUES
+        <foreach collection="orders" item="order" separator=",">
+            (
+                #{order.orderNo},
+                #{order.userId},
+                #{order.showId},
+                #{order.sessionId},
+                #{order.ticketCategoryId},
+                #{order.quantity},
+                #{order.showTitle},
+                #{order.sessionStartTime},
+                #{order.ticketCategoryName},
+                #{order.ticketPrice},
+                #{order.totalAmount},
+                #{order.status},
+                #{order.expireTime},
+                #{order.payTime},
+                #{order.cancelTime},
+                #{order.closeTime},
+                #{order.cancelReason},
+                COALESCE(#{order.version}, 0),
+                #{order.createdAt},
+                #{order.updatedAt}
+            )
+        </foreach>
+    </insert>
+
     <select id="selectById" parameterType="java.lang.Long" resultMap="TicketOrderResultMap">
         SELECT
             id,
@@ -157,6 +208,36 @@
             updated_at
         FROM ticket_order
         WHERE order_no = #{orderNo}
+    </select>
+
+    <select id="selectByOrderNos" resultMap="TicketOrderResultMap">
+        SELECT
+            id,
+            order_no,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            show_title,
+            session_start_time,
+            ticket_category_name,
+            ticket_price,
+            total_amount,
+            status,
+            expire_time,
+            pay_time,
+            cancel_time,
+            close_time,
+            cancel_reason,
+            version,
+            created_at,
+            updated_at
+        FROM ticket_order
+        WHERE order_no IN
+        <foreach collection="orderNos" item="orderNo" open="(" separator="," close=")">
+            #{orderNo}
+        </foreach>
     </select>
 
     <select id="selectByUserId" parameterType="java.lang.Long" resultMap="TicketOrderResultMap">

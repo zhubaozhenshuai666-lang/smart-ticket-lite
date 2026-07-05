@@ -156,11 +156,72 @@
         )
     </insert>
 
+    <insert id="insertIgnoreBatch">
+        INSERT IGNORE INTO ticket_order_request (
+            request_id,
+            user_id,
+            show_id,
+            session_id,
+            ticket_category_id,
+            quantity,
+            status,
+            order_id,
+            stock_bucket_version,
+            stock_bucket_no,
+            processing_at,
+            redis_deducted,
+            deducted_quantity,
+            deducted_at,
+            compensated,
+            compensation_status,
+            compensated_at,
+            fail_reason,
+            message_id,
+            created_at,
+            updated_at
+        ) VALUES
+        <foreach collection="requests" item="request" separator=",">
+            (
+                #{request.requestId},
+                #{request.userId},
+                #{request.showId},
+                #{request.sessionId},
+                #{request.ticketCategoryId},
+                #{request.quantity},
+                #{request.status},
+                #{request.orderId},
+                COALESCE(#{request.stockBucketVersion}, 1),
+                #{request.stockBucketNo},
+                #{request.processingAt},
+                #{request.redisDeducted},
+                #{request.deductedQuantity},
+                #{request.deductedAt},
+                #{request.compensated},
+                #{request.compensationStatus},
+                #{request.compensatedAt},
+                #{request.failReason},
+                #{request.messageId},
+                #{request.createdAt},
+                #{request.updatedAt}
+            )
+        </foreach>
+    </insert>
+
     <select id="selectByRequestId" resultMap="TicketOrderRequestResultMap">
         SELECT
             <include refid="BaseColumns"/>
         FROM ticket_order_request
         WHERE request_id = #{requestId}
+    </select>
+
+    <select id="selectByRequestIds" resultMap="TicketOrderRequestResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM ticket_order_request
+        WHERE request_id IN
+        <foreach collection="requestIds" item="requestId" open="(" separator="," close=")">
+            #{requestId}
+        </foreach>
     </select>
 
     <select id="selectByRequestIdAndUserId" resultMap="TicketOrderRequestResultMap">
@@ -192,6 +253,19 @@
         FROM ticket_order_request
         WHERE request_id = #{requestId}
           AND status = 'PROCESSING'
+        FOR UPDATE
+    </select>
+
+    <select id="selectProcessingByRequestIdsForUpdate" resultMap="TicketOrderRequestResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM ticket_order_request
+        WHERE request_id IN
+        <foreach collection="requestIds" item="requestId" open="(" separator="," close=")">
+            #{requestId}
+        </foreach>
+          AND status = 'PROCESSING'
+          AND processing_at = #{processingAt}
         FOR UPDATE
     </select>
 
@@ -240,6 +314,19 @@
           AND status IN ('PRE_DEDUCTED', 'QUEUED')
     </update>
 
+    <update id="tryMarkProcessingBatch">
+        UPDATE ticket_order_request
+        SET
+            status = 'PROCESSING',
+            processing_at = #{processingAt},
+            updated_at = #{processingAt}
+        WHERE request_id IN
+        <foreach collection="requestIds" item="requestId" open="(" separator="," close=")">
+            #{requestId}
+        </foreach>
+          AND status IN ('PRE_DEDUCTED', 'QUEUED')
+    </update>
+
     <update id="markSuccess">
         UPDATE ticket_order_request
         SET
@@ -248,6 +335,24 @@
             fail_reason = NULL,
             updated_at = NOW()
         WHERE id = #{id}
+          AND status = 'PROCESSING'
+    </update>
+
+    <update id="markSuccessBatch">
+        UPDATE ticket_order_request
+        SET
+            status = 'SUCCESS',
+            order_id = CASE id
+            <foreach collection="binds" item="bind">
+                WHEN #{bind.requestDbId} THEN #{bind.orderId}
+            </foreach>
+            END,
+            fail_reason = NULL,
+            updated_at = NOW()
+        WHERE id IN
+        <foreach collection="binds" item="bind" open="(" separator="," close=")">
+            #{bind.requestDbId}
+        </foreach>
           AND status = 'PROCESSING'
     </update>
 

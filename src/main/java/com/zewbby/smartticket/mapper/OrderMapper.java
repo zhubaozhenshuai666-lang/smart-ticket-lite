@@ -10,11 +10,15 @@ public interface OrderMapper {
 
     int insert(TicketOrder order);
 
+    int insertBatch(@Param("orders") List<TicketOrder> orders);
+
     TicketOrder selectById(Long id);
 
     TicketOrder selectByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
 
     TicketOrder selectByOrderNo(String orderNo);
+
+    List<TicketOrder> selectByOrderNos(@Param("orderNos") List<String> orderNos);
 
     List<TicketOrder> selectByUserId(Long userId);
 

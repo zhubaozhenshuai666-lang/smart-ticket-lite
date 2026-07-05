@@ -173,6 +173,35 @@
           AND available_stock &gt;= #{quantity}
     </update>
 
+    <update id="decreaseStockBatch">
+        UPDATE ticket_stock_bucket
+        SET
+            available_stock = available_stock - CASE
+            <foreach collection="items" item="item">
+                WHEN ticket_category_id = #{item.ticketCategoryId}
+                  AND bucket_no = #{item.bucketNo}
+                THEN #{item.quantity}
+            </foreach>
+            ELSE 0 END,
+            locked_stock = locked_stock + CASE
+            <foreach collection="items" item="item">
+                WHEN ticket_category_id = #{item.ticketCategoryId}
+                  AND bucket_no = #{item.bucketNo}
+                THEN #{item.quantity}
+            </foreach>
+            ELSE 0 END,
+            version = version + 1,
+            updated_at = NOW()
+        WHERE
+        <foreach collection="items" item="item" separator=" OR ">
+            (
+                ticket_category_id = #{item.ticketCategoryId}
+                AND bucket_no = #{item.bucketNo}
+                AND available_stock &gt;= #{item.quantity}
+            )
+        </foreach>
+    </update>
+
     <update id="decreaseStockByVersion">
         UPDATE ticket_stock_bucket
         SET
@@ -184,6 +213,38 @@
           AND bucket_version = #{bucketVersion}
           AND bucket_no = #{bucketNo}
           AND available_stock &gt;= #{quantity}
+    </update>
+
+    <update id="decreaseStockByVersionBatch">
+        UPDATE ticket_stock_bucket
+        SET
+            available_stock = available_stock - CASE
+            <foreach collection="items" item="item">
+                WHEN ticket_category_id = #{item.ticketCategoryId}
+                  AND bucket_version = #{item.bucketVersion}
+                  AND bucket_no = #{item.bucketNo}
+                THEN #{item.quantity}
+            </foreach>
+            ELSE 0 END,
+            locked_stock = locked_stock + CASE
+            <foreach collection="items" item="item">
+                WHEN ticket_category_id = #{item.ticketCategoryId}
+                  AND bucket_version = #{item.bucketVersion}
+                  AND bucket_no = #{item.bucketNo}
+                THEN #{item.quantity}
+            </foreach>
+            ELSE 0 END,
+            version = version + 1,
+            updated_at = NOW()
+        WHERE
+        <foreach collection="items" item="item" separator=" OR ">
+            (
+                ticket_category_id = #{item.ticketCategoryId}
+                AND bucket_version = #{item.bucketVersion}
+                AND bucket_no = #{item.bucketNo}
+                AND available_stock &gt;= #{item.quantity}
+            )
+        </foreach>
     </update>
 
     <update id="rollbackStock">

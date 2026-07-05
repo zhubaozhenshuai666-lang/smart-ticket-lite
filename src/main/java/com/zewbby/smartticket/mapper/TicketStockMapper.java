@@ -1,5 +1,6 @@
 package com.zewbby.smartticket.mapper;
 
+import com.zewbby.smartticket.domain.dto.StockDecreaseCommand;
 import com.zewbby.smartticket.domain.entity.TicketStock;
 import org.apache.ibatis.annotations.Param;
 
@@ -22,6 +23,8 @@ public interface TicketStockMapper {
                              @Param("adjustQuantity") Integer adjustQuantity);
 
     int decreaseStock(@Param("ticketCategoryId") Long ticketCategoryId, @Param("quantity") Integer quantity);
+
+    int decreaseStockBatch(@Param("items") List<StockDecreaseCommand> items);
 
     int rollbackStock(@Param("ticketCategoryId") Long ticketCategoryId, @Param("quantity") Integer quantity);
 

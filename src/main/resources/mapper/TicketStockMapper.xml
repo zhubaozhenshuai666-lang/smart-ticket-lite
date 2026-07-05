@@ -127,6 +127,32 @@
           AND available_stock >= #{quantity}
     </update>
 
+    <update id="decreaseStockBatch">
+        UPDATE ticket_stock
+        SET
+            available_stock = available_stock - CASE ticket_category_id
+            <foreach collection="items" item="item">
+                WHEN #{item.ticketCategoryId} THEN #{item.quantity}
+            </foreach>
+            ELSE 0 END,
+            locked_stock = locked_stock + CASE ticket_category_id
+            <foreach collection="items" item="item">
+                WHEN #{item.ticketCategoryId} THEN #{item.quantity}
+            </foreach>
+            ELSE 0 END,
+            version = version + 1,
+            updated_at = NOW()
+        WHERE ticket_category_id IN
+        <foreach collection="items" item="item" open="(" separator="," close=")">
+            #{item.ticketCategoryId}
+        </foreach>
+          AND available_stock &gt;= CASE ticket_category_id
+          <foreach collection="items" item="item">
+              WHEN #{item.ticketCategoryId} THEN #{item.quantity}
+          </foreach>
+          ELSE 0 END
+    </update>
+
     <update id="rollbackStock">
         UPDATE ticket_stock
         SET

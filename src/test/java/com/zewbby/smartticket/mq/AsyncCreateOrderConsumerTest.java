@@ -5,7 +5,9 @@ import com.zewbby.smartticket.constant.OrderConstant;
 import com.zewbby.smartticket.config.AsyncOrderSubmitProperties;
 import com.zewbby.smartticket.config.MqConsumerProperties;
 import com.zewbby.smartticket.config.StockBucketProperties;
+import com.zewbby.smartticket.domain.dto.OrderRequestSuccessBind;
 import com.zewbby.smartticket.domain.dto.OrderSnapshot;
+import com.zewbby.smartticket.domain.dto.StockDecreaseCommand;
 import com.zewbby.smartticket.domain.entity.TicketOrder;
 import com.zewbby.smartticket.domain.entity.TicketOrderRequest;
 import com.zewbby.smartticket.domain.entity.UserAccount;
@@ -37,13 +39,17 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -153,6 +159,110 @@ class AsyncCreateOrderConsumerTest {
         assertThat(timeoutCaptor.getValue().getExpireTime()).isEqualTo(createdOrder.getExpireTime());
         assertThat(timeoutCaptor.getValue().getTraceId()).isEqualTo("order-timeout-200");
         verify(orderRequestMapper).markSuccess(10L, 200L);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void consumeBatchUsesBatchSqlForValidMessages() {
+        TicketOrderRequest firstRequest = processingRequest();
+        TicketOrderRequest secondRequest = processingRequest("REQ2", 11L);
+        when(orderRequestMapper.insertIgnoreBatch(anyList())).thenReturn(0);
+        when(orderRequestMapper.tryMarkProcessingBatch(anyList(), any())).thenReturn(2);
+        when(orderRequestMapper.selectProcessingByRequestIdsForUpdate(anyList(), any()))
+                .thenReturn(List.of(firstRequest, secondRequest));
+        when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
+        when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
+        when(ticketStockMapper.decreaseStockBatch(anyList())).thenReturn(1);
+        when(orderMapper.insertBatch(anyList())).thenAnswer(invocation -> {
+            List<TicketOrder> orders = invocation.getArgument(0);
+            orders.get(0).setId(201L);
+            orders.get(1).setId(202L);
+            return 2;
+        });
+        when(orderRequestMapper.markSuccessBatch(anyList())).thenReturn(2);
+
+        consumer.consumeBatch(List.of(
+                new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1),
+                new AsyncCreateOrderMessage("REQ2", 1L, 1L, 1L, 2L, 1)
+        ));
+
+        ArgumentCaptor<List<StockDecreaseCommand>> stockCaptor = ArgumentCaptor.forClass(List.class);
+        verify(ticketStockMapper).decreaseStockBatch(stockCaptor.capture());
+        assertThat(stockCaptor.getValue()).hasSize(1);
+        assertThat(stockCaptor.getValue().get(0).getTicketCategoryId()).isEqualTo(2L);
+        assertThat(stockCaptor.getValue().get(0).getQuantity()).isEqualTo(2);
+
+        ArgumentCaptor<List<TicketOrder>> orderCaptor = ArgumentCaptor.forClass(List.class);
+        verify(orderMapper).insertBatch(orderCaptor.capture());
+        assertThat(orderCaptor.getValue()).hasSize(2);
+        assertThat(orderCaptor.getValue())
+                .extracting(TicketOrder::getStatus)
+                .containsOnly(OrderStatusEnum.PENDING_PAYMENT.getCode());
+        verify(orderMapper, never()).insert(any(TicketOrder.class));
+
+        ArgumentCaptor<List<OrderRequestSuccessBind>> bindCaptor = ArgumentCaptor.forClass(List.class);
+        verify(orderRequestMapper).markSuccessBatch(bindCaptor.capture());
+        assertThat(bindCaptor.getValue()).hasSize(2);
+        assertThat(bindCaptor.getValue())
+                .extracting(OrderRequestSuccessBind::getRequestDbId)
+                .containsExactlyInAnyOrder(10L, 11L);
+        assertThat(bindCaptor.getValue())
+                .extracting(OrderRequestSuccessBind::getOrderId)
+                .containsExactlyInAnyOrder(201L, 202L);
+        verify(orderTimeoutProducer, times(2)).sendOrderTimeoutMessage(any(OrderTimeoutMessage.class));
+    }
+
+    @Test
+    void consumeBatchFallsBackWhenBatchStockIsNotEnough() {
+        TicketOrderRequest firstRequest = processingRequest();
+        TicketOrderRequest secondRequest = processingRequest("REQ2", 11L);
+        when(orderRequestMapper.insertIgnoreBatch(anyList())).thenReturn(0);
+        when(orderRequestMapper.tryMarkProcessingBatch(anyList(), any())).thenReturn(2);
+        when(orderRequestMapper.selectProcessingByRequestIdsForUpdate(anyList(), any()))
+                .thenReturn(List.of(firstRequest, secondRequest));
+        when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
+        when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
+        when(ticketStockMapper.decreaseStockBatch(anyList())).thenReturn(0);
+
+        assertThatThrownBy(() -> consumer.consumeBatch(List.of(
+                new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1),
+                new AsyncCreateOrderMessage("REQ2", 1L, 1L, 1L, 2L, 1)
+        )))
+                .isInstanceOf(ConsumerRetryableException.class)
+                .hasMessageContaining("批量扣减普通库存失败");
+
+        verify(orderMapper, never()).insertBatch(anyList());
+        verify(orderRequestMapper, never()).markSuccessBatch(anyList());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void consumeBatchResolvesOrderIdsByOrderNoWhenDriverDoesNotReturnGeneratedKeys() {
+        TicketOrderRequest processing = processingRequest();
+        when(orderRequestMapper.insertIgnoreBatch(anyList())).thenReturn(0);
+        when(orderRequestMapper.tryMarkProcessingBatch(anyList(), any())).thenReturn(1);
+        when(orderRequestMapper.selectProcessingByRequestIdsForUpdate(anyList(), any()))
+                .thenReturn(List.of(processing));
+        when(userMapper.selectById(1L)).thenReturn(new UserAccount(1L, "tester", "13800000001", "encoded", "NORMAL", "USER", null, null));
+        when(ticketCategoryMapper.selectOrderSnapshot(1L, 1L, 2L)).thenReturn(orderSnapshot());
+        when(ticketStockMapper.decreaseStockBatch(anyList())).thenReturn(1);
+        when(orderMapper.insertBatch(anyList())).thenReturn(1);
+        when(orderMapper.selectByOrderNos(anyList())).thenAnswer(invocation -> {
+            List<String> orderNos = invocation.getArgument(0);
+            TicketOrder savedOrder = new TicketOrder();
+            savedOrder.setId(300L);
+            savedOrder.setOrderNo(orderNos.get(0));
+            return List.of(savedOrder);
+        });
+        when(orderRequestMapper.markSuccessBatch(anyList())).thenReturn(1);
+
+        consumer.consumeBatch(List.of(new AsyncCreateOrderMessage("REQ1", 1L, 1L, 1L, 2L, 1)));
+
+        ArgumentCaptor<List<OrderRequestSuccessBind>> bindCaptor = ArgumentCaptor.forClass(List.class);
+        verify(orderRequestMapper).markSuccessBatch(bindCaptor.capture());
+        assertThat(bindCaptor.getValue()).hasSize(1);
+        assertThat(bindCaptor.getValue().get(0).getRequestDbId()).isEqualTo(10L);
+        assertThat(bindCaptor.getValue().get(0).getOrderId()).isEqualTo(300L);
     }
 
     @Test
@@ -487,7 +597,13 @@ class AsyncCreateOrderConsumerTest {
     }
 
     private TicketOrderRequest processingRequest() {
+        return processingRequest("REQ1", 10L);
+    }
+
+    private TicketOrderRequest processingRequest(String requestId, Long id) {
         TicketOrderRequest request = baseRequest();
+        request.setId(id);
+        request.setRequestId(requestId);
         request.setStatus(OrderRequestStatusEnum.PROCESSING.getCode());
         request.setRedisDeducted(true);
         request.setDeductedQuantity(1);
