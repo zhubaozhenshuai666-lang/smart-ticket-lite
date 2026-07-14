@@ -48,4 +48,5 @@ ALTER TABLE ticket_order
 ALTER TABLE local_message
     ADD UNIQUE KEY uk_local_message_message_id (message_id),
     ADD KEY idx_local_message_status_updated_at (status, updated_at),
+    ADD KEY idx_local_message_publish_scan (status, next_retry_time, created_at),
     ADD KEY idx_local_message_business (business_type, business_key);

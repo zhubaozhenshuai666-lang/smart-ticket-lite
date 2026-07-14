@@ -17,6 +17,7 @@ import com.zewbby.smartticket.mq.OrderTimeoutMessage;
 import com.zewbby.smartticket.service.AsyncOrderPartitionService;
 import com.zewbby.smartticket.service.LocalMessageService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -160,6 +161,31 @@ public class LocalMessageServiceImpl implements LocalMessageService {
     @Override
     public List<LocalMessage> selectPublishableMessages(LocalDateTime now, Integer limit) {
         return localMessageMapper.selectPublishableMessages(now, limit);
+    }
+
+    /**
+     * 以数据库行锁批量领取待投递消息。多实例发送器会跳过其他实例已锁定的行，
+     * 将原本每条消息一次条件更新的竞争收敛为一次短事务和一次批量更新。
+     */
+    @Override
+    @Transactional
+    public List<LocalMessage> claimPublishableMessages(LocalDateTime now, Integer limit) {
+        List<LocalMessage> messages = localMessageMapper.selectPublishableMessagesForUpdate(now, limit);
+        if (messages == null || messages.isEmpty()) {
+            return List.of();
+        }
+        List<Long> ids = messages.stream()
+                .map(LocalMessage::getId)
+                .toList();
+        if (ids.stream().anyMatch(id -> id == null)) {
+            throw new BusinessException("待发送本地消息缺少主键");
+        }
+        int updatedRows = localMessageMapper.markSendingBatch(ids);
+        if (updatedRows != messages.size()) {
+            throw new BusinessException("批量领取本地消息失败");
+        }
+        messages.forEach(message -> message.setStatus(LocalMessageStatusEnum.SENDING.getCode()));
+        return messages;
     }
 
     /**

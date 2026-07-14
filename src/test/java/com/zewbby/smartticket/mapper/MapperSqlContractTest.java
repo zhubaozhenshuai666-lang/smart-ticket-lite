@@ -233,7 +233,11 @@ class MapperSqlContractTest {
         assertThat(schema).contains("returned_at DATETIME NULL");
         assertThat(schema).contains("dead_at DATETIME NULL");
         assertThat(schema).contains("KEY idx_status_updated_at (status, updated_at)");
+        assertThat(schema).contains("KEY idx_local_message_publish_scan (status, next_retry_time, created_at)");
         assertThat(localMessageXml).contains("status IN ('INIT', 'FAILED')");
+        assertThat(localMessageXml).contains("<select id=\"selectPublishableMessagesForUpdate\"");
+        assertThat(localMessageXml).contains("FOR UPDATE SKIP LOCKED");
+        assertThat(localMessageXml).contains("<update id=\"markSendingBatch\"");
         assertThat(localMessageXml).contains("<update id=\"tryMarkSending\">");
         assertThat(localMessageXml).contains("status = 'SENDING'");
         assertThat(localMessageXml).contains("status = 'CONFIRMED'");

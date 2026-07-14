@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -164,6 +165,24 @@ class LocalMessageServiceImplTest {
         localMessageService.markConfirmed("MSG1");
 
         verify(localMessageMapper).markConfirmed(anyString(), any(LocalDateTime.class));
+    }
+
+    @Test
+    void claimPublishableMessagesMarksTheLockedBatchAsSending() {
+        LocalMessage first = localMessage(0);
+        LocalMessage second = localMessage(0);
+        second.setId(2L);
+        second.setMessageId("MSG2");
+        when(localMessageMapper.selectPublishableMessagesForUpdate(any(LocalDateTime.class), any()))
+                .thenReturn(List.of(first, second));
+        when(localMessageMapper.markSendingBatch(List.of(1L, 2L))).thenReturn(2);
+
+        List<LocalMessage> claimed = localMessageService.claimPublishableMessages(LocalDateTime.now(), 100);
+
+        assertThat(claimed).containsExactly(first, second);
+        assertThat(claimed).extracting(LocalMessage::getStatus)
+                .containsOnly(LocalMessageStatusEnum.SENDING.getCode());
+        verify(localMessageMapper).markSendingBatch(List.of(1L, 2L));
     }
 
     private LocalMessage localMessage(Integer retryCount) {

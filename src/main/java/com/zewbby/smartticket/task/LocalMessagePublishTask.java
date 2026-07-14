@@ -49,8 +49,8 @@ public class LocalMessagePublishTask {
      * INIT 表示业务事务已经提交了“必须发送这条消息”的意图；FAILED 表示上一次发送、nack、return 或 confirm timeout 后可以重试。
      * retry_count、max_retry_count、next_retry_time 控制重试次数和退避时间，避免 Kafka 不可用时无限打爆数据库和 MQ。
      *
-     * 多实例部署时，多个发送器可能扫描到同一批消息。真正的并发保护不靠 Java if，而靠 tryMarkSending 的 SQL 条件更新：
-     * 只有抢到 SENDING 的实例才允许发送，抢占失败说明别的实例已经在处理。
+     * 多实例部署时，发送器通过 FOR UPDATE SKIP LOCKED 跳过其他实例已锁定的行，
+     * 再把当前批次一次性更新为 SENDING；因此同一消息只会由一个实例领取。
      */
     @Scheduled(fixedDelay = 3000)
     @MonitoredOperation(value = "local_message.publish_pending", slowThresholdMs = 1000L)
@@ -59,19 +59,13 @@ public class LocalMessagePublishTask {
         if (!localMessageProperties.isSenderEnabled()) {
             return;
         }
-        // 捞出那些到达了执行时间、状态为 INIT 或 FAILED 的消息
-        List<LocalMessage> messages = localMessageService.selectPublishableMessages(
+        // 在一个短事务中锁定并领取待投递消息，避免多个实例重复扫描后逐条竞争。
+        List<LocalMessage> messages = localMessageService.claimPublishableMessages(
                 LocalDateTime.now(),
                 localMessageProperties.getBatchSize()
         );
         for (LocalMessage message : messages) {
-            // 查数据库取对应的message 用行锁实现去重
-            if (!localMessageService.tryMarkSending(message)) {
-                LOGGER.debug("Skipped local message because another sender claimed it, messageId={}",
-                        message.getMessageId());
-                continue;
-            }
-            //发送消息
+            // 消息已由批量领取操作原子地标记为 SENDING，直接异步发送。
             publishOne(message);
         }
     }

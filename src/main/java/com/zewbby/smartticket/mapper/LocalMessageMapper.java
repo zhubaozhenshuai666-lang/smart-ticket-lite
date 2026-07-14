@@ -14,6 +14,11 @@ public interface LocalMessageMapper {
 
     List<LocalMessage> selectPublishableMessages(@Param("now") LocalDateTime now, @Param("limit") Integer limit);
 
+    List<LocalMessage> selectPublishableMessagesForUpdate(@Param("now") LocalDateTime now,
+                                                           @Param("limit") Integer limit);
+
+    int markSendingBatch(@Param("ids") List<Long> ids);
+
     int tryMarkSending(@Param("id") Long id);
 
     int markSent(@Param("id") Long id, @Param("sentAt") LocalDateTime sentAt);

@@ -23,6 +23,8 @@ public interface LocalMessageService {
 
     List<LocalMessage> selectPublishableMessages(LocalDateTime now, Integer limit);
 
+    List<LocalMessage> claimPublishableMessages(LocalDateTime now, Integer limit);
+
     boolean tryMarkSending(LocalMessage message);
 
     void markSent(Long id);

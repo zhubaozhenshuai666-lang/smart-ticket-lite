@@ -185,6 +185,7 @@ CREATE TABLE local_message (
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_local_message_message_id (message_id),
     KEY idx_status_updated_at (status, updated_at),
+    KEY idx_local_message_publish_scan (status, next_retry_time, created_at),
     KEY idx_local_message_business (business_type, business_key)
 );
 

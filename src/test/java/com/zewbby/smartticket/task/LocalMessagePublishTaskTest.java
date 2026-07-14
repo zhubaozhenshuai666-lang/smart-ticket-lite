@@ -55,11 +55,10 @@ class LocalMessagePublishTaskTest {
     }
 
     @Test
-    void senderScansInitOrFailedMessagesClaimsAndSends() {
+    void senderClaimsAndSendsPublishableMessages() {
         LocalMessage message = localMessage();
-        when(localMessageService.selectPublishableMessages(any(LocalDateTime.class), eq(100)))
+        when(localMessageService.claimPublishableMessages(any(LocalDateTime.class), eq(100)))
                 .thenReturn(List.of(message));
-        when(localMessageService.tryMarkSending(message)).thenReturn(true);
 
         publishTask.publishPendingMessages();
 
@@ -71,9 +70,8 @@ class LocalMessagePublishTaskTest {
     @Test
     void senderCanPublishOrderTimeoutCloseMessageThroughOutbox() {
         LocalMessage message = timeoutLocalMessage();
-        when(localMessageService.selectPublishableMessages(any(LocalDateTime.class), eq(100)))
+        when(localMessageService.claimPublishableMessages(any(LocalDateTime.class), eq(100)))
                 .thenReturn(List.of(message));
-        when(localMessageService.tryMarkSending(message)).thenReturn(true);
 
         publishTask.publishPendingMessages();
 
@@ -85,9 +83,8 @@ class LocalMessagePublishTaskTest {
     @Test
     void senderCanPublishOrderCreatedDomainEventThroughOutbox() {
         LocalMessage message = orderCreatedEventMessage();
-        when(localMessageService.selectPublishableMessages(any(LocalDateTime.class), eq(100)))
+        when(localMessageService.claimPublishableMessages(any(LocalDateTime.class), eq(100)))
                 .thenReturn(List.of(message));
-        when(localMessageService.tryMarkSending(message)).thenReturn(true);
 
         publishTask.publishPendingMessages();
 
@@ -121,11 +118,9 @@ class LocalMessagePublishTaskTest {
     }
 
     @Test
-    void senderSkipsWhenConditionalClaimFails() {
-        LocalMessage message = localMessage();
-        when(localMessageService.selectPublishableMessages(any(LocalDateTime.class), eq(100)))
-                .thenReturn(List.of(message));
-        when(localMessageService.tryMarkSending(message)).thenReturn(false);
+    void senderSkipsWhenNoMessageIsClaimed() {
+        when(localMessageService.claimPublishableMessages(any(LocalDateTime.class), eq(100)))
+                .thenReturn(List.of());
 
         publishTask.publishPendingMessages();
 

@@ -107,6 +107,34 @@
         LIMIT #{limit}
     </select>
 
+    <select id="selectPublishableMessagesForUpdate" resultMap="LocalMessageResultMap">
+        SELECT
+            <include refid="BaseColumns"/>
+        FROM local_message
+        WHERE (
+                (status = 'INIT' AND next_retry_time IS NULL)
+                OR (status = 'FAILED' AND (next_retry_time IS NULL OR next_retry_time &lt;= #{now}))
+              )
+          AND retry_count &lt; max_retry_count
+        ORDER BY created_at ASC
+        LIMIT #{limit}
+        FOR UPDATE SKIP LOCKED
+    </select>
+
+    <update id="markSendingBatch">
+        UPDATE local_message
+        SET
+            status = 'SENDING',
+            updated_at = NOW()
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+          AND status IN ('INIT', 'FAILED')
+          AND retry_count &lt; max_retry_count
+          AND (next_retry_time IS NULL OR next_retry_time &lt;= NOW())
+    </update>
+
     <update id="tryMarkSending">
         UPDATE local_message
         SET
