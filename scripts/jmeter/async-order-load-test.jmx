@@ -23,7 +23,7 @@
           </elementProp>
           <elementProp name="poll_result" elementType="Argument">
             <stringProp name="Argument.name">poll_result</stringProp>
-            <stringProp name="Argument.value">${__P(poll_result,true)}</stringProp>
+            <stringProp name="Argument.value">${__P(poll_result,false)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
           <elementProp name="poll_max_attempts" elementType="Argument">
@@ -128,9 +128,9 @@
         </hashTree>
       </hashTree>
       <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="异步下单压测线程组">
-        <stringProp name="ThreadGroup.num_threads">${__P(threads,10)}</stringProp>
-        <stringProp name="ThreadGroup.ramp_time">${__P(ramp_seconds,10)}</stringProp>
-        <stringProp name="ThreadGroup.duration">${__P(duration_seconds,60)}</stringProp>
+        <stringProp name="ThreadGroup.num_threads">${__P(threads,100)}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${__P(ramp_seconds,1)}</stringProp>
+        <stringProp name="ThreadGroup.duration">${__P(duration_seconds,30)}</stringProp>
         <longProp name="ThreadGroup.delay">0</longProp>
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
         <boolProp name="ThreadGroup.scheduler">true</boolProp>
@@ -141,7 +141,7 @@
         </elementProp>
       </ThreadGroup>
       <hashTree>
-        <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="用户与票档 CSV">
+        <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="用户与票档 CSV" enabled="true">
           <stringProp name="delimiter">,</stringProp>
           <stringProp name="fileEncoding">UTF-8</stringProp>
           <stringProp name="filename">${data_file}</stringProp>
@@ -153,7 +153,7 @@
           <stringProp name="variableNames">authToken,showId,sessionId,ticketCategoryId,quantity,admissionToken</stringProp>
         </CSVDataSet>
         <hashTree/>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="01 获取下单幂等 Token">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="01 获取下单幂等 Token" enabled="true">
           <stringProp name="HTTPSampler.path">${base_url}/api/orders/idempotency-token</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
           <stringProp name="HTTPSampler.method">GET</stringProp>
@@ -164,7 +164,7 @@
           </elementProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="用户 Authorization">
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="用户 Authorization" enabled="true">
             <collectionProp name="HeaderManager.headers">
               <elementProp name="" elementType="Header">
                 <stringProp name="Header.name">Authorization</stringProp>
@@ -173,16 +173,16 @@
             </collectionProp>
           </HeaderManager>
           <hashTree/>
-          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取幂等 Token">
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取幂等 Token" enabled="true">
             <stringProp name="JSONPostProcessor.referenceNames">idempotencyToken</stringProp>
             <stringProp name="JSONPostProcessor.jsonPathExprs">$.data.token</stringProp>
             <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
             <stringProp name="JSONPostProcessor.defaultValues">TOKEN_NOT_FOUND</stringProp>
           </JSONPostProcessor>
           <hashTree/>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="幂等 Token 接口成功">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="幂等 Token 接口成功" enabled="true">
             <collectionProp name="Asserion.test_strings">
-              <stringProp name="67791721">&quot;code&quot;:0</stringProp>
+              <stringProp name="-1867169789">success</stringProp>
             </collectionProp>
             <stringProp name="Assertion.custom_message">获取幂等 Token 失败</stringProp>
             <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
@@ -191,7 +191,7 @@
           </ResponseAssertion>
           <hashTree/>
         </hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="02 提交异步下单请求">
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="02 提交异步下单请求" enabled="true">
           <stringProp name="HTTPSampler.path">${base_url}/api/orders/async</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
           <stringProp name="HTTPSampler.method">POST</stringProp>
@@ -208,12 +208,12 @@
           </elementProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <ConstantThroughputTimer guiclass="TestBeanGUI" testclass="ConstantThroughputTimer" testname="目标入口吞吐控制">
-            <stringProp name="throughput">${__P(target_qpm,600)}</stringProp>
+          <ConstantThroughputTimer guiclass="TestBeanGUI" testclass="ConstantThroughputTimer" testname="目标入口吞吐控制" enabled="true">
+            <stringProp name="throughput">${__P(target_qpm,16500)}</stringProp>
             <intProp name="calcMode">1</intProp>
           </ConstantThroughputTimer>
           <hashTree/>
-          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="提交请求头">
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="提交请求头" enabled="true">
             <collectionProp name="HeaderManager.headers">
               <elementProp name="" elementType="Header">
                 <stringProp name="Header.name">Authorization</stringProp>
@@ -226,7 +226,7 @@
             </collectionProp>
           </HeaderManager>
           <hashTree/>
-          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取 requestId">
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="提取 requestId" enabled="true">
             <stringProp name="JSONPostProcessor.referenceNames">requestId</stringProp>
             <stringProp name="JSONPostProcessor.jsonPathExprs">$.data.requestId</stringProp>
             <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
@@ -234,7 +234,7 @@
           <hashTree/>
           <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="异步提交成功" enabled="true">
             <collectionProp name="Asserion.test_strings">
-              <stringProp name="67791721">&quot;code&quot;:0</stringProp>
+              <stringProp name="-1867169789">success</stringProp>
             </collectionProp>
             <stringProp name="Assertion.custom_message">异步提交失败，检查限流、等待室、库存或幂等 Token</stringProp>
             <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
@@ -253,7 +253,7 @@ vars.put(&apos;orderRequestStatus&apos;, &apos;&apos;)</stringProp>
           </JSR223PostProcessor>
           <hashTree/>
         </hashTree>
-        <WhileController guiclass="WhileControllerGui" testclass="WhileController" testname="03 轮询 Kafka 创单结果">
+        <WhileController guiclass="WhileControllerGui" testclass="WhileController" testname="03 轮询 Kafka 创单结果" enabled="true">
           <stringProp name="WhileController.condition">${__groovy(vars.get(&apos;poll_result&apos;) == &apos;true&apos; &amp;&amp; vars.get(&apos;requestId&apos;) != null &amp;&amp; vars.get(&apos;requestId&apos;) != &apos;&apos; &amp;&amp; vars.getObject(&apos;pollDone&apos;) != true &amp;&amp; ((vars.getObject(&apos;pollCount&apos;) ?: 0) as int) &lt; Integer.parseInt(vars.get(&apos;poll_max_attempts&apos;) ?: &apos;20&apos;))}</stringProp>
         </WhileController>
         <hashTree>
@@ -328,7 +328,7 @@ if (status == &apos;FAILED&apos; || status == &apos;COMPENSATED&apos; || status 
           </hashTree>
         </hashTree>
       </hashTree>
-      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="汇总报告">
+      <ResultCollector guiclass="SummaryReport" testclass="ResultCollector" testname="汇总报告" enabled="true">
         <boolProp name="ResultCollector.error_logging">false</boolProp>
         <objProp>
           <name>saveConfig</name>
@@ -365,7 +365,7 @@ if (status == &apos;FAILED&apos; || status == &apos;COMPENSATED&apos; || status 
         <stringProp name="filename">/tmp/smart-ticket-jmeter-gui-result.jtl</stringProp>
       </ResultCollector>
       <hashTree/>
-      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="View Results Tree">
+      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="View Results Tree" enabled="true">
         <boolProp name="ResultCollector.error_logging">false</boolProp>
         <objProp>
           <name>saveConfig</name>

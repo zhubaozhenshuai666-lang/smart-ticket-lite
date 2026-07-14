@@ -202,10 +202,13 @@ public class RateLimitService {
                                               String apiName,
                                               String activityScopeKey,
                                               Long ticketCategoryId) {
+        //如果本地消息表太多了就返回false并且记录一下
         if (isBackpressureRejected()) {
+            //记录一次限流/拒绝指标，方便监控。
             observabilityMetricsService.recordRateLimitRejected();
             return false;
         }
+
         return tryAcquireMultiTokenBuckets(
                 List.of(
                         RedisKeyConstant.orderRateLimitUserKey(userId),
@@ -216,6 +219,11 @@ public class RateLimitService {
                 ),
                 List.of(
                         new TokenBucketSpec(
+                                /**
+                                 * capacity：桶最大容量
+                                 * refillRatePerSecond：每秒补多少令牌
+                                 * requestedTokens：本次请求要消耗几个令牌
+                                 */
                                 rateLimitProperties.getOrderUserCapacity(),
                                 rateLimitProperties.getOrderUserRefillRatePerSecond(),
                                 REQUESTED_TOKENS_PER_ORDER
@@ -317,25 +325,38 @@ public class RateLimitService {
         return rateLimitProperties.getSoldoutTtlSeconds();
     }
 
+    /**
+     * 判断系统后面的本地消息表积压是否太多；如果太多，就反压拒绝新的下单请求。
+     * 作用：保护下游消息系统。local_message 积压太多时，入口主动拒绝新下单，防止系统越堆越炸。
+     * @return
+     */
     private boolean isBackpressureRejected() {
         if (!rateLimitProperties.isBackpressureEnabled() || localMessageService == null) {
             return false;
         }
         long now = System.currentTimeMillis();
+        //时间间隔小于规定间隔时间就用上次检查的结果
         if (now - lastBackpressureCheckAt < rateLimitProperties.getBackpressureSampleIntervalMillis()) {
             return lastBackpressureRejected;
         }
+
+
         synchronized (this) {
             now = System.currentTimeMillis();
+            //重复采样
             if (now - lastBackpressureCheckAt < rateLimitProperties.getBackpressureSampleIntervalMillis()) {
                 return lastBackpressureRejected;
             }
+
             try {
+                //统计本地localMsesage数量
                 long backlog = localMessageService.countByStatus(LocalMessageStatusEnum.INIT.getCode())
                         + localMessageService.countByStatus(LocalMessageStatusEnum.FAILED.getCode())
                         + localMessageService.countByStatus(LocalMessageStatusEnum.SENDING.getCode())
                         + localMessageService.countByStatus(LocalMessageStatusEnum.SENT.getCode());
+                //记录最近一次 backlog 数量。
                 lastLocalMessageBacklog = backlog;
+
                 lastBackpressureRejected = backlog >= rateLimitProperties.getLocalMessageBacklogRejectThreshold();
                 if (lastBackpressureRejected) {
                     LOGGER.warn("Order submit backpressure rejected by local message backlog, backlog={}, threshold={}",

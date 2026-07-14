@@ -50,6 +50,10 @@ public class OrderController {
         this.riskControlProperties = riskControlProperties;
     }
 
+    /**
+     * 生成订单幂等token
+     * @return
+     */
     @GetMapping("/orders/idempotency-token")
     public ApiResponse<IdempotencyTokenVO> generateOrderIdempotencyToken() {
         return ApiResponse.successZero(idempotencyTokenService.generateOrderToken(UserContext.requireUserId()));

@@ -223,23 +223,23 @@ Kafka 是否承接住消息堆积
 一单最多 2 张票
 ```
 
-先从 3000 张票起步：
+磁盘紧张时先从 600 张票起步：
 
 ```text
-库存票数 = 3000
+库存票数 = 600
 当前压测脚本每单票数 = 2
-当前压测脚本理论成功订单上限 = 3000 / 2 = 1500 单
-压测用户数 = 库存票数的 3-5 倍，建议先用 4 倍 = 12000 个用户
-入口请求数 = 300000
+当前压测脚本理论成功订单上限 = 600 / 2 = 300 单
+压测用户数 = 1000 个用户
+入口请求数 = 1000
 大部分请求失败是正常现象
 ```
 
-这里说的 `1500 单` 不是业务永远只能创建 1500 单，而是本轮压测参数 `QUANTITY=2` 的结果。业务约束是“一单最多 2 张票”：
+这里说的 `300 单` 不是业务永远只能创建 300 单，而是本轮压测参数 `QUANTITY=2` 的结果。业务约束是“一单最多 2 张票”：
 
 ```text
-如果 QUANTITY=2，3000 张票最多形成 1500 单
-如果 QUANTITY=1，3000 张票最多形成 3000 单
-如果 1 张和 2 张混合，成功订单数会落在 1500 到 3000 之间
+如果 QUANTITY=2，600 张票最多形成 300 单
+如果 QUANTITY=1，600 张票最多形成 600 单
+如果 1 张和 2 张混合，成功订单数会落在 300 到 600 之间
 ```
 
 这里失败不是系统坏了，而是削峰应该发生的结果。真正要看的是：
@@ -249,11 +249,11 @@ Kafka 是否承接住消息堆积
 是否没有超卖
 Kafka lag 是否能回落
 ticket_order_request 是否没有大量卡在 QUEUED / PROCESSING
-当前 QUANTITY=2 时，ticket_order 最终订单数是否接近 1500 且不超过 1500
+当前 QUANTITY=2 时，ticket_order 最终订单数是否接近 300 且不超过 300
 库存是否一致
 ```
 
-### 5.2 准备 3000 库存、12000 用户、300000 请求 CSV
+### 5.2 准备 600 库存、1000 用户、1000 请求 CSV
 
 先设置密码环境变量：
 
@@ -269,10 +269,10 @@ export SMART_TICKET_ADMIN_PASSWORD
 
 ```text
 清理本轮压测交易数据
-把 MySQL ticket_stock / ticket_stock_bucket 重置成 3000 张票
-创建或复用 12000 个压测用户，写入 MySQL user_account
+把 MySQL ticket_stock / ticket_stock_bucket 重置成 600 张票
+创建或复用 1000 个压测用户，写入 MySQL user_account
 预热 Redis 库存
-生成 300000 行 JMeter CSV
+生成 1000 行 JMeter CSV
 为每一行写入 Redis admissionToken
 最后查询 MySQL 用户数、库存表、bucket 汇总
 ```
@@ -280,9 +280,9 @@ export SMART_TICKET_ADMIN_PASSWORD
 执行：
 
 ```bash
-STOCK_QUANTITY=3000 \
-USER_MULTIPLIER=4 \
-ROWS=300000 \
+STOCK_QUANTITY=600 \
+USER_COUNT=1000 \
+ROWS=1000 \
 QUANTITY=2 \
 ./scripts/load/prepare-soldout-flood-env.sh
 ```
@@ -290,13 +290,13 @@ QUANTITY=2 \
 如果要拆开手动做，顺序必须是：
 
 ```bash
-CONFIRM_RESET=YES RESET_STOCK_QUANTITY=3000 ./scripts/load/reset-load-test-env.sh
+CONFIRM_RESET=YES RESET_STOCK_QUANTITY=600 ./scripts/load/reset-load-test-env.sh
 
-STOCK_QUANTITY=3000 USER_MULTIPLIER=4 ./scripts/load/ensure-load-users.sh
+STOCK_QUANTITY=600 USER_COUNT=1000 ./scripts/load/ensure-load-users.sh
 
-ROWS=300000 \
-STOCK_QUANTITY=3000 \
-USER_MULTIPLIER=4 \
+ROWS=1000 \
+STOCK_QUANTITY=600 \
+USER_COUNT=1000 \
 QUANTITY=2 \
 ./scripts/load/prepare-async-order-jmeter-data.sh
 ```
@@ -311,9 +311,9 @@ head -2 /tmp/async-order-users-formal.csv
 注意：
 
 ```text
-ROWS 要覆盖入口请求数，例如 300000 请求就准备 300000 行
-库存不需要覆盖请求数，库存就是 3000
-用户数按库存票数 3-5 倍准备，不按请求数准备
+ROWS 要覆盖入口请求数，例如 1000 请求就准备 1000 行
+库存不需要覆盖请求数，库存就是 600
+当前轻量方案固定用 1000 个压测用户
 admissionToken 每行一个，不能复用
 准备完成后必须看脚本最后输出的 MySQL 核验结果，不要只看 CSV 文件存在
 ```
@@ -363,33 +363,33 @@ BURST_LEVEL=extreme ./scripts/load/run-burst-order-jmeter.sh
 
 ### 5.4 售罄洪峰脚本
 
-专门测“3000 张票、30 万入口请求、每单 2 张”的脚本：
+专门测“600 张票、1000 用户洪峰请求、每单 2 张”的脚本：
 
 ```bash
-REQUESTS=300000 \
-STOCK_QUANTITY=3000 \
+REQUESTS=1000 \
+STOCK_QUANTITY=600 \
 ORDER_QUANTITY=2 \
-USER_MULTIPLIER=4 \
+USER_COUNT=1000 \
 DURATION_SECONDS=60 \
-THREADS=800 \
+THREADS=100 \
 ./scripts/load/run-soldout-flood-jmeter.sh
 ```
 
 这代表目标入口吞吐大约是：
 
 ```text
-300000 / 60 = 5000 QPS
+1000 / 60 ≈ 17 QPS
 ```
 
-本机跑不满 5000 QPS 也正常。JMeter、应用、MySQL、Redis、Kafka 都在一台 MacBook Air 上，压测机和服务端会互相抢资源。先用下面的小一档确认链路：
+这是磁盘紧张时的轻量跑通档，不是极限档。确认链路后，如果你有空间，再逐步把 `ROWS` 和 `REQUESTS` 调大。
 
 ```bash
-REQUESTS=30000 \
-STOCK_QUANTITY=3000 \
+REQUESTS=1000 \
+STOCK_QUANTITY=600 \
 ORDER_QUANTITY=2 \
-USER_MULTIPLIER=4 \
+USER_COUNT=1000 \
 DURATION_SECONDS=60 \
-THREADS=400 \
+THREADS=100 \
 ./scripts/load/run-soldout-flood-jmeter.sh
 ```
 

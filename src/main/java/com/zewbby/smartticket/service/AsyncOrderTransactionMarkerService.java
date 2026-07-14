@@ -30,6 +30,11 @@ public class AsyncOrderTransactionMarkerService {
         this.stringRedisTemplate = stringRedisTemplate;
     }
 
+    /**
+     * 把一次下单请求的关键信息保存到 Redis，TTL 是 24 小时。
+     * @param orderRequest
+     * @param message
+     */
     public void save(TicketOrderRequest orderRequest, AsyncCreateOrderMessage message) {
         if (orderRequest == null || orderRequest.getRequestId() == null) {
             return;
@@ -45,7 +50,7 @@ public class AsyncOrderTransactionMarkerService {
         marker.setStockBucketNo(orderRequest.getStockBucketNo());
         marker.setRedisDeducted(orderRequest.getRedisDeducted());
         marker.setDeductedQuantity(orderRequest.getDeductedQuantity());
-        marker.setDeductedAt(orderRequest.getDeductedAt());
+        marker.setDeductedAt(   orderRequest.getDeductedAt());
         marker.setMessageId(orderRequest.getMessageId());
         marker.setActivityScopeKey(message == null ? null : message.getActivityScopeKey());
         marker.setRoutingPartitionKey(message == null ? null : message.getRoutingPartitionKey());
@@ -57,6 +62,11 @@ public class AsyncOrderTransactionMarkerService {
         );
     }
 
+    /**
+     * 根据 requestId 从 Redis 读回这个事务标记。
+     * @param requestId
+     * @return
+     */
     public AsyncOrderTransactionMarker load(String requestId) {
         if (requestId == null || requestId.isBlank()) {
             return null;
@@ -69,6 +79,11 @@ public class AsyncOrderTransactionMarkerService {
         return null;
     }
 
+    /**
+     * 判断这个请求是否已经存在 Redis 预扣记录。
+     * @param requestId
+     * @return
+     */
     public boolean hasCommittedDeduction(String requestId) {
         if (requestId == null || requestId.isBlank()) {
             return false;
@@ -76,6 +91,11 @@ public class AsyncOrderTransactionMarkerService {
         return hasDeductedRecord(requestId);
     }
 
+    /**
+     * 用 Redis 里的事务标记补全 MQ 消息。
+     * @param message
+     * @return
+     */
     public AsyncCreateOrderMessage enrichMessage(AsyncCreateOrderMessage message) {
         if (message == null || message.getRequestId() == null) {
             return message;
@@ -100,7 +120,13 @@ public class AsyncOrderTransactionMarkerService {
         return message;
     }
 
+    /**
+     * 加载 marker；如果 marker 丢了，但 Redis 里还有库存预扣记录，就尝试恢复 marker。
+     * @param message
+     * @return
+     */
     private AsyncOrderTransactionMarker loadOrRecover(AsyncCreateOrderMessage message) {
+        //如果连库存预扣记录都没有，说明这个请求没有完成 Redis 预扣，直接返回 null。
         if (!hasDeductedRecord(message.getRequestId())) {
             return null;
         }
@@ -108,11 +134,13 @@ public class AsyncOrderTransactionMarkerService {
         if (marker != null) {
             return marker;
         }
+        //marker 不在，但预扣记录还在，于是读取预扣记录
         String deductedValue = stringRedisTemplate.opsForValue()
                 .get(RedisKeyConstant.stockDeductedRequestKey(message.getRequestId()));
         if (deductedValue == null || deductedValue.isBlank()) {
             return null;
         }
+
         AsyncOrderTransactionMarker recovered = recoverFromDeductedRecord(message, deductedValue);
         try {
             redisTemplate.opsForValue().set(
@@ -128,7 +156,7 @@ public class AsyncOrderTransactionMarkerService {
     }
 
     private boolean hasDeductedRecord(String requestId) {
-        return Boolean.TRUE.equals(stringRedisTemplate.hasKey(RedisKeyConstant.stockDeductedRequestKey(requestId)));
+        return stringRedisTemplate.hasKey(RedisKeyConstant.stockDeductedRequestKey(requestId));
     }
 
     private AsyncOrderTransactionMarker recoverFromDeductedRecord(AsyncCreateOrderMessage message,

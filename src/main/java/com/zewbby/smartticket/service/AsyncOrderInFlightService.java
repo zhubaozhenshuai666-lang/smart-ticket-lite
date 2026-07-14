@@ -44,7 +44,15 @@ public class AsyncOrderInFlightService {
         );
     }
 
+    /**
+     * 申请一个Inflight的名额
+     * @param activityScopeKey
+     * @param ticketCategoryId
+     * @param maxInFlight
+     * @return
+     */
     public boolean tryAcquire(String activityScopeKey, Long ticketCategoryId, long maxInFlight) {
+        //如果配置里关闭了 in-flight 控制，就直接放行。
         if (!properties.isInFlightControlEnabled()) {
             return true;
         }

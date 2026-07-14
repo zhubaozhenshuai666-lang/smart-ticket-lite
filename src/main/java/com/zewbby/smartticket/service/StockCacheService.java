@@ -59,14 +59,14 @@ public class StockCacheService {
      * order_request、local_message 或进入 MQ。它不能替代真实库存判断，因为补偿、预热或人工调库存后库存可能恢复。
      */
     public boolean isSoldOut(Long ticketCategoryId) {
-        return Boolean.TRUE.equals(stringRedisTemplate.hasKey(RedisKeyConstant.stockSoldoutKey(ticketCategoryId)));
+        return stringRedisTemplate.hasKey(RedisKeyConstant.stockSoldoutKey(ticketCategoryId));
     }
 
     public boolean isSoldOut(Long ticketCategoryId, Integer bucketVersion) {
         if (bucketVersion == null || bucketVersion <= 0) {
             return isSoldOut(ticketCategoryId);
         }
-        return Boolean.TRUE.equals(stringRedisTemplate.hasKey(RedisKeyConstant.stockVersionSoldoutKey(ticketCategoryId, bucketVersion)));
+        return stringRedisTemplate.hasKey(RedisKeyConstant.stockVersionSoldoutKey(ticketCategoryId, bucketVersion));
     }
 
     public void clearSoldout(Long ticketCategoryId) {

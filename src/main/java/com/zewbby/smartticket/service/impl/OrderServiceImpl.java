@@ -411,7 +411,7 @@ public class OrderServiceImpl implements OrderService {
      * 如果 Redis 已扣但消息发送等后续步骤失败，本方法会立即释放 Redis 预扣，并把请求标记为 COMPENSATED，
      * 避免可抢库存被长期占住。
      *
-     * @param request 下单参数，userId 字段不可信，真实用户必须来自 UserContext。
+     * @param request 下单参数，userId 字段不可信，真实  用户必须来自 UserContext。
      * @return 异步下单请求视图，包含 requestId 和当前状态。
      */
     @Override
@@ -430,6 +430,7 @@ public class OrderServiceImpl implements OrderService {
     @Transactional(noRollbackFor = BusinessException.class)
     public OrderRequestVO submitAsyncOrder(CreateOrderRequest request, String clientIp, String gatewayRiskDecision) {
 
+        //从UserContext里获取到userId
         Long currentUserId = UserContext.requireUserId();
         //检验这个User是否合法，是不是黄牛
         checkRiskControl(currentUserId, clientIp, gatewayRiskDecision);
@@ -459,10 +460,14 @@ public class OrderServiceImpl implements OrderService {
             //验证一致性
             validateShowSessionTicketCategoryRelation(request);
 
+            //检查限流
             checkAsyncOrderSubmitRateLimit(currentUserId, clientIp, activityScope, request.getTicketCategoryId());
+            //检查排队室的空间
             acquireAsyncOrderInFlight(activityScope, request.getTicketCategoryId());
             inFlightAcquired = true;
+            //检查等待室的空间
             checkWaitingRoomAdmission(currentUserId, request);
+
             if (shouldPublishAsyncOrderInRocketMqTransaction()) {
                 ensureAsyncOrderTransactionMarkerAvailable();
             }
@@ -643,6 +648,7 @@ public class OrderServiceImpl implements OrderService {
         asyncOrderTransactionMarkerService.save(orderRequest, message);
     }
 
+    //是否打开RocketMQ模式，保证半发送事务特性
     private boolean shouldPublishAsyncOrderInRocketMqTransaction() {
         return asyncOrderSubmitProperties.isRocketMqPublisherMode()
                 && asyncOrderSubmitProperties.isRocketMqTransactionMessageEnabled();
@@ -1226,6 +1232,7 @@ public class OrderServiceImpl implements OrderService {
                                                 String clientIp,
                                                 ActivityScope activityScope,
                                                 Long ticketCategoryId) {
+        //做限流，如果被限制就直接抛异常
         if (!rateLimitService.tryAcquireAsyncOrderSubmit(
                 userId,
                 clientIp,
@@ -1237,10 +1244,17 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    /**
+     * 限制某个票档/活动当前正在处理的异步下单请求数量，防止系统后端被排队请求压垮。
+     * @param activityScope
+     * @param ticketCategoryId
+     */
     private void acquireAsyncOrderInFlight(ActivityScope activityScope, Long ticketCategoryId) {
+        // 未启用在途控制，跳过容量闸门
         if (asyncOrderInFlightService == null) {
             return;
         }
+
         boolean acquired = activityIsolationService != null && activityIsolationService.isEnabled()
                 ? asyncOrderInFlightService.tryAcquire(
                         activityIsolationService.scopeKey(activityScope),
@@ -1372,7 +1386,6 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private static class AsyncOrderSubmitState {
-
         private boolean redisPreDeducted;
     }
 
