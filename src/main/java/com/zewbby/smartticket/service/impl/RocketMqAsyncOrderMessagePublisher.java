@@ -123,7 +123,7 @@ public class RocketMqAsyncOrderMessagePublisher implements AsyncOrderMessagePubl
         }
         try {
             context.executeLocalTransaction();
-            LOGGER.info("Committed RocketMQ async order local transaction, requestId={}, messageId={}",
+            LOGGER.debug("Committed RocketMQ async order local transaction, requestId={}, messageId={}",
                     context.getMessage().getRequestId(), context.getMessageId());
             return RocketMQLocalTransactionState.COMMIT;
         } catch (RuntimeException exception) {
@@ -143,7 +143,7 @@ public class RocketMqAsyncOrderMessagePublisher implements AsyncOrderMessagePubl
         }
         try {
             if (transactionMarkerService != null && transactionMarkerService.hasCommittedDeduction(requestId)) {
-                LOGGER.info("Committed RocketMQ async order transaction by check, requestId={}", requestId);
+                LOGGER.debug("Committed RocketMQ async order transaction by check, requestId={}", requestId);
                 return RocketMQLocalTransactionState.COMMIT;
             }
             LOGGER.warn("Rolled back RocketMQ async order transaction by check because no deduction marker exists, requestId={}",

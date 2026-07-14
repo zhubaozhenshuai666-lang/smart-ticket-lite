@@ -62,7 +62,7 @@ public class RocketMqAsyncCreateOrderConsumer implements RocketMQListener<AsyncC
             LOGGER.warn("Ignored empty RocketMQ async create order message");
             return;
         }
-        LOGGER.info("Received RocketMQ async create order message, requestId={}, messageId={}",
+        LOGGER.debug("Received RocketMQ async create order message, requestId={}, messageId={}",
                 message.getRequestId(), message.getMessageId());
         asyncCreateOrderBatchDispatcher.consume(message);
     }

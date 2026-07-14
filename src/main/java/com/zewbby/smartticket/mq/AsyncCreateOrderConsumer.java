@@ -288,7 +288,7 @@ public class AsyncCreateOrderConsumer {
         if (batchMessages.isEmpty()) {
             return;
         }
-        LOGGER.info("Received async create order message batch, rawSize={}, distinctSize={}",
+        LOGGER.debug("Received async create order message batch, rawSize={}, distinctSize={}",
                 messages.size(), batchMessages.size());
         consumeBatchWithSql(batchMessages);
     }
@@ -378,7 +378,7 @@ public class AsyncCreateOrderConsumer {
     }
 
     private void consumeOne(AsyncCreateOrderMessage message) {
-        LOGGER.info("Received async create order message, requestId={}", message.getRequestId());
+        LOGGER.debug("Received async create order message, requestId={}", message.getRequestId());
 
         //检验message的状态是否合法，抛弃重复,超时消息。不重复加乐观锁后返回对应实体
         TicketOrderRequest orderRequest = claimOrCreateProcessingRequest(message);
@@ -483,7 +483,7 @@ public class AsyncCreateOrderConsumer {
             //非功能性需求（NFR）中的可观测性（Observability）建设，其直接作用对象并非普通用户或数据库，而是运维监控体系
             observabilityMetricsService.recordOrderCreated();
             publishOrderCreatedEvents(order);
-            LOGGER.info("Created order for async request, requestId={}, orderId={}, orderNo={}",
+            LOGGER.debug("Created order for async request, requestId={}, orderId={}, orderNo={}",
                     orderRequest.getRequestId(), order.getId(), order.getOrderNo());
 
             /*
@@ -505,7 +505,7 @@ public class AsyncCreateOrderConsumer {
             releaseAsyncOrderInFlight(orderRequest);
             //非业务需求
             observabilityMetricsService.recordAsyncOrderRequestSuccess();
-            LOGGER.info("Marked async order request SUCCESS, requestId={}, orderId={}",
+            LOGGER.debug("Marked async order request SUCCESS, requestId={}, orderId={}",
                     orderRequest.getRequestId(), order.getId());
         } catch (RuntimeException exception) {
             LOGGER.error("Failed to consume async create order message, requestId={}",
@@ -546,14 +546,14 @@ public class AsyncCreateOrderConsumer {
         }
         //如果是 SUCCESS / FAILED / CANCELLED，说明已经处理过了，直接丢弃（return null）。
         if (OrderRequestStatusEnum.SUCCESS.getCode().equals(existingRequest.getStatus())) {
-             LOGGER.info("Skipped duplicated async order message because request already SUCCESS, requestId={}",
+             LOGGER.debug("Skipped duplicated async order message because request already SUCCESS, requestId={}",
                     existingRequest.getRequestId());
             return null;
         }
         if (OrderRequestStatusEnum.FAILED.getCode().equals(existingRequest.getStatus())
                 || OrderRequestStatusEnum.COMPENSATED.getCode().equals(existingRequest.getStatus())
                 || OrderRequestStatusEnum.CANCELLED.getCode().equals(existingRequest.getStatus())) {
-            LOGGER.info("Skipped async order request with terminal or in-flight status, requestId={}, status={}",
+            LOGGER.debug("Skipped async order request with terminal or in-flight status, requestId={}, status={}",
                     existingRequest.getRequestId(), existingRequest.getStatus());
             return null;
         }
@@ -566,7 +566,7 @@ public class AsyncCreateOrderConsumer {
         if (!OrderRequestStatusEnum.canEnterProcessing(existingRequest.getStatus())) {
             recordDeadLetter(message, ConsumerExceptionTypeEnum.DATA_INCONSISTENCY,
                     "异步下单请求状态不允许消费: " + existingRequest.getStatus());
-            LOGGER.info("Skipped async order request that is not ready for consuming, requestId={}, status={}",
+            LOGGER.debug("Skipped async order request that is not ready for consuming, requestId={}, status={}",
                     existingRequest.getRequestId(), existingRequest.getStatus());
             return null;
         }
@@ -574,7 +574,7 @@ public class AsyncCreateOrderConsumer {
         //只有更新影响行数为 1 的线程，才真正拿到了处理权。
         int claimedRows = orderRequestMapper.tryMarkProcessing(message.getRequestId());
         if (claimedRows != 1) {
-            LOGGER.info("Skipped async order request because another consumer has claimed it, requestId={}",
+            LOGGER.debug("Skipped async order request because another consumer has claimed it, requestId={}",
                     message.getRequestId());
             return null;
         }
@@ -582,7 +582,7 @@ public class AsyncCreateOrderConsumer {
         //创建对应的TickertOrderRequest
         TicketOrderRequest orderRequest = orderRequestMapper.selectProcessingByRequestId(message.getRequestId());
         if (orderRequest == null) {
-            LOGGER.info("Skipped async order request after lock, requestId={} is no longer PROCESSING",
+            LOGGER.debug("Skipped async order request after lock, requestId={} is no longer PROCESSING",
                     message.getRequestId());
         }
         return orderRequest;
@@ -597,7 +597,7 @@ public class AsyncCreateOrderConsumer {
         TicketOrderRequest orderRequest = buildProcessingOrderRequest(message);
         int insertedRows = orderRequestMapper.insertIgnore(orderRequest);
         if (insertedRows == 1) {
-            LOGGER.info("Created async order request from message, requestId={}", message.getRequestId());
+            LOGGER.debug("Created async order request from message, requestId={}", message.getRequestId());
             return orderRequest;
         }
         return null;
@@ -836,7 +836,7 @@ public class AsyncCreateOrderConsumer {
             cacheAsyncOrderResult(orderRequest);
             releaseAsyncOrderInFlight(orderRequest);
             observabilityMetricsService.recordAsyncOrderRequestSuccess();
-            LOGGER.info("Batch created order for async request, requestId={}, orderId={}, orderNo={}",
+            LOGGER.debug("Batch created order for async request, requestId={}, orderId={}, orderNo={}",
                     orderRequest.getRequestId(), order.getId(), order.getOrderNo());
         }
     }
@@ -887,7 +887,7 @@ public class AsyncCreateOrderConsumer {
         LocalDateTime timeoutBefore = LocalDateTime.now().minusSeconds(mqConsumerProperties.getProcessingTimeoutSeconds());
         //没超时就放过
         if (existingRequest.getProcessingAt() != null && existingRequest.getProcessingAt().isAfter(timeoutBefore)) {
-            LOGGER.info("Skipped duplicated async order message because request is still PROCESSING, requestId={}",
+            LOGGER.debug("Skipped duplicated async order message because request is still PROCESSING, requestId={}",
                     existingRequest.getRequestId());
             return;
         }
@@ -935,7 +935,7 @@ public class AsyncCreateOrderConsumer {
                     orderRequest.getRequestId(), failReason);
             return false;
         }
-        LOGGER.info("Marked async order request FAILED, requestId={}, reason={}",
+        LOGGER.debug("Marked async order request FAILED, requestId={}, reason={}",
                 orderRequest.getRequestId(), failReason);
         observabilityMetricsService.recordAsyncOrderRequestFailed();
         return true;
@@ -991,7 +991,7 @@ public class AsyncCreateOrderConsumer {
             return;
         }
         if (!Boolean.TRUE.equals(orderRequest.getRedisDeducted())) {
-            LOGGER.info("Skipped Redis pre-deduct release because request has no deducted marker, requestId={}",
+            LOGGER.debug("Skipped Redis pre-deduct release because request has no deducted marker, requestId={}",
                     orderRequest.getRequestId());
             return;
         }
@@ -1021,7 +1021,7 @@ public class AsyncCreateOrderConsumer {
          */
         int claimRows = orderRequestMapper.tryMarkCompensating(orderRequest.getId());
         if (claimRows != 1) {
-            LOGGER.info("Skipped Redis compensation because another process has claimed it, requestId={}",
+            LOGGER.debug("Skipped Redis compensation because another process has claimed it, requestId={}",
                     orderRequest.getRequestId());
             return;
         }
@@ -1038,7 +1038,7 @@ public class AsyncCreateOrderConsumer {
             } else {
                 orderRequestMapper.markCompensateFailed(orderRequest.getId(), failReason + ", Redis补偿失败: " + releaseResult.getMessage());
             }
-            LOGGER.info("Released Redis pre-deducted stock for failed async request, requestId={}, ticketCategoryId={}, quantity={}, result={}",
+            LOGGER.debug("Released Redis pre-deducted stock for failed async request, requestId={}, ticketCategoryId={}, quantity={}, result={}",
                     orderRequest.getRequestId(),
                     orderRequest.getTicketCategoryId(),
                     orderRequest.getDeductedQuantity(),

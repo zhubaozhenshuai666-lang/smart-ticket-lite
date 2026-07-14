@@ -39,7 +39,7 @@ public class KafkaAsyncCreateOrderConsumer {
             LOGGER.warn("Ignored empty Kafka async create order message");
             return;
         }
-        LOGGER.info("Received Kafka async create order message, requestId={}, messageId={}",
+        LOGGER.debug("Received Kafka async create order message, requestId={}, messageId={}",
                 message.getRequestId(), message.getMessageId());
         asyncCreateOrderBatchDispatcher.consume(message);
     }

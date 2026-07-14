@@ -44,7 +44,7 @@ public class RequestCostInterceptor implements HandlerInterceptor {
             return;
         }
 
-        LOGGER.info("API request, method={}, uri={}, status={}, costMs={}, clientIp={}",
+        LOGGER.debug("API request, method={}, uri={}, status={}, costMs={}, clientIp={}",
                 method, uri, status, costMs, clientIp);
     }
 

@@ -127,7 +127,7 @@ public class LocalMessagePublishTask {
             ).whenComplete((result, exception) -> {
                 if (exception == null) {
                     localMessageService.markConfirmed(localMessage.getMessageId());
-                    LOGGER.info("Kafka confirmed local message, messageId={}, businessKey={}",
+                    LOGGER.debug("Kafka confirmed local message, messageId={}, businessKey={}",
                             localMessage.getMessageId(), localMessage.getBusinessKey());
                     return;
                 }
@@ -138,7 +138,7 @@ public class LocalMessagePublishTask {
             if (localMessageProperties.isMarkSentEnabled()) {
                 localMessageService.markSent(localMessage.getId());
             }
-            LOGGER.info("Submitted local message to Kafka, messageId={}, businessKey={}",
+            LOGGER.debug("Submitted local message to Kafka, messageId={}, businessKey={}",
                     localMessage.getMessageId(), localMessage.getBusinessKey());
         } catch (Exception exception) {
             localMessageService.markPublishFailed(localMessage, exception.getMessage());
