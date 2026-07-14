@@ -2,7 +2,7 @@
 
 面向演出票务场景的 Spring Boot 单体服务。项目的交易主链路为异步下单：入口完成资格校验和 Redis 库存预扣后返回 `requestId`，由消息消费者创建正式订单，再进入支付、取消和超时关闭流程。
 
-> 当前默认消息实现为 RocketMQ 事务消息。Kafka、Redis Stream 和 Outbox 均保留为可切换实现，不能与默认链路混为一谈。
+> 当前默认消息实现为 RocketMQ 事务消息。Kafka、Redis Stream 和 Outbox 均保留为可切换实现。
 
 ## 技术栈
 
