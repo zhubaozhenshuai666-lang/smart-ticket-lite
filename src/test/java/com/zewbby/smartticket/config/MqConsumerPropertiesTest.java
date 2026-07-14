@@ -67,4 +67,15 @@ class MqConsumerPropertiesTest {
         assertThat(properties.getRocketMqConsumeMessageBatchMaxSize()).isEqualTo(64);
         assertThat(properties.getRocketMqPullThresholdForQueue()).isEqualTo(10_000);
     }
+
+    @Test
+    void batchWorkerCountIsIndependentFromTransportShardCountAndBounded() {
+        MqConsumerProperties properties = new MqConsumerProperties();
+        properties.setAsyncQueueShardCount(64);
+        properties.setAsyncOrderBatchWorkerCount(128);
+        properties.setMaxAsyncOrderBatchWorkerCount(16);
+
+        assertThat(properties.getAsyncQueueShardCount()).isEqualTo(64);
+        assertThat(properties.getAsyncOrderBatchWorkerCount()).isEqualTo(16);
+    }
 }

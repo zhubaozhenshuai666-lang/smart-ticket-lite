@@ -61,21 +61,21 @@ public class AsyncCreateOrderBatchDispatcher implements InitializingBean, Dispos
         if (!batchEnabled) {
             return;
         }
-        int shardCount = mqConsumerProperties.getAsyncQueueShardCount();
-        int queueCapacityPerShard = Math.max(1, mqConsumerProperties.getAsyncOrderBatchQueueCapacity() / shardCount);
-        List<BlockingQueue<BatchTask>> queues = new ArrayList<>(shardCount);
-        for (int shard = 0; shard < shardCount; shard++) {
+        int workerCount = mqConsumerProperties.getAsyncOrderBatchWorkerCount();
+        int queueCapacityPerShard = Math.max(1, mqConsumerProperties.getAsyncOrderBatchQueueCapacity() / workerCount);
+        List<BlockingQueue<BatchTask>> queues = new ArrayList<>(workerCount);
+        for (int shard = 0; shard < workerCount; shard++) {
             queues.add(new LinkedBlockingQueue<>(queueCapacityPerShard));
         }
         shardQueues = queues;
         running = true;
-        workerPool = Executors.newFixedThreadPool(shardCount, new BatchWorkerThreadFactory());
-        for (int shard = 0; shard < shardCount; shard++) {
+        workerPool = Executors.newFixedThreadPool(workerCount, new BatchWorkerThreadFactory());
+        for (int shard = 0; shard < workerCount; shard++) {
             final int shardNo = shard;
             workerPool.submit(() -> runShardWorker(shardNo, queues.get(shardNo)));
         }
-        LOGGER.info("Started async create order batch dispatcher, shardCount={}, batchSize={}, maxWaitMillis={}, queueCapacityPerShard={}",
-                shardCount,
+        LOGGER.info("Started async create order batch dispatcher, workerCount={}, batchSize={}, maxWaitMillis={}, queueCapacityPerWorker={}",
+                workerCount,
                 mqConsumerProperties.getAsyncOrderBatchSize(),
                 mqConsumerProperties.getAsyncOrderBatchMaxWaitMillis(),
                 queueCapacityPerShard);

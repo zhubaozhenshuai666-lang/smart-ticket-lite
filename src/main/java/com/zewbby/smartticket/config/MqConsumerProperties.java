@@ -41,6 +41,10 @@ public class MqConsumerProperties {
 
     private boolean asyncOrderBatchEnabled = false;
 
+    private int asyncOrderBatchWorkerCount = 8;
+
+    private int maxAsyncOrderBatchWorkerCount = 64;
+
     private int asyncOrderBatchSize = 32;
 
     private long asyncOrderBatchMaxWaitMillis = 20L;
@@ -185,6 +189,22 @@ public class MqConsumerProperties {
 
     public void setAsyncOrderBatchEnabled(boolean asyncOrderBatchEnabled) {
         this.asyncOrderBatchEnabled = asyncOrderBatchEnabled;
+    }
+
+    public int getAsyncOrderBatchWorkerCount() {
+        return Math.min(Math.max(1, asyncOrderBatchWorkerCount), getMaxAsyncOrderBatchWorkerCount());
+    }
+
+    public void setAsyncOrderBatchWorkerCount(int asyncOrderBatchWorkerCount) {
+        this.asyncOrderBatchWorkerCount = asyncOrderBatchWorkerCount;
+    }
+
+    public int getMaxAsyncOrderBatchWorkerCount() {
+        return Math.max(1, maxAsyncOrderBatchWorkerCount);
+    }
+
+    public void setMaxAsyncOrderBatchWorkerCount(int maxAsyncOrderBatchWorkerCount) {
+        this.maxAsyncOrderBatchWorkerCount = maxAsyncOrderBatchWorkerCount;
     }
 
     public int getAsyncOrderBatchSize() {

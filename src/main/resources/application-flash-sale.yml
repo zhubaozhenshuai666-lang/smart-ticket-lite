@@ -32,6 +32,8 @@ smart-ticket:
     rocket-mq-consume-message-batch-max-size: ${SMART_TICKET_ROCKETMQ_CONSUME_MESSAGE_BATCH_MAX_SIZE:32}
     rocket-mq-pull-threshold-for-queue: ${SMART_TICKET_ROCKETMQ_PULL_THRESHOLD_FOR_QUEUE:4096}
     async-order-batch-enabled: ${SMART_TICKET_ASYNC_ORDER_BATCH_ENABLED:true}
+    async-order-batch-worker-count: ${SMART_TICKET_ASYNC_ORDER_BATCH_WORKER_COUNT:16}
+    max-async-order-batch-worker-count: ${SMART_TICKET_ASYNC_ORDER_BATCH_MAX_WORKER_COUNT:64}
     async-order-batch-size: ${SMART_TICKET_ASYNC_ORDER_BATCH_SIZE:64}
     async-order-batch-max-wait-millis: ${SMART_TICKET_ASYNC_ORDER_BATCH_MAX_WAIT_MILLIS:20}
     async-order-batch-queue-capacity: ${SMART_TICKET_ASYNC_ORDER_BATCH_QUEUE_CAPACITY:32768}

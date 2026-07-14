@@ -56,8 +56,8 @@ class AsyncCreateOrderBatchDispatcherTest {
         AsyncCreateOrderBatchDispatcher dispatcher = dispatcher(delegate, batchProperties(2, 200L));
         ExecutorService executorService = Executors.newFixedThreadPool(2);
         CountDownLatch startLatch = new CountDownLatch(1);
-        AsyncCreateOrderMessage firstMessage = message("REQ1");
-        AsyncCreateOrderMessage secondMessage = message("REQ2");
+        AsyncCreateOrderMessage firstMessage = message("REQ1", "ticket:2:v1:bucket:1");
+        AsyncCreateOrderMessage secondMessage = message("REQ2", "ticket:2:v1:bucket:2");
 
         try {
             dispatcher.afterPropertiesSet();
@@ -110,7 +110,8 @@ class AsyncCreateOrderBatchDispatcherTest {
     private MqConsumerProperties batchProperties(int batchSize, long maxWaitMillis) {
         MqConsumerProperties properties = new MqConsumerProperties();
         properties.setAsyncOrderBatchEnabled(true);
-        properties.setAsyncQueueShardCount(1);
+        properties.setAsyncQueueShardCount(64);
+        properties.setAsyncOrderBatchWorkerCount(1);
         properties.setAsyncOrderBatchSize(batchSize);
         properties.setAsyncOrderBatchMaxWaitMillis(maxWaitMillis);
         properties.setAsyncOrderBatchQueueCapacity(16);
@@ -120,6 +121,12 @@ class AsyncCreateOrderBatchDispatcherTest {
 
     private AsyncCreateOrderMessage message(String requestId) {
         return new AsyncCreateOrderMessage(requestId, 1L, 1L, 1L, 2L, 1);
+    }
+
+    private AsyncCreateOrderMessage message(String requestId, String routingPartitionKey) {
+        AsyncCreateOrderMessage message = message(requestId);
+        message.setRoutingPartitionKey(routingPartitionKey);
+        return message;
     }
 
     private void consumeAfterStart(AsyncCreateOrderBatchDispatcher dispatcher,
